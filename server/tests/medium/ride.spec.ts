@@ -15,6 +15,7 @@ import { AccountsService } from '#src/services/auth.service';
 import { worldTime } from '#src/world/state';
 import { runtimeFixture } from '#tests/support/runtime';
 import { create, fromBinary, toBinary } from '@bufbuild/protobuf';
+import { BinaryWriter } from '@bufbuild/protobuf/wire';
 import assert from 'node:assert/strict';
 import { createSocket } from 'node:dgram';
 import { once } from 'node:events';
@@ -128,7 +129,7 @@ await test(
 
 // Port 0 is confined to this test adapter; operator configuration rejects it.
 await test(
-  'live TCP handshake survives fragmentation and UDP state stays shared with HTTP',
+  'live relay pairs Companion, replies to stateless UDP messages and shares subsequent riding state with HTTP',
   { timeout: 10_000 },
   async (t) => {
     const f = runtimeFixture(t);
@@ -254,6 +255,56 @@ await test(
     const udp = createSocket('udp4');
     t.after(() => udp.close());
 
+    // Python protobuf exposes an empty state when this field is absent. The
+    // TypeScript decoder leaves it undefined; these messages still need replies.
+    // Write the wire fields directly: toBinary enforces required state, whereas
+    // real clients can omit it and fromBinary accepts its absence.
+    const probe = new BinaryWriter()
+      .uint32(8)
+      .int64(1n)
+      .uint32(16)
+      .int64(BigInt(user.player_id))
+      .uint32(80)
+      .int64(0n)
+      .uint32(96)
+      .int64(0n)
+      .finish();
+
+    assert.equal(fromBinary(ClientToServerSchema, probe).state, undefined);
+
+    for (const sequence of [19, 20]) {
+      const packet = encodePacket(
+        Buffer.concat([Buffer.from([1]), probe]),
+        key,
+        { device: 1, channel: 1, connection: 9, sequence },
+        sequence === 19 ? { relay: user.player_id, connection: 9, sequence } : { sequence },
+      );
+
+      if (sequence === 19) assert.equal(packet.length, 24);
+      const incoming = once(udp, 'message');
+      udp.send(packet, udpPort, '127.0.0.1');
+      const [reply] = await incoming;
+
+      const decoded = decodePacket(z.instanceof(Buffer).parse(reply), key, {
+        device: 1,
+        channel: 2,
+        connection: 9,
+        sequence: sequence - 19,
+      });
+
+      assert.equal(decoded.fields.sequence, sequence - 19);
+      const response = fromBinary(ServerToClientSchema, decoded.payload);
+      assert.equal(response.playerId, BigInt(user.player_id));
+      assert.equal(response.serverRealm, 1n);
+      assert.equal(response.numMsgs, 1);
+      assert.equal(response.msgnum, 1);
+      assert.deepEqual(response.states, []);
+      assert.equal(f.world.active(user.player_id), false);
+      assert.equal(f.world.online.size, 0);
+      assert.equal(f.world.histories.size, 0);
+      assert.equal(f.world.lifecycle.rides.size, 0);
+    }
+
     const state = create(PlayerStateSchema, {
       id: BigInt(user.player_id),
       roadTime: 100,
@@ -277,8 +328,8 @@ await test(
     const datagram = encodePacket(
       Buffer.concat([Buffer.from([1]), payload]),
       key,
-      { device: 1, channel: 1, connection: 9, sequence: 0 },
-      { relay: user.player_id, connection: 9, sequence: 0 },
+      { device: 1, channel: 1, connection: 9, sequence: 21 },
+      { sequence: 21 },
     );
 
     const incoming = once(udp, 'message');
@@ -289,7 +340,7 @@ await test(
       device: 1,
       channel: 2,
       connection: 9,
-      sequence: 0,
+      sequence: 2,
     }).payload;
 
     assert.equal(fromBinary(ServerToClientSchema, body).playerId, BigInt(user.player_id));
