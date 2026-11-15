@@ -1,7 +1,11 @@
 import type { Runtime } from '#src/http/runtime';
 import type { InitializationVector } from '#src/node/network/packet';
 import { decodePacket, encodePacket, FrameDecoder } from '#src/node/network/packet';
-import { ClientToServerSchema, ServerToClientSchema } from '#src/protocol/generated/udp-node-msgs_pb';
+import {
+  ClientToServerSchema,
+  PlayerStateSchema,
+  ServerToClientSchema,
+} from '#src/protocol/generated/udp-node-msgs_pb';
 import { AssetFiles } from '#src/repositories/files.repository';
 import { expired, worldTime } from '#src/world/state';
 import { create, fromBinary, toBinary } from '@bufbuild/protobuf';
@@ -48,14 +52,19 @@ export function startRideListeners(runtime: Runtime) {
 
       const incoming = fromBinary(ClientToServerSchema, decoded.payload.subarray(1));
 
-      if (incoming.playerId !== id || !incoming.state) return;
+      if (incoming.playerId !== id) return;
 
       clients.set(endpoint, id);
       relay.acceptUdp(decoded.iv.connection, decoded.fields.connection, decoded.fields.sequence);
       world.lifecycle.connected(id);
-      world.receive(id, incoming.state);
 
-      for (const payload of world.responses(id, incoming.state, incoming.worldTime)) {
+      if (incoming.state) world.receive(id, incoming.state);
+
+      // Legacy protobuf exposes an empty message for an omitted state. Reply to
+      // these authenticated packets too, without inventing riding presence.
+      const state = incoming.state ?? create(PlayerStateSchema);
+
+      for (const payload of world.responses(id, state, incoming.worldTime)) {
         const sequence = relay.nextUdp();
 
         const packet = encodePacket(
