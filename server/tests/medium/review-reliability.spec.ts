@@ -353,7 +353,11 @@ await test('ghost recordings apply migrated equipment and randomized body overri
     config: validateConfig({ ...f.config, ghosts: { profileFile: configFile } }),
   });
 
+  t.after(() => simulation.close());
+  await simulation.ready;
+
   for (const state of states) simulation.receive(BigInt(f.rider.player_id), state);
+  await simulation.idle();
   const ghost = f.profiles.synthetic.get(BigInt(f.rider.player_id) + 10_000_000n);
   assert.ok(ghost);
   assert.equal(ghost.rideJersey, 42);

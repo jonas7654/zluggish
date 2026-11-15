@@ -291,7 +291,7 @@ await phase('completion', async () => {
 
 clearInterval(driver);
 
-simulation.close();
+await simulation.close();
 
 await runtime.services.uploads.close();
 

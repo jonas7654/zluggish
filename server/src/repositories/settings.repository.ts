@@ -15,6 +15,12 @@ export class SettingsStore {
 
   private readonly executor: SqliteExecutor;
 
+  // Read-through caches. This store is the only writer while the server holds the
+  // storage lock, so each committed change updates or invalidates its entry.
+  private readonly riders = new Map<number, Overrides>();
+
+  private readonly worlds = new Map<string, Record<string, z.infer<ReturnType<typeof z.json>>>>();
+
   constructor(storage: string, readOnly = false) {
     const path = resolve(storage, 'settings.db');
 
@@ -52,11 +58,14 @@ export class SettingsStore {
   }
 
   read(playerId: number): Overrides {
+    const cached = this.riders.get(playerId);
+
+    if (cached) return { ...cached };
     const row = this.executor.get(query.selectFrom('rider_settings').select('value').where('player_id', '=', playerId));
+    const overrides = row ? overrideSchema.parse(JSON.parse(rowSchema.parse(row).value)) : {};
+    this.riders.set(playerId, overrides);
 
-    if (!row) return {};
-
-    return overrideSchema.parse(JSON.parse(rowSchema.parse(row).value));
+    return { ...overrides };
   }
 
   save(playerId: number, overrides: Overrides) {
@@ -68,9 +77,13 @@ export class SettingsStore {
         .values({ player_id: candidate.playerId, value })
         .onConflict((conflict) => conflict.column('player_id').doUpdateSet({ value })),
     );
+
+    if (this.db.isTransaction) this.riders.delete(candidate.playerId);
+    else this.riders.set(candidate.playerId, candidate.overrides);
   }
 
   import(id: string, preferences: Preference[]) {
+    this.riders.clear();
     this.db.exec('BEGIN IMMEDIATE');
 
     try {
@@ -93,15 +106,23 @@ export class SettingsStore {
     } catch (error) {
       this.db.exec('ROLLBACK');
       throw error;
+    } finally {
+      this.riders.clear();
     }
   }
 
   world(id: string) {
+    const cached = this.worlds.get(id);
+
+    if (cached) return structuredClone(cached);
+
     if (!this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='world_settings'").get()) return {};
 
     const row = this.executor.get(query.selectFrom('world_settings').select('value').where('id', '=', id));
+    const value = row ? z.record(z.string(), z.json()).parse(JSON.parse(rowSchema.parse(row).value)) : {};
+    this.worlds.set(id, value);
 
-    return row ? z.record(z.string(), z.json()).parse(JSON.parse(rowSchema.parse(row).value)) : {};
+    return structuredClone(value);
   }
 
   worldIds() {
@@ -119,10 +140,12 @@ export class SettingsStore {
         .values({ id, value: serialized })
         .onConflict((conflict) => conflict.column('id').doUpdateSet({ value: serialized })),
     );
+    this.worlds.set(id, structuredClone(checked));
   }
 
   resetWorld(id: string) {
     this.executor.run(query.deleteFrom('world_settings').where('id', '=', id));
+    this.worlds.delete(id);
   }
 
   close() {

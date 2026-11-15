@@ -120,6 +120,7 @@ await test('blob chat overrides survive reconstruction, gestures change mode, st
   let now = 100;
   const simulation = new Simulation(f, () => now);
   t.after(() => simulation.close());
+  await simulation.ready;
   assert.equal(simulation.command(BigInt(user.player_id), 'blob 8'), 'Blob settings saved.');
 
   for (let i = 0; i < 5; i++) {
@@ -152,6 +153,8 @@ await test('blob chat overrides survive reconstruction, gestures change mode, st
   simulation.tick();
   assert.equal(f.world.synthetic.size, 0);
   const again = new Simulation(f, () => now);
+  t.after(() => again.close());
+  await again.ready;
   assert.equal(again.blobs.get(BigInt(user.player_id))?.riders.length, 8);
   assert.ok(existsSync(resolve(f.accounts.storage, 'settings.db')));
 });

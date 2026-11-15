@@ -14,4 +14,12 @@ export class FilesService extends BaseService {
   readonly stat = this.filesRepository.statSync;
 
   readonly write = this.filesRepository.writeDurable;
+
+  writeAsync(path: string, data: string | Uint8Array) {
+    return this.filesRepository.writeDurableAsync(path, data, true);
+  }
+
+  readAsync(path: string) {
+    return this.filesRepository.readAsync(path);
+  }
 }

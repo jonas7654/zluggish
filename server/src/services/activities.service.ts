@@ -57,10 +57,15 @@ export class ActivitiesService extends BaseService {
 
       if (!row.success) throw new ApplicationError(404);
       const extension = row.data.content_type.includes('quicktime') ? 'mov' : 'mp4';
-      this.filesRepository.write(
-        resolve(this.context.profiles.folder(row.data.player_id), 'medias', `${id}.${extension}`),
-        bytes,
-      );
+      const path = resolve(this.context.profiles.folder(row.data.player_id), 'medias', `${id}.${extension}`);
+      await this.filesRepository.writeDurableAsync(path, bytes, true);
+
+      // The activity can be deleted while the write runs: do not keep orphaned media.
+      if (!this.activitiesRepository.findActivityMedia(id)) {
+        this.filesRepository.rmSync(path, { force: true });
+        throw new ApplicationError(404);
+      }
+
       this.mediaTokens.delete(id);
     } catch (error) {
       if (this.mediaTokens.get(id) === entry) entry.status = 'issued';
@@ -388,6 +393,10 @@ export class ActivitiesService extends BaseService {
 
   activityChart(...args: Parameters<typeof FitService.activityChart>) {
     return FitService.activityChart(...args);
+  }
+
+  chart(bytes: Uint8Array) {
+    return FitService.chart(bytes);
   }
 
   savePowerCurve(id: number, bytes: Uint8Array) {

@@ -487,7 +487,7 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     const { rider, allowed } = admin(c);
     await csrf(c, runtime);
 
-    if (allowed) runtime.world.simulation?.reload();
+    if (allowed) await runtime.world.simulation?.reload();
 
     return c.redirect(`/user/${rider.username}/`);
   });

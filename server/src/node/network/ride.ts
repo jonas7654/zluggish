@@ -83,6 +83,24 @@ export function startRideListeners(runtime: Runtime) {
   });
   udp.bind(config.network.udp.port, config.network.udp.host ?? host);
 
+  // Persist relay keys off the main thread, in order for each rider. The key only
+  // lets a restarted server accept the existing session; loss forces a new login.
+  const keyWrites = new Map<bigint, Promise<void>>();
+  const files = new AssetFiles();
+
+  const saveKey = (playerId: bigint, path: string, key: Uint8Array) => {
+    const write = (keyWrites.get(playerId) ?? Promise.resolve())
+      .then(() => files.writeDurableAsync(path, key, true))
+      .catch(() => {
+        world.lifecycle.log.warn('network.relay_key_failed', 'Relay key could not be saved');
+      })
+      .finally(() => {
+        if (keyWrites.get(playerId) === write) keyWrites.delete(playerId);
+      });
+
+    keyWrites.set(playerId, write);
+  };
+
   const sockets = new Set<Socket>();
   // Validated socket ownership is the connection generation. Accept -> identify ->
   // validate -> activate (superseding old owner) -> close. Every send/tick/close
@@ -144,7 +162,7 @@ export function startRideListeners(runtime: Runtime) {
 
             const current = world.relays.get(playerId);
 
-            if (current) new AssetFiles().writeDurable(keyPath, current.key, true);
+            if (current) saveKey(playerId, keyPath, current.key);
             else if (existsSync(keyPath)) world.login(playerId, readFileSync(keyPath));
           }
 

@@ -95,6 +95,17 @@ export class World {
 
   readonly histories = new Map<bigint, PlayerState[]>();
 
+  private readonly generations = new Map<bigint, number>();
+
+  /** Each login and logout starts a new session generation; stale loads compare it. */
+  generation(playerId: bigint) {
+    return this.generations.get(playerId) ?? 0;
+  }
+
+  private advance(playerId: bigint) {
+    this.generations.set(playerId, this.generation(playerId) + 1);
+  }
+
   active(playerId: number | bigint) {
     const state = this.online.get(BigInt(playerId));
 
@@ -108,11 +119,13 @@ export class World {
 
     this.relays.set(playerId, relay);
     this.histories.delete(playerId);
+    this.advance(playerId);
 
     return relay;
   }
 
   logout(playerId: bigint, reason = 'logout') {
+    this.advance(playerId);
     this.lifecycle.end(playerId, reason);
     this.simulation?.logout(playerId);
     const wasOnline = this.online.delete(playerId);

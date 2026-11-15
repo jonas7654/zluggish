@@ -198,6 +198,7 @@ export class ImportsService extends BaseService {
         manifest.files.includes('profile.bin') && !keepName ? manifest.lastName : rider.last_name,
         manifest.sourceId ? BigInt(manifest.sourceId) : rider.official_player_id,
       );
+      this.profileRepository.invalidate(rider.player_id);
       this.transition(folder, manifest, 'commit');
     } catch (error) {
       this.rollback(folder, manifest);
@@ -240,6 +241,7 @@ export class ImportsService extends BaseService {
       manifest.before.lastName,
       manifest.before.officialPlayerId,
     );
+    this.profileRepository.invalidate(manifest.playerId);
   }
 
   recover() {

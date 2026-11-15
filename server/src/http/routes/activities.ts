@@ -98,7 +98,7 @@ export function activityRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     });
   });
 
-  app.get('/api/activities/:activityId', (c) => {
+  app.get('/api/activities/:activityId', async (c) => {
     const user = authenticated(c);
 
     const row = service.activityById(c.req.param('activityId'));
@@ -129,11 +129,13 @@ export function activityRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
       if (!runtime.services.files.exists(chart) && runtime.services.files.exists(fit)) {
         try {
-          runtime.services.files.write(
-            chart,
-            JSON.stringify(runtime.services.activities.activityChart(runtime.services.files.read(fit))),
-            true,
-          );
+          const bytes = await runtime.services.files.readAsync(fit);
+
+          if (bytes)
+            await runtime.services.files.writeAsync(
+              chart,
+              JSON.stringify(await runtime.services.activities.chart(bytes)),
+            );
         } catch {
           runtime.world.lifecycle.log.warn('activity.chart_unavailable', 'Activity chart unavailable', {
             activityId: activity.id,
@@ -215,10 +217,9 @@ export function activityRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     if (!service.findActivity(c.req.param('activityId'), user.player_id)) throw new HTTPException(404);
     const id = service.insertActivityImage(user.player_id, c.req.param('activityId')).lastInsertRowid;
 
-    runtime.services.files.write(
+    await runtime.services.files.writeAsync(
       resolve(runtime.services.profiles.folder(user.player_id), 'images', `${id}.jpg`),
       image.jpg,
-      true,
     );
 
     return c.json({ id: Number(id), id_str: String(id) });

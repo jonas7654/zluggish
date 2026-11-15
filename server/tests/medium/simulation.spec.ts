@@ -10,7 +10,7 @@ import { rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
 
-await test('simulation playback stops, resumes and removes deleted pacers on reload', (t) => {
+await test('simulation playback stops, resumes and removes deleted pacers on reload', async (t) => {
   t.mock.timers.enable({ apis: ['Date', 'setInterval'], now: Date.UTC(2026, 10, 12) });
   const f = runtimeFixture(t);
   const folder = resolve(f.accounts.storage, 'robopacers/demo');
@@ -30,6 +30,7 @@ await test('simulation playback stops, resumes and removes deleted pacers on rel
   );
   const simulation = new Simulation(f, () => Date.now() / 1000);
   t.after(() => simulation.close());
+  await simulation.ready;
   const first = f.world.synthetic.get(100n)?.x;
   assert.ok(first !== undefined);
   simulation.start();
@@ -37,14 +38,14 @@ await test('simulation playback stops, resumes and removes deleted pacers on rel
   t.mock.timers.tick(1000);
   const moved = f.world.synthetic.get(100n)?.x;
   assert.notEqual(moved, first);
-  simulation.close();
+  await simulation.close();
   t.mock.timers.tick(1000);
   assert.equal(f.world.synthetic.get(100n)?.x, moved);
   simulation.start();
   t.mock.timers.tick(1000);
   assert.notEqual(f.world.synthetic.get(100n)?.x, moved);
   rmSync(folder, { recursive: true });
-  simulation.reload();
+  await simulation.reload();
   assert.equal(f.world.synthetic.has(100n), false);
   assert.equal(f.profiles.synthetic.has(100n), false);
 });
@@ -55,6 +56,8 @@ await test('ghost regroup before lazy loading preserves independent playback and
   f.settings.save(rider.player_id, { 'ghosts.enabled': true });
   let now = 100;
   const simulation = new Simulation(f, () => now);
+  t.after(() => simulation.close());
+  await simulation.ready;
   const id = BigInt(rider.player_id);
 
   const state = create(PlayerStateSchema, {
@@ -75,6 +78,8 @@ await test('ghost regroup before lazy loading preserves independent playback and
     toBinary(GhostSchema, create(GhostSchema, { playerId: rider.player_id, states: [state] })),
   );
   f.world.receive(id, { ...state, roadTime: 2000, worldTime: state.worldTime + 1n });
+  assert.equal(simulation.ghosts.get(id)?.loading, 'loading');
+  await simulation.idle();
   assert.equal(simulation.ghosts.get(id)?.loading, 'loaded');
   now += 3;
   simulation.tick();

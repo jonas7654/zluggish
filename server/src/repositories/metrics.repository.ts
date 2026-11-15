@@ -4,6 +4,7 @@ export const Metric = {
   DatabaseTransaction: 'db.transaction_ms',
   DurableWrite: 'file.durable_write_ms',
   FitProcessing: 'fit.processing_ms',
+  FitCopy: 'fit.copy_ms',
   WalBytes: 'db.wal_bytes',
   Checkpoint: 'db.checkpoint_ms',
   QueueDepth: 'persistence.queue_depth',

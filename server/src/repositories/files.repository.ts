@@ -18,7 +18,8 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname } from 'node:path';
+import { link, mkdir, open, readdir, readFile, rename, rm, unlink } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
 
 function syncDirectory(path: string) {
   if (process.platform === 'win32') return;
@@ -57,6 +58,43 @@ function publish(path: string, text: string | Uint8Array, replace: boolean) {
   }
 }
 
+async function syncDirectoryAsync(path: string) {
+  if (process.platform === 'win32') return;
+  const handle = await open(path, 'r');
+
+  try {
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
+// The same publication steps as publish(); libuv runs each step off the main thread.
+async function publishAsync(path: string, data: string | Uint8Array, replace: boolean) {
+  await mkdir(dirname(path), { recursive: true });
+  const temporary = `${path}.${new CryptoRepository().randomUUID()}.tmp`;
+  const handle = await open(temporary, 'wx', 0o600);
+
+  try {
+    await handle.writeFile(data, 'utf8');
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+
+  try {
+    if (replace) await rename(temporary, path);
+    else {
+      await link(temporary, path);
+      await unlink(temporary);
+    }
+
+    await syncDirectoryAsync(dirname(path));
+  } finally {
+    await rm(temporary, { force: true });
+  }
+}
+
 export class AssetFiles {
   readData<Schema extends DescMessage>(schema: Schema, path: string) {
     return existsSync(path) ? fromBinary(schema, readFileSync(path)) : create(schema);
@@ -81,6 +119,44 @@ export class AssetFiles {
   writeDurable(path: string, text: string | Uint8Array, replace = false) {
     // Callers pass this method unbound, so it must not use `this`.
     metrics.time(Metric.DurableWrite, () => publish(path, text, replace));
+  }
+
+  writeDurableAsync(path: string, data: string | Uint8Array, replace = false) {
+    return metrics.timeAsync(Metric.DurableWrite, () => publishAsync(path, data, replace));
+  }
+
+  async readAsync(path: string) {
+    try {
+      return await readFile(path);
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return null;
+      throw error;
+    }
+  }
+
+  /** Directory entries; a missing directory has none. */
+  async entriesAsync(folder: string) {
+    try {
+      return await readdir(folder, { withFileTypes: true });
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return [];
+      throw error;
+    }
+  }
+
+  /** Files below folder whose names end with suffix; a missing folder has none. */
+  async filesUnder(folder: string, suffix: string): Promise<string[]> {
+    const entries = await this.entriesAsync(folder);
+
+    const nested = await Promise.all(
+      entries.map((entry) =>
+        entry.isDirectory()
+          ? this.filesUnder(resolve(folder, entry.name), suffix)
+          : Promise.resolve(entry.isFile() && entry.name.endsWith(suffix) ? [resolve(folder, entry.name)] : []),
+      ),
+    );
+
+    return nested.flat();
   }
 
   existsSync = existsSync;
