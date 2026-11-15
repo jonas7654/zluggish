@@ -11,7 +11,6 @@ import {
 import { create, toBinary } from '@bufbuild/protobuf';
 import type { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
-import { resolve } from 'node:path';
 import { z } from 'zod';
 
 export function activityRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
@@ -172,14 +171,9 @@ export function activityRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     const image = parseProtobuf(ActivityImageSchema, new Uint8Array(await c.req.arrayBuffer()));
 
     if (!service.findActivity(c.req.param('activityId'), user.player_id)) throw new HTTPException(404);
-    const id = service.insertActivityImage(user.player_id, c.req.param('activityId')).lastInsertRowid;
+    const id = await service.saveImage(user.player_id, c.req.param('activityId'), image.jpg);
 
-    await runtime.services.files.writeAsync(
-      resolve(runtime.services.profiles.folder(user.player_id), 'images', `${id}.jpg`),
-      image.jpg,
-    );
-
-    return c.json({ id: Number(id), id_str: String(id) });
+    return c.json({ id, id_str: String(id) });
   });
   app.post('/api/profiles/:id/activities/:activityId/medias', async (c) => {
     const user = authenticated(c);

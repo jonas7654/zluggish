@@ -1,6 +1,6 @@
 import { removeLegacyAccountFields } from '#src/db/account-upgrade';
 import { ConfigError } from '#src/config/index';
-import { completionSchemaSQL, createSchemaSQL, storageSchemaSQL } from '#src/db/ddl';
+import { completionSchemaSQL, createSchemaSQL, indexesSQL, storageSchemaSQL } from '#src/db/ddl';
 import { migrateStorage, resolvePendingMigration, STORAGE_VERSION, StorageFile } from '#src/migrations/storage';
 import { existsSync, mkdirSync, readdirSync, renameSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -10,7 +10,12 @@ import { z } from 'zod';
 /** Ordinary schema migrations after the storage merge. Each runs in one transaction at
 startup. A migration that changes existing data needs a backup first (storage backup).
 */
-const migrations: { version: number; up: (db: DatabaseSync) => void }[] = [];
+const migrations: { version: number; up: (db: DatabaseSync) => void }[] = [
+  { version: 7, up: (db) => db.exec(indexesSQL) },
+];
+
+/** The schema version this release writes. */
+export const SCHEMA_VERSION = STORAGE_VERSION + migrations.length;
 
 function version(db: DatabaseSync) {
   return z.object({ version: z.number() }).parse(db.prepare('SELECT version FROM version LIMIT 1').get()).version;
@@ -53,7 +58,7 @@ export function openDatabase(storage: string): DatabaseSync {
           .map((row) => row.name),
       );
 
-      if (found.success && found.data.version > STORAGE_VERSION + migrations.length)
+      if (found.success && found.data.version > SCHEMA_VERSION)
         throw new ConfigError('The database is newer than this release; use a newer release');
 
       if (

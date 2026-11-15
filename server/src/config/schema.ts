@@ -225,6 +225,16 @@ export const configSchema = z
       .readonly(),
     riderDefaults: riderSettingsSchema,
     storageDir: nonEmptyString.default('../storage'),
+    retention: z
+      .strictObject({
+        finishedJobsDays: z.number().int().min(1).default(14),
+        deliveryRecordsDays: z.number().int().min(1).default(365),
+        ghostsPerRoute: z.number().int().min(1).default(50),
+        migrationBackups: z.number().int().min(1).default(2),
+        temporaryFileHours: z.number().int().min(1).default(24),
+      })
+      .prefault({})
+      .readonly(),
     tls: z
       .strictObject({
         certFile: optionalPath.default(''),

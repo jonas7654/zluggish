@@ -228,6 +228,12 @@ export class JobsRepository {
     );
   }
 
+  prunable(before: number) {
+    return this.executor.all(
+      query.selectFrom('job').select('id').where('state', 'in', ['done', 'failed']).where('finished_at', '<', before),
+    ).length;
+  }
+
   /** Remove finished jobs older than the retention period. Delivery records stay. */
   prune(before: number) {
     return this.executor.run(

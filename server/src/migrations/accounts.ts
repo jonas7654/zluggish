@@ -1,7 +1,7 @@
 import { removeLegacyAccountFields } from '#src/db/account-upgrade';
 import { ConfigError } from '#src/config/index';
 import { createSchemaSQL } from '#src/db/ddl';
-import { STORAGE_VERSION } from '#src/migrations/storage';
+import { SCHEMA_VERSION } from '#src/db/open';
 import { PlayerProfileSchema } from '#src/protocol/generated/profile_pb';
 import { CryptoRepository } from '#src/repositories/crypto.repository';
 import { fromBinary } from '@bufbuild/protobuf';
@@ -32,7 +32,7 @@ export async function migrateAccounts(storage: string, soloPlayer?: number) {
         .object({ version: z.number() })
         .parse(db.prepare('SELECT version FROM version LIMIT 1').get()).version;
 
-      if (found > STORAGE_VERSION || found < 3)
+      if (found > SCHEMA_VERSION || found < 3)
         throw new ConfigError('Unsupported activity database version; migrate with the original release first');
 
       // A merged database keeps its version; the next start upgrades older ones.

@@ -5,6 +5,55 @@ import { atomic } from '#src/db/transaction';
 import { sql } from 'kysely';
 import type { DatabaseSync } from 'node:sqlite';
 
+/** Activity columns without the FIT payload: lists and details never need it. */
+const columns = [
+  'id',
+  'player_id',
+  'course_id',
+  'name',
+  'f5',
+  'privateActivity',
+  'start_date',
+  'end_date',
+  'distanceInMeters',
+  'avg_heart_rate',
+  'max_heart_rate',
+  'avg_watts',
+  'max_watts',
+  'avg_cadence',
+  'max_cadence',
+  'avg_speed',
+  'max_speed',
+  'calories',
+  'total_elevation',
+  'strava_upload_id',
+  'strava_activity_id',
+  'f22',
+  'f23',
+  'fit_filename',
+  'subgroupId',
+  'workoutHash',
+  'progressPercentage',
+  'sport',
+  'date',
+  'act_f32',
+  'act_f33',
+  'act_f34',
+  'privacy',
+  'fitness_privacy',
+  'club_name',
+  'movingTimeInMs',
+  'work',
+  'tss',
+  'normalized_power',
+  'power_zones',
+  'power_units',
+] as const;
+
+function ids(rows: { id: number }[]) {
+  return new Set(rows.map((row) => row.id));
+}
+
 export class ActivitiesRepository {
   private readonly executor: SqliteExecutor;
 
@@ -16,7 +65,7 @@ export class ActivitiesRepository {
     return this.executor.all(
       query
         .selectFrom('activity_image')
-        .select('id')
+        .select(['id', 'state'])
         .where('player_id', '=', player)
         .where('activity_id', '=', integer(activity)),
     );
@@ -26,7 +75,7 @@ export class ActivitiesRepository {
     return this.executor.all(
       query
         .selectFrom('activity_media')
-        .select(['id', 'content_type'])
+        .select(['id', 'content_type', 'state'])
         .where('player_id', '=', player)
         .where('activity_id', '=', integer(activity)),
     );
@@ -110,18 +159,62 @@ export class ActivitiesRepository {
     );
   }
 
+  /** Media rows are reserved before their file exists: reserved -> ready | failed.
+  Cleanup removes abandoned reservations and their files.
+  */
   insertActivityImage(player: number | bigint, activity: IntegerInput) {
     return this.executor.run(
-      query.insertInto('activity_image').values({ player_id: player, activity_id: integer(activity) }),
+      query
+        .insertInto('activity_image')
+        .values({ player_id: player, activity_id: integer(activity), state: 'reserved', created_at: Date.now() }),
     );
   }
 
   insertActivityMedia(player: number | bigint, activity: IntegerInput, contentType: string) {
     return this.executor.run(
-      query
-        .insertInto('activity_media')
-        .values({ player_id: player, activity_id: integer(activity), content_type: contentType }),
+      query.insertInto('activity_media').values({
+        player_id: player,
+        activity_id: integer(activity),
+        content_type: contentType,
+        state: 'reserved',
+        created_at: Date.now(),
+      }),
     );
+  }
+
+  /** Commit a reserved media row after its file is durable. False when it was removed. */
+  mediaState(table: 'activity_image' | 'activity_media', id: IntegerInput, state: 'ready' | 'failed') {
+    return (
+      this.executor.run(
+        query.updateTable(table).set({ state }).where('id', '=', integer(id)).where('state', '=', 'reserved'),
+      ).changes !== 0
+    );
+  }
+
+  /** Identifiers that own files, for orphan detection. */
+  owners() {
+    return {
+      activities: ids(this.executor.all(query.selectFrom('activity').select('id'))),
+      charts: ids(this.executor.all(query.selectFrom('activity_file').select('id'))),
+      images: ids(this.executor.all(query.selectFrom('activity_image').select('id'))),
+      media: ids(this.executor.all(query.selectFrom('activity_media').select('id'))),
+    };
+  }
+
+  /** Reservations older than the cutoff, and failed media, with their owners. */
+  abandonedMedia(table: 'activity_image' | 'activity_media', before: number) {
+    return this.executor.all(
+      query
+        .selectFrom(table)
+        .select(['id', 'player_id'])
+        .where(({ eb, or, and }) =>
+          or([eb('state', '=', 'failed'), and([eb('state', '=', 'reserved'), eb('created_at', '<', before)])]),
+        ),
+    );
+  }
+
+  deleteMedia(table: 'activity_image' | 'activity_media', id: number) {
+    this.executor.run(query.deleteFrom(table).where('id', '=', id));
   }
 
   findActivityMedia(id: IntegerInput) {
@@ -132,7 +225,7 @@ export class ActivitiesRepository {
     return this.executor.all(
       query
         .selectFrom('activity')
-        .selectAll()
+        .select(columns)
         .where('player_id', '=', player)
         .where('date', '>', sql<string>`date('now', '-1 month')`)
         .where(({ eb, or, and }) =>
@@ -147,7 +240,7 @@ export class ActivitiesRepository {
   }
 
   activityById(id: IntegerInput) {
-    return this.executor.get(query.selectFrom('activity').selectAll().where('id', '=', integer(id)), true);
+    return this.executor.get(query.selectFrom('activity').select(columns).where('id', '=', integer(id)), true);
   }
 
   activityFeed(
@@ -159,7 +252,7 @@ export class ActivitiesRepository {
   ) {
     let selection = query
       .selectFrom('activity')
-      .selectAll()
+      .select(columns)
       .where('distanceInMeters', '>', 1)
       .where(({ eb, or, and }) =>
         or([

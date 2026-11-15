@@ -182,12 +182,16 @@ export interface Database {
     id: Generated<Integer>;
     player_id: Integer;
     activity_id: Integer;
+    state: Generated<string>;
+    created_at: Generated<NullableInteger>;
   };
   activity_media: {
     id: Generated<Integer>;
     player_id: Integer;
     activity_id: Integer;
     content_type: string;
+    state: Generated<string>;
+    created_at: Generated<NullableInteger>;
   };
   power_curve: {
     id: Generated<Integer>;

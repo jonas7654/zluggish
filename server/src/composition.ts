@@ -13,6 +13,7 @@ import { ImportsService } from '#src/services/profile-import.service';
 import { ProfilesService } from '#src/services/profile.service';
 import { RecordDataService } from '#src/services/record-data.service';
 import { RecordsService } from '#src/services/records.service';
+import { RetentionService } from '#src/services/retention.service';
 import { SettingsService } from '#src/services/settings.service';
 import { SocialService } from '#src/services/social.service';
 import { StorageService } from '#src/services/storage.service';
@@ -47,10 +48,12 @@ export function createServices(context: RepositoryContext) {
     integrations: new IntegrationsService(context),
     metrics: new MetricsService(context),
     jobs: new JobsService(context),
+    retention: new RetentionService(context.accounts.repositories, context.config.retention, context.config.storageDir),
   };
 
   services.activities.registerJobs(services.jobs);
   services.uploads.registerJobs(services.jobs);
+  services.retention.registerJobs(services.jobs);
 
   return services;
 }

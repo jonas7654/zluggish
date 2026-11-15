@@ -18,7 +18,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { link, mkdir, open, readdir, readFile, rename, rm, unlink } from 'node:fs/promises';
+import { link, mkdir, open, readdir, readFile, rename, rm, stat, unlink } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 
 function syncDirectory(path: string) {
@@ -142,6 +142,23 @@ export class AssetFiles {
       if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return null;
       throw error;
     }
+  }
+
+  /** Size and modification time; null when the path is missing. */
+  async statAsync(path: string) {
+    try {
+      const info = await stat(path);
+
+      return { bytes: info.size, modified: info.mtimeMs, directory: info.isDirectory() };
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return null;
+      throw error;
+    }
+  }
+
+  /** Remove a directory tree. */
+  async removeTreeAsync(path: string) {
+    await rm(path, { recursive: true, force: true });
   }
 
   /** Directory entries; a missing directory has none. */

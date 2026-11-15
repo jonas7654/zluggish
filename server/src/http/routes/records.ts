@@ -240,14 +240,10 @@ export function recordRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
       const best = new Map<string, SegmentResult>();
 
-      for (const row of service.segmentLeaderboard()) {
-        const result = records.decode(SegmentResultSchema, row);
+      const since = runtime.config.leaderboards.allTime ? null : worldTime() - 3_600_000n;
 
-        if (
-          (segment && result.segmentId !== BigInt(segment)) ||
-          (!runtime.config.leaderboards.allTime && result.worldTime <= worldTime() - 3_600_000n)
-        )
-          continue;
+      for (const row of service.segmentLeaderboard(segment ? BigInt(segment) : null, since)) {
+        const result = records.decode(SegmentResultSchema, row);
         const key = `${result.segmentId}:${result.playerId}`;
 
         if (best.has(key)) continue;

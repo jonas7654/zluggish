@@ -1,6 +1,6 @@
 import { ConfigError } from '#src/config/index';
-import { configureConnection } from '#src/db/open';
-import { STORAGE_VERSION, StorageFile } from '#src/migrations/storage';
+import { configureConnection, SCHEMA_VERSION } from '#src/db/open';
+import { StorageFile } from '#src/migrations/storage';
 import { CryptoRepository } from '#src/repositories/crypto.repository';
 import { SystemFlag } from '#src/repositories/system-flag.repository';
 import {
@@ -102,7 +102,7 @@ export function backupStorage(storage: string, output: string, config: string | 
   try {
     schemaVersion = z.number().parse(db.prepare('SELECT version FROM version').get()?.version);
 
-    if (schemaVersion !== STORAGE_VERSION) throw new ConfigError('Start the server once to upgrade storage first');
+    if (schemaVersion !== SCHEMA_VERSION) throw new ConfigError('Start the server once to upgrade storage first');
     db.prepare('VACUUM INTO ?').run(resolve(output, StorageFile.Database));
   } finally {
     db.close();
@@ -162,7 +162,7 @@ function validateBackup(input: string) {
       throw new ConfigError(`The backup file ${name} is missing or changed`);
   }
 
-  if (manifest.schemaVersion > STORAGE_VERSION) throw new ConfigError('The backup is newer than this release');
+  if (manifest.schemaVersion > SCHEMA_VERSION) throw new ConfigError('The backup is newer than this release');
   const db = new DatabaseSync(resolve(input, StorageFile.Database), { readOnly: true });
 
   try {

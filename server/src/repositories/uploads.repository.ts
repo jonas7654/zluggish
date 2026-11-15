@@ -124,6 +124,28 @@ export class UploadsRepository {
     );
   }
 
+  /** Old confirmed or cancelled deliveries. Failed and ambiguous ones wait for a decision. */
+  private finished(before: number) {
+    return query
+      .deleteFrom('activity_upload')
+      .where('state', 'in', ['sent', 'cancelled'])
+      .where('updated_at', '<', before);
+  }
+
+  prunable(before: number) {
+    return this.executor.all(
+      query
+        .selectFrom('activity_upload')
+        .select('activity_id')
+        .where('state', 'in', ['sent', 'cancelled'])
+        .where('updated_at', '<', before),
+    ).length;
+  }
+
+  prune(before: number) {
+    return this.executor.run(this.finished(before)).changes;
+  }
+
   cancel(activity: number, provider: string) {
     return this.update(activity, provider, ['pending', 'failed', 'ambiguous'], { state: 'cancelled' });
   }

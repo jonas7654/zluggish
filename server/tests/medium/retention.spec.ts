@@ -1,0 +1,228 @@
+import { validateConfig } from '#src/config/index';
+import { ActivitySchema } from '#src/protocol/generated/activity_pb';
+import { AssetFiles } from '#src/repositories/files.repository';
+import { RetentionService } from '#src/services/retention.service';
+import { binary, mediumFixture } from '#tests/medium/support';
+import { create } from '@bufbuild/protobuf';
+import assert from 'node:assert/strict';
+import { existsSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import type { TestContext } from 'node:test';
+import { test } from 'node:test';
+import { z } from 'zod';
+
+const fit = readFileSync(new URL('../fixtures/ride.fit', import.meta.url));
+const day = 86_400_000;
+
+function write(path: string, data = 'data', ageMs = 0) {
+  mkdirSync(resolve(path, '..'), { recursive: true });
+  writeFileSync(path, data);
+  const time = (Date.now() - ageMs) / 1000;
+  utimesSync(path, time, time);
+}
+
+/** A rider with one completed activity and every kind of retention candidate. */
+async function storage(t: TestContext) {
+  const f = await mediumFixture(t);
+  f.services.documents.put(f.rider.player_id, 'runalyze_token.txt', 'token');
+  t.mock.method(globalThis, 'fetch', () => Promise.resolve(new Response(null, { status: 200 })));
+
+  const data = {
+    playerId: BigInt(f.rider.player_id),
+    courseId: 6n,
+    name: 'Kept',
+    startDate: new Date().toISOString(),
+    distanceInMeters: 3000,
+    fitFilename: 'ride.fit',
+    fit,
+  };
+
+  const response = await f.request(`/api/profiles/${f.rider.player_id}/activities`, {
+    method: 'POST',
+    ...binary(ActivitySchema, data),
+  });
+
+  const { id } = z.object({ id: z.number() }).parse(await response.json());
+  f.services.activities.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }));
+  await f.services.jobs.drain();
+
+  const root = f.config.storageDir;
+  const folder = f.profiles.folder(f.rider.player_id);
+  const db = f.accounts.db;
+  const old = Date.now() - 400 * day;
+
+  write(resolve(root, 'activities', '999'));
+  write(resolve(folder, 'fit', '999 - gone.fit'));
+  write(resolve(folder, 'images', '999.jpg'));
+
+  const reserved = Number(
+    db
+      .prepare(
+        "INSERT INTO activity_media (player_id, activity_id, content_type, state, created_at) VALUES (?, ?, 'video/mp4', 'reserved', ?)",
+      )
+      .run(f.rider.player_id, id, Date.now() - 2 * 3_600_000).lastInsertRowid,
+  );
+
+  write(resolve(folder, 'medias', `${reserved}.mp4`));
+
+  const fresh = Number(
+    db
+      .prepare(
+        "INSERT INTO activity_media (player_id, activity_id, content_type, state, created_at) VALUES (?, ?, 'video/mp4', 'reserved', ?)",
+      )
+      .run(f.rider.player_id, id, Date.now()).lastInsertRowid,
+  );
+
+  write(resolve(folder, 'medias', `${fresh}.mp4`));
+  write(resolve(folder, 'profile.bin.abc.tmp'), 'data', 2 * day);
+  write(resolve(folder, 'recent.tmp'));
+
+  for (const [name, age] of [
+    ['a.bin', 3],
+    ['b.bin', 2],
+    ['c.bin', 1],
+  ] as const)
+    write(resolve(folder, 'ghosts', '6', '1', name), 'ghost', age * day);
+
+  for (const name of ['storage-v6-2026-01-01', 'storage-v6-2026-02-01', 'storage-v6-2026-03-01'])
+    write(resolve(root, 'backups', name, 'zluggish.db'));
+
+  db.prepare("UPDATE job SET finished_at=? WHERE state='done'").run(old);
+  db.prepare(
+    "INSERT INTO job (type, payload, state, next_run_at, created_at) VALUES ('power_curve', '{}', 'queued', ?, ?)",
+  ).run(old, old);
+  db.prepare('UPDATE activity_upload SET updated_at=?').run(old);
+  db.prepare(
+    "INSERT INTO activity_upload (activity_id, provider, state, updated_at) VALUES (?, 'garmin', 'ambiguous', ?)",
+  ).run(id, old);
+
+  const retention = validateConfig({
+    storageDir: root,
+    retention: { ghostsPerRoute: 2, migrationBackups: 2, finishedJobsDays: 14, deliveryRecordsDays: 365 },
+  }).retention;
+
+  return {
+    f,
+    id,
+    folder,
+    root,
+    reserved,
+    fresh,
+    service: new RetentionService(f.accounts.repositories, retention, root),
+  };
+}
+
+await test('a cleanup preview lists the candidates and removes nothing', async (t) => {
+  const { f, folder, root, reserved, service } = await storage(t);
+  const plan = await service.plan();
+  const reasons = new Map(plan.files.map((file) => [file.path, file.reason]));
+
+  assert.equal(reasons.get(resolve(root, 'activities', '999')), 'orphaned chart');
+  assert.equal(reasons.get(resolve(folder, 'fit', '999 - gone.fit')), 'orphaned FIT export');
+  assert.equal(reasons.get(resolve(folder, 'images', '999.jpg')), 'orphaned media');
+  assert.equal(reasons.get(resolve(folder, 'medias', `${reserved}.mp4`)), 'abandoned upload');
+  assert.equal(reasons.get(resolve(folder, 'profile.bin.abc.tmp')), 'temporary file');
+  assert.equal(reasons.get(resolve(folder, 'ghosts', '6', '1', 'a.bin')), 'old ghost recording');
+  assert.equal(reasons.get(resolve(root, 'backups', 'storage-v6-2026-01-01')), 'old migration backup');
+  assert.equal(plan.files.length, 7);
+  assert.ok(plan.jobs >= 4);
+  assert.equal(plan.deliveries, 1);
+  assert.deepEqual(plan.media, [{ table: 'activity_media', id: reserved }]);
+
+  for (const path of reasons.keys()) assert.ok(existsSync(path), `the preview keeps ${path}`);
+  assert.equal(f.accounts.db.prepare('SELECT count(*) AS n FROM activity_upload').get()?.n, 2);
+});
+
+await test('a cleanup keeps unfinished work, owned artifacts and the canonical FIT payload', async (t) => {
+  const { f, id, folder, fresh, service } = await storage(t);
+  const removed = await service.apply(await service.plan());
+  assert.equal(removed.files, 7);
+  const db = f.accounts.db;
+
+  assert.deepEqual(
+    db
+      .prepare('SELECT provider, state FROM activity_upload ORDER BY provider')
+      .all()
+      .map((row) => [row.provider, row.state]),
+    [['garmin', 'ambiguous']],
+    'only the confirmed delivery record goes',
+  );
+  assert.equal(db.prepare("SELECT count(*) AS n FROM job WHERE state='queued'").get()?.n, 1);
+  assert.equal(db.prepare("SELECT count(*) AS n FROM job WHERE state='done'").get()?.n, 0);
+  assert.deepEqual(
+    Buffer.from(z.instanceof(Uint8Array).parse(db.prepare('SELECT fit FROM activity WHERE id=?').get(id)?.fit)),
+    fit,
+  );
+  assert.ok(existsSync(resolve(folder, 'fit', `${id} - ride.fit`)));
+  assert.ok(existsSync(resolve(folder, 'medias', `${fresh}.mp4`)), 'a recent reservation stays');
+  assert.ok(existsSync(resolve(folder, 'recent.tmp')));
+  assert.ok(existsSync(resolve(folder, 'ghosts', '6', '1', 'b.bin')));
+
+  const again = await service.plan();
+  assert.equal(again.files.length, 0);
+});
+
+await test('a cleanup that stops between file removals completes on the next run', async (t) => {
+  const { f, service } = await storage(t);
+  const plan = await service.plan();
+  let removals = 0;
+  const original = AssetFiles.prototype.removeTreeAsync;
+
+  const stop = t.mock.method(AssetFiles.prototype, 'removeTreeAsync', async function (this: AssetFiles, path: string) {
+    if (++removals > 2) throw new Error('stopped');
+    await original.call(this, path);
+  });
+
+  await assert.rejects(service.apply(plan), /stopped/);
+  stop.mock.restore();
+  await service.apply(await service.plan());
+  const after = await service.plan();
+  assert.equal(after.files.length, 0);
+  assert.equal(after.media.length, 0);
+  assert.equal(f.accounts.db.prepare("SELECT count(*) AS n FROM activity_media WHERE state='reserved'").get()?.n, 1);
+});
+
+await test('storage use is reported by category', async (t) => {
+  const { service } = await storage(t);
+  const usage = await service.usage();
+
+  assert.ok(usage.database > 0);
+  assert.ok(usage.media > 0);
+  assert.ok(usage.fitExports > 0);
+  assert.ok(usage.charts > 0);
+  assert.ok(usage.ghosts > 0);
+  assert.ok(usage.backups > 0);
+});
+
+await test('a media row is ready only after its file is durable', async (t) => {
+  const f = await mediumFixture(t);
+
+  const response = await f.request(`/api/profiles/${f.rider.player_id}/activities`, {
+    method: 'POST',
+    ...binary(ActivitySchema, {
+      playerId: BigInt(f.rider.player_id),
+      courseId: 6n,
+      name: 'x',
+      startDate: '2026-11-01',
+    }),
+  });
+
+  const { id } = z.object({ id: z.number() }).parse(await response.json());
+
+  const failing = t.mock.method(AssetFiles.prototype, 'writeDurableAsync', () =>
+    Promise.reject(new Error('disk full')),
+  );
+
+  await assert.rejects(
+    f.services.activities.saveImage(f.rider.player_id, String(id), new Uint8Array([1])),
+    /disk full/,
+  );
+  failing.mock.restore();
+  assert.equal(f.accounts.db.prepare('SELECT state FROM activity_image').get()?.state, 'failed');
+  const image = await f.services.activities.saveImage(f.rider.player_id, String(id), new Uint8Array([1]));
+  assert.equal(f.accounts.db.prepare('SELECT state FROM activity_image WHERE id=?').get(image)?.state, 'ready');
+  assert.equal(
+    new AssetFiles().existsSync(resolve(f.profiles.folder(f.rider.player_id), 'images', `${image}.jpg`)),
+    true,
+  );
+});

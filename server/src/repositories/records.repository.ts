@@ -1,4 +1,5 @@
 import { query, SqliteExecutor } from '#src/db/query';
+import { sql } from 'kysely';
 import type { DatabaseSync } from 'node:sqlite';
 
 export class RecordsRepository {
@@ -48,7 +49,26 @@ export class RecordsRepository {
     if (!existing) this.executor.run(query.insertInto('route_result').values({ player_id: player, route_hash: hash }));
   }
 
-  segmentLeaderboard() {
-    return this.executor.all(query.selectFrom('segment_result').selectAll().orderBy('elapsed_ms'), true);
+  /** Fastest results first, for one segment when given, since a world time when given. */
+  segmentLeaderboard(segment: bigint | null, since: bigint | null) {
+    let selection = query.selectFrom('segment_result').selectAll();
+
+    if (segment !== null) selection = selection.where('segment_id', '=', segment);
+
+    if (since !== null) selection = selection.where('world_time', '>', since);
+
+    return this.executor.all(selection.orderBy('elapsed_ms'), true);
+  }
+
+  /** One rider's results, optionally for one segment and sport. */
+  riderSegments(player: bigint, segment: bigint | null, sport: number | null) {
+    let selection = query.selectFrom('segment_result').selectAll().where('player_id', '=', player);
+
+    if (segment !== null) selection = selection.where('segment_id', '=', segment);
+
+    // A missing sport decodes as cycling (0), as the protobuf default.
+    if (sport !== null) selection = selection.where(sql<number>`coalesce(sport, 0)`, '=', sport);
+
+    return this.executor.all(selection.orderBy('id'), true);
   }
 }

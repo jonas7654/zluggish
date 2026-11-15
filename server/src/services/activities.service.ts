@@ -72,9 +72,10 @@ export class ActivitiesService extends BaseService {
       const path = resolve(this.context.profiles.folder(row.data.player_id), 'medias', `${id}.${extension}`);
       await this.filesRepository.writeDurableAsync(path, bytes, true);
 
-      // The activity can be deleted while the write runs: do not keep orphaned media.
-      if (!this.activitiesRepository.findActivityMedia(id)) {
-        this.filesRepository.rmSync(path, { force: true });
+      // The file is durable before the row is ready. The activity can be deleted while
+      // the write runs: then the file is removed, not kept as an orphan.
+      if (!this.activitiesRepository.mediaState('activity_media', id, 'ready')) {
+        await this.filesRepository.removeAsync(path);
         throw new ApplicationError(404);
       }
 
@@ -346,8 +347,24 @@ export class ActivitiesService extends BaseService {
     return this.activitiesRepository.findOwnedActivityFile(...values);
   }
 
-  insertActivityImage(...values: Parameters<ActivitiesRepository['insertActivityImage']>) {
-    return this.activitiesRepository.insertActivityImage(...values);
+  /** Reserve the row, write the file durably, then mark the row ready. */
+  async saveImage(player: number, activity: string, jpg: Uint8Array) {
+    const id = Number(this.activitiesRepository.insertActivityImage(player, activity).lastInsertRowid);
+    const path = resolve(this.context.profiles.folder(player), 'images', `${id}.jpg`);
+
+    try {
+      await this.filesRepository.writeDurableAsync(path, jpg, true);
+    } catch (error) {
+      this.activitiesRepository.mediaState('activity_image', id, 'failed');
+      throw error;
+    }
+
+    if (!this.activitiesRepository.mediaState('activity_image', id, 'ready')) {
+      await this.filesRepository.removeAsync(path);
+      throw new ApplicationError(404);
+    }
+
+    return id;
   }
 
   insertActivityMedia(...values: Parameters<ActivitiesRepository['insertActivityMedia']>) {
@@ -361,17 +378,20 @@ export class ActivitiesService extends BaseService {
   photos(player: number, activity: bigint) {
     const folder = this.context.profiles.folder(player);
 
-    const images = z
-      .array(z.object({ id: z.number() }))
-      .parse(this.activitiesRepository.listActivityImage(player, activity))
-      .map((row) => resolve(folder, 'images', `${row.id}.jpg`));
+    const paths = [];
 
-    const media = z
-      .array(z.object({ id: z.number(), content_type: z.string() }))
-      .parse(this.activitiesRepository.listActivityMedia(player, activity))
-      .map((row) => resolve(folder, 'medias', `${row.id}.${row.content_type.includes('quicktime') ? 'mov' : 'mp4'}`));
+    for (const row of z
+      .array(z.object({ id: z.number(), state: z.string() }))
+      .parse(this.activitiesRepository.listActivityImage(player, activity)))
+      if (row.state === 'ready') paths.push(resolve(folder, 'images', `${row.id}.jpg`));
 
-    return [...images, ...media].filter((path) => this.filesRepository.existsSync(path));
+    for (const row of z
+      .array(z.object({ id: z.number(), content_type: z.string(), state: z.string() }))
+      .parse(this.activitiesRepository.listActivityMedia(player, activity)))
+      if (row.state === 'ready')
+        paths.push(resolve(folder, 'medias', `${row.id}.${row.content_type.includes('quicktime') ? 'mov' : 'mp4'}`));
+
+    return paths.filter((path) => this.filesRepository.existsSync(path));
   }
 
   companion(activity: Activity, details = false) {

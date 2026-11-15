@@ -57,3 +57,30 @@ ALTER TABLE activity_upload ADD COLUMN last_error TEXT;
 ALTER TABLE activity_upload ADD COLUMN updated_at INTEGER;
 ALTER TABLE power_curve ADD COLUMN activity_id INTEGER;
 `;
+
+// Version 7: indexes for the main queries, and reservation states for media files.
+export const indexesSQL = `
+CREATE INDEX IF NOT EXISTS activity_player_date ON activity(player_id, date);
+CREATE INDEX IF NOT EXISTS activity_player_start ON activity(player_id, start_date);
+CREATE INDEX IF NOT EXISTS activity_date ON activity(date);
+CREATE INDEX IF NOT EXISTS segment_result_segment ON segment_result(segment_id, elapsed_ms);
+CREATE INDEX IF NOT EXISTS segment_result_player ON segment_result(player_id, segment_id);
+CREATE INDEX IF NOT EXISTS segment_result_time ON segment_result(world_time);
+CREATE INDEX IF NOT EXISTS route_result_player ON route_result(player_id, route_hash);
+CREATE INDEX IF NOT EXISTS power_curve_player ON power_curve(player_id, time, timestamp);
+CREATE INDEX IF NOT EXISTS power_curve_activity ON power_curve(activity_id);
+CREATE INDEX IF NOT EXISTS activity_file_activity ON activity_file(activity_id);
+CREATE INDEX IF NOT EXISTS activity_image_activity ON activity_image(activity_id, player_id);
+CREATE INDEX IF NOT EXISTS activity_media_activity ON activity_media(activity_id, player_id);
+CREATE INDEX IF NOT EXISTS activity_upload_state ON activity_upload(state);
+CREATE INDEX IF NOT EXISTS goal_player ON goal(player_id);
+CREATE INDEX IF NOT EXISTS playback_segment ON playback(player_id, segment_id, type, world_time);
+CREATE INDEX IF NOT EXISTS zfile_player ON zfile(player_id, folder, filename);
+CREATE INDEX IF NOT EXISTS notification_player ON notification(player_id);
+CREATE INDEX IF NOT EXISTS notification_event ON notification(event_id);
+CREATE INDEX IF NOT EXISTS job_type ON job(type, state);
+ALTER TABLE activity_media ADD COLUMN state TEXT NOT NULL DEFAULT 'ready';
+ALTER TABLE activity_media ADD COLUMN created_at INTEGER;
+ALTER TABLE activity_image ADD COLUMN state TEXT NOT NULL DEFAULT 'ready';
+ALTER TABLE activity_image ADD COLUMN created_at INTEGER;
+`;

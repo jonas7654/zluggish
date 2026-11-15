@@ -1,4 +1,5 @@
-import { ConfigError } from '#src/config/index';
+import { ConfigError, validateConfig } from '#src/config/index';
+import type { ResolvedConfig } from '#src/config/index';
 import type { LoadOptions } from '#src/config/load';
 import { loadConfig, packageRoot, selectConfigPath } from '#src/config/load';
 import { migrateConfig } from '#src/config/migrate';
@@ -12,6 +13,7 @@ import type { Overrides } from '#src/dtos/settings.dto';
 import { RiderRepository, SettingsStore } from '#src/repositories/settings.repository';
 import { overrideSchema, settingKeySchema } from '#src/dtos/settings.dto';
 import { AccountsService } from '#src/services/auth.service';
+import { RetentionService } from '#src/services/retention.service';
 import { SettingsService } from '#src/services/settings.service';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -32,6 +34,8 @@ config typecheck                            Typecheck the selected operator conf
 settings set/reset                          Update SQLite overrides, never TypeScript source
 storage backup --output DIR                 Back up the stopped server's storage and config
 storage restore --input DIR                 Restore a backup while stopped; uploads stay paused
+storage usage                               Show storage use by category
+storage cleanup [--dry-run]                 Apply retention rules, or preview them
 uploads list                                Show deliveries that wait or need a decision
 uploads pause                               Stop automatic deliveries (after a manual restore)
 uploads resume --confirm                    Allow automatic deliveries again
@@ -149,7 +153,15 @@ export async function run(argv: string[], output: (message: string) => void = co
     const release = await new LockRepository().acquireStorageLock(directory);
 
     try {
-      if (group === 'storage') return storageCommand(action, directory, loaded?.path ?? null, values, output);
+      if (group === 'storage')
+        return await storageCommand(
+          action,
+          directory,
+          loaded?.path ?? null,
+          loaded?.config.retention ?? validateConfig({ storageDir: directory }).retention,
+          values,
+          output,
+        );
 
       return uploadsCommand(action, directory, values, output);
     } finally {
@@ -340,6 +352,7 @@ export async function run(argv: string[], output: (message: string) => void = co
 }
 
 type Values = {
+  'dry-run'?: boolean | undefined;
   output?: string | undefined;
   input?: string | undefined;
   activity?: string | undefined;
@@ -347,13 +360,44 @@ type Values = {
   confirm?: boolean | undefined;
 };
 
-function storageCommand(
+async function storageCommand(
   action: string | undefined,
   storage: string,
   config: string | null,
+  retention: ResolvedConfig['retention'],
   values: Values,
   output: (message: string) => void,
 ) {
+  if (action === 'usage' || action === 'cleanup') {
+    const accounts = new AccountsService(storage);
+
+    try {
+      const service = new RetentionService(accounts.repositories, retention, storage);
+
+      if (action === 'usage') {
+        output(JSON.stringify(await service.usage(), null, 2));
+
+        return 0;
+      }
+
+      const plan = await service.plan();
+      const bytes = plan.files.reduce((total, file) => total + file.bytes, 0);
+
+      for (const file of plan.files) output(`${file.reason}: ${file.path} (${file.bytes} bytes)`);
+      output(
+        `${plan.files.length} files (${bytes} bytes), ${plan.jobs} finished jobs, ${plan.deliveries} delivery records, ${plan.media.length} abandoned uploads`,
+      );
+
+      if (values['dry-run']) return 0;
+      await service.apply(plan);
+      output('Cleanup complete');
+
+      return 0;
+    } finally {
+      accounts.close();
+    }
+  }
+
   if (action === 'backup') {
     if (!values.output) throw new ConfigError('Choose a backup directory with --output DIR');
     // Opening the database applies pending migrations, so the backup has the current schema.

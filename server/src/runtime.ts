@@ -60,6 +60,7 @@ export async function openRuntime(config: ResolvedConfig, assets: string) {
     await simulation.ready;
     simulation.start();
     runtime.services.uploads.start();
+    runtime.services.retention.schedule();
     runtime.services.jobs.start();
     checkpoints.start();
 

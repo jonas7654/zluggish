@@ -249,19 +249,21 @@ export class UploadsService extends BaseService {
     }
   }
 
+  /** Ready photos and videos only: a reserved row may have no complete file yet. */
   private photos(player: number, activity: number) {
     const folder = this.runtime.profiles.folder(player);
+    const paths = [];
 
-    return [
-      ...this.activitiesRepository
-        .listActivityImage(player, activity)
-        .map((photo) => resolve(folder, 'images', `${photo.id}.jpg`)),
-      ...this.activitiesRepository
-        .listActivityMedia(player, activity)
-        .map((photo) =>
+    for (const photo of this.activitiesRepository.listActivityImage(player, activity))
+      if (photo.state === 'ready') paths.push(resolve(folder, 'images', `${photo.id}.jpg`));
+
+    for (const photo of this.activitiesRepository.listActivityMedia(player, activity))
+      if (photo.state === 'ready')
+        paths.push(
           resolve(folder, 'medias', `${photo.id}.${photo.content_type.includes('quicktime') ? 'mov' : 'mp4'}`),
-        ),
-    ].filter((file) => this.filesRepository.existsSync(file));
+        );
+
+    return paths;
   }
 
   async strava(player: number, activity: Activity) {

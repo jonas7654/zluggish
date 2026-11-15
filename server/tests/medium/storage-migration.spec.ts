@@ -112,7 +112,7 @@ await test('the storage merge imports every legacy store once and keeps the lega
   t.after(() => db.close());
   const documents = new RiderDocuments(db, storage);
 
-  assert.equal(db.prepare('SELECT version FROM version').get()?.version, 6);
+  assert.equal(db.prepare('SELECT version FROM version').get()?.version, 7);
   assert.equal(db.prepare('PRAGMA journal_mode').get()?.journal_mode, 'wal');
   assert.deepEqual(new SettingsStore(db).read(1), { 'ghosts.enabled': true });
   assert.deepEqual(new SettingsStore(db).world('blob:1'), { riders: 4 });
@@ -278,7 +278,7 @@ for (const step of Object.values(MigrationStep))
 
     const db = openDatabase(storage);
     t.after(() => db.close());
-    assert.equal(db.prepare('SELECT version FROM version').get()?.version, 6);
+    assert.equal(db.prepare('SELECT version FROM version').get()?.version, 7);
     assert.equal(db.prepare('SELECT count(*) AS n FROM rider_document').get()?.n, 6);
     assert.equal(db.prepare("SELECT count(*) AS n FROM job WHERE type='delivery'").get()?.n, 1);
     assert.equal(existsSync(resolve(storage, StorageFile.Temporary)), false);
