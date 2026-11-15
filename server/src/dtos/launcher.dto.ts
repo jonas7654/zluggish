@@ -1,8 +1,65 @@
-export interface PrototypePage {
+export interface LauncherField {
+  name: string;
+  label: string;
+  type?: 'text' | 'password' | 'checkbox' | 'hidden' | 'file' | 'select';
+  value?: string | boolean;
+  placeholder?: string;
+  required?: boolean;
+  maxLength?: number;
+  pattern?: string;
+  autocomplete?: 'username' | 'new-password' | 'current-password' | 'one-time-code';
+  matches?: string;
+  when?: { field: string; value: string | boolean };
+  options?: { value: string; label: string }[];
+}
+
+export interface LauncherForm {
+  id: string;
+  action: string;
+  title?: string;
+  fields: LauncherField[];
+  buttons: { label: string; name?: string; value?: string; skipValidation?: boolean }[];
+  navigation?: boolean;
+  multipart?: boolean;
+  confirmation?: string;
+  method?: 'paid' | 'free';
+}
+
+export interface UploadJob {
+  activity_id: number;
+  provider: string;
+  state: string;
+}
+
+export interface LauncherPage {
+  kind:
+    | 'login'
+    | 'add'
+    | 'dashboard'
+    | 'settings'
+    | 'password'
+    | 'connection'
+    | 'workouts'
+    | 'import'
+    | 'confirm'
+    | 'maintenance'
+    | 'message';
+  title: string;
   csrf: string;
-  riderName: string;
-  settingsPath: string;
-  ghosts: boolean;
-  bridgeFolder: string;
-  stravaMethod: 'paid' | 'free';
+  forms: LauncherForm[];
+  links?: { href: string; label: string }[];
+  paragraphs?: string[];
+  message?: string;
+  failed?: boolean;
+  errorStatus?: 400 | 403 | 409;
+  uploads?: UploadJob[];
+  stravaMethod?: 'paid' | 'free';
+}
+
+export type FormResult<T> =
+  | { ok: true; data: T; message?: string; redirectTo?: string }
+  | { ok: false; message: string; fieldErrors?: Record<string, string[]>; reload?: boolean };
+
+export interface LauncherSaved {
+  page?: LauncherPage;
 }

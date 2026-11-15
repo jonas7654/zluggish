@@ -159,16 +159,15 @@ try {
   const pickerHtml = await picker.text();
   const playerId = /name="player_id"\s+value="(\d+)"/.exec(pickerHtml)?.[1];
   assert.ok(playerId);
-  assert.equal(
-    (
-      await uiRequest('/login/', {
-        method: 'POST',
-        body: new URLSearchParams({ csrf_token: token(pickerHtml), player_id: playerId }),
-      })
-    ).status,
-    302,
-  );
-  const prototype = await uiRequest('/ui/prototype/settings');
+  const selected = await uiRequest('/login/', {
+    method: 'POST',
+    body: new URLSearchParams({ csrf_token: token(pickerHtml), player_id: playerId }),
+  });
+  assert.equal(selected.status, 302);
+  const dashboard = await uiRequest(selected.headers.get('Location'));
+  const settingsPath = /href="(\/settings\/[^"]+)"/.exec(await dashboard.text())?.[1];
+  assert.ok(settingsPath);
+  const prototype = await uiRequest(settingsPath);
   assert.equal(prototype.status, 200);
   assert.match(prototype.headers.get('content-type'), /text\/html/);
   const prototypeHtml = await prototype.text();

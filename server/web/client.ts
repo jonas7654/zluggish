@@ -1,10 +1,19 @@
 import 'vite/modulepreload-polyfill';
-import { hydrate } from 'svelte';
-import Prototype from './pages/Prototype.svelte';
-import type { PrototypePage } from '../src/dtos/launcher.dto.js';
+import { hydrate, mount } from 'svelte';
+import Launcher from './pages/Launcher.svelte';
+import type { LauncherPage } from '../src/dtos/launcher.dto.js';
 
 const target = document.querySelector<HTMLElement>('#launcher-ui');
 const data = document.querySelector('#launcher-props');
+
 if (target && data?.textContent) {
-  hydrate(Prototype, { target, props: JSON.parse(data.textContent) as PrototypePage });
+  // SAFETY: props are serialized by the same-origin Svelte render adapter.
+  const page = JSON.parse(data.textContent) as LauncherPage;
+
+  if (['login', 'add', 'dashboard'].includes(page.kind)) {
+    hydrate(Launcher, { target, props: { page } });
+  } else {
+    target.replaceChildren();
+    mount(Launcher, { target, props: { page } });
+  }
 }

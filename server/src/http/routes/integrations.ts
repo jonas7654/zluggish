@@ -1,10 +1,12 @@
+import { checkbox, field, form as makeForm, hidden, model, secret } from '#src/http/launcher/models';
+import { launcherPage } from '#src/http/launcher/render';
+import { launcherRedirect } from '#src/http/launcher/results';
 import { RemovableCredentialFile, StravaMethod } from '#src/enum';
-import { authenticated, csrf, page } from '#src/http/routes/accounts';
+import { authenticated, csrf } from '#src/http/routes/accounts';
 import type { HttpRuntime as Runtime, RuntimeEnv } from '#src/http/runtime';
 import { RestartScheduler } from '#src/node/lifecycle/restart';
 import type { Rider } from '#src/repositories/accounts.repository';
 import type { Context, Hono } from 'hono';
-import { html } from 'hono/html';
 import { HTTPException } from 'hono/http-exception';
 import { resolve } from 'node:path';
 import { z } from 'zod';
@@ -12,10 +14,10 @@ import { z } from 'zod';
 function admin(c: Env) {
   const rider = authenticated(c);
 
-  return { rider, allowed: rider.is_admin !== 0 };
-}
+  if (!rider.is_admin) throw new HTTPException(403);
 
-const token = (c: Env) => html`<input type="hidden" name="csrf_token" value="${c.get('browser').csrf}" />`;
+  return { rider, allowed: true };
+}
 
 type Env = Context<RuntimeEnv>;
 
@@ -43,7 +45,7 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       : '';
   }
 
-  function stravaPage(c: Env, rider: Rider, message = '') {
+  function stravaPage(c: Env, rider: Rider, message = '', failed = false, redirect?: string) {
     const method = runtime.services.settings.resolveRiderSettings(
       runtime.config.riderDefaults,
       runtime.services.settings.read(rider.player_id),
@@ -51,54 +53,70 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
     const client = connections.read(rider.player_id, 'strava');
     const authorized = runtime.services.files.exists(resolve(folder(rider), 'strava_token.txt'));
+    const cookie = !!cookieOf(rider);
 
-    return c.html(
-      page(
+    return launcherPage(
+      c,
+      runtime,
+      model(
+        c,
+        'connection',
         'Strava',
-        html`${message ? html`<p>${message}</p>` : ''}
-          <form method="post">
-            ${token(c)}<label
-              >Upload method<select name="method">
-                <option value="paid" ${method === 'paid' ? 'selected' : ''}>API</option>
-                <option value="free" ${method === 'free' ? 'selected' : ''}>Session cookie</option>
-              </select></label
-            ><button>Save method</button>
-          </form>
-          <h2>API</h2>
-          <form method="post">
-            ${token(c)}<label>Client ID<input name="client_id" value="${client?.[0] ?? ''}" /></label>
-            <label
-              >Client secret<input type="password" name="client_secret" placeholder="${client ? 'Saved' : ''}"
-            /></label>
-            <button>Save API credentials</button>
-          </form>
-          <p>
-            ${authorized ? 'Authorized.' : 'Not authorized.'}
-            ${client ? html`<a href="/strava_auth">Authorize with Strava</a>` : ''}
-          </p>
-          <h2>Session cookie</h2>
-          <form method="post">
-            ${token(c)}<label
-              >_strava4_session<input
-                type="password"
-                name="_strava4_session"
-                placeholder="${cookieOf(rider) ? 'Saved' : ''}"
-            /></label>
-            <button>Save cookie</button>
-          </form>
-          <p>${cookieOf(rider) ? html`<a href="/strava/${rider.username}/test">Test session</a>` : ''}</p>
-          ${removable.options
-            .filter((file) => file.startsWith('strava'))
+        [
+          makeForm(
+            'strava-method',
+            `/strava/${rider.username}/`,
+            [
+              field('method', 'Upload method', {
+                type: 'select',
+                value: method,
+                options: [
+                  { value: 'paid', label: 'API' },
+                  { value: 'free', label: 'Session cookie' },
+                ],
+              }),
+            ],
+            'Save method',
+          ),
+          makeForm(
+            'strava-api',
+            `/strava/${rider.username}/`,
+            [
+              field('client_id', 'Client ID', { value: client?.[0] ?? '', required: true }),
+              secret('client_secret', 'Client secret', !!client),
+            ],
+            'Save API credentials',
+            { title: 'API', method: 'paid' },
+          ),
+          makeForm(
+            'strava-cookie',
+            `/strava/${rider.username}/`,
+            [secret('_strava4_session', '_strava4_session', cookie)],
+            'Save cookie',
+            { title: 'Session cookie', method: 'free' },
+          ),
+          ...removable.options
+            .filter((file) => file.startsWith('strava') && runtime.services.files.exists(resolve(folder(rider), file)))
             .map((file) =>
-              runtime.services.files.exists(resolve(folder(rider), file))
-                ? html`<form method="post" action="/delete/${file}">${token(c)}<button>Remove ${file}</button></form>`
-                : '',
-            )}`,
+              makeForm(`remove-${file}`, `/delete/${file}`, [], `Remove ${file}`, { confirmation: `Remove ${file}?` }),
+            ),
+        ],
+        {
+          message,
+          failed,
+          stravaMethod: method,
+          paragraphs: [authorized ? 'Authorized.' : 'Not authorized.'],
+          links: [
+            ...(client ? [{ href: '/strava_auth', label: 'Authorize with Strava' }] : []),
+            ...(cookie ? [{ href: `/strava/${rider.username}/test`, label: 'Test session' }] : []),
+          ],
+        },
       ),
+      redirect,
     );
   }
 
-  function zwiftPage(c: Env, rider: Rider, message = '') {
+  function zwiftPage(c: Env, rider: Rider, message = '', failed = false, redirect?: string) {
     const connected = runtime.services.files.exists(connections.file(rider.player_id, 'zwift'));
 
     const settings = runtime.services.settings.resolveRiderSettings(
@@ -106,46 +124,52 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       runtime.services.settings.read(rider.player_id),
     );
 
-    return c.html(
-      page(
+    return launcherPage(
+      c,
+      runtime,
+      model(
+        c,
+        'connection',
         'Zwift connection',
-        html`
-          <p>${message}</p>
-          <p>${connected ? 'Credentials saved.' : 'Save your official Zwift credentials to connect.'}</p>
-          <form method="post">
-            ${token(c)}<input type="hidden" name="action" value="settings" />
-            <label>Username<input name="username" autocomplete="username" /></label>
-            <label
-              >Password<input
-                type="password"
-                name="password"
-                autocomplete="new-password"
-                placeholder="${connected ? 'Saved; leave blank to keep' : ''}"
-            /></label>
-            <label
-              ><input type="checkbox" name="upload" ${settings.uploads.zwift.enabled ? 'checked' : ''} />Upload
-              activities to Zwift</label
-            >
-            <label
-              ><input type="checkbox" name="click" ${settings.devices.zwiftClick.enabled ? 'checked' : ''} />Enable
-              Zwift Click authentication</label
-            >
-            <button>Save connection</button>
-          </form>
-          ${connected
-            ? html`<form method="post">
-                  ${token(c)}<input type="hidden" name="action" value="import" />
-                  <label><input type="checkbox" name="profile" />Download profile and economy</label>
-                  <label><input type="checkbox" name="achievements" />Download achievements</label>
-                  <button>Download and review import</button>
-                </form>
-                <form method="post" action="/delete/zwift_credentials.bin">
-                  ${token(c)}<button>Remove credentials</button>
-                </form>`
-            : ''}
-          <a href="/profile/${rider.username}/">Import local files</a>
-        `,
+        [
+          makeForm(
+            'zwift-connection',
+            `/zwift/${rider.username}/`,
+            [
+              hidden('action', 'settings'),
+              field('username', 'Username', { autocomplete: 'username' }),
+              secret('password', 'Password', connected),
+              checkbox('upload', 'Upload activities to Zwift', settings.uploads.zwift.enabled),
+              checkbox('click', 'Enable Zwift Click authentication', settings.devices.zwiftClick.enabled),
+            ],
+            'Save connection',
+          ),
+          ...(connected
+            ? [
+                makeForm(
+                  'zwift-import',
+                  `/zwift/${rider.username}/`,
+                  [
+                    hidden('action', 'import'),
+                    checkbox('profile', 'Download profile and economy'),
+                    checkbox('achievements', 'Download achievements'),
+                  ],
+                  'Download and review import',
+                ),
+                makeForm('remove-zwift', '/delete/zwift_credentials.bin', [], 'Remove credentials', {
+                  confirmation: 'Remove Zwift credentials?',
+                }),
+              ]
+            : []),
+        ],
+        {
+          message,
+          failed,
+          paragraphs: [connected ? 'Credentials saved.' : 'Save your official Zwift credentials to connect.'],
+          links: [{ href: `/profile/${rider.username}/`, label: 'Import local files' }],
+        },
       ),
+      redirect,
     );
   }
 
@@ -160,12 +184,12 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       const password = text.parse(form.password);
 
       if (username || password) {
-        if (!username || !password) return zwiftPage(c, rider, 'Enter both username and password.');
+        if (!username || !password) return zwiftPage(c, rider, 'Enter both username and password.', true);
         connections.save(rider.player_id, 'zwift', [username, password]);
       }
 
       if (!runtime.services.files.exists(connections.file(rider.player_id, 'zwift')) && (form.upload || form.click))
-        return zwiftPage(c, rider, 'Save credentials before enabling uploads or Click.');
+        return zwiftPage(c, rider, 'Save credentials before enabling uploads or Click.', true);
       runtime.services.settings.save(rider.player_id, {
         ...runtime.services.settings.read(rider.player_id),
         'uploads.zwift.enabled': form.upload === 'on',
@@ -179,9 +203,18 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     const credentials = connections.read(rider.player_id, 'zwift');
 
     if (!credentials || (!form.profile && !form.achievements))
-      return zwiftPage(c, rider, 'Save credentials and choose at least one download.');
+      return zwiftPage(c, rider, 'Save credentials and choose at least one download.', true);
 
-    if (runtime.world.active(rider.player_id)) return zwiftPage(c, rider, 'Finish the active ride before importing.');
+    if (runtime.world.active(rider.player_id))
+      return launcherPage(
+        c,
+        runtime,
+        model(c, 'message', 'Zwift connection', [], {
+          message: 'Finish the active ride before importing.',
+          failed: true,
+          errorStatus: 409,
+        }),
+      );
 
     try {
       const files = await runtime.services.integrations.downloadOfficialData(
@@ -206,9 +239,9 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       if (browser.pendingImport) imports.cancel(rider, browser.pendingImport);
       runtime.services.sessions.transition(browser, { type: 'stage-import', stage });
 
-      return c.redirect(`/profile/${rider.username}/confirm/`);
+      return launcherRedirect(c, `/profile/${rider.username}/confirm/`);
     } catch {
-      return zwiftPage(c, rider, 'Download failed. Existing rider data was retained.');
+      return zwiftPage(c, rider, 'Download failed. Existing rider data was retained.', true);
     }
   });
 
@@ -218,6 +251,7 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     if (c.req.method !== 'POST') return stravaPage(c, rider);
     const form = await csrf(c, runtime);
     let message: string;
+    let failed = false;
 
     if ('_strava4_session' in form) {
       const cookie = text.parse(form._strava4_session).trim();
@@ -225,7 +259,11 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       if (cookie) {
         runtime.services.files.write(resolve(folder(rider), 'strava4_session.txt'), cookie, true);
         message = 'Session cookie saved.';
-      } else message = "Session cookie can't be empty.";
+      } else if (cookieOf(rider)) message = 'Session cookie retained.';
+      else {
+        failed = true;
+        message = "Session cookie can't be empty.";
+      }
     } else if ('method' in form) {
       const method = z.enum(StravaMethod).safeParse(form.method);
 
@@ -235,18 +273,24 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
           'uploads.strava.method': method.data,
         });
         message = 'Strava upload method saved.';
-      } else message = 'Unknown upload method.';
+      } else {
+        failed = true;
+        message = 'Unknown upload method.';
+      }
     } else {
       const id = text.parse(form.client_id).trim();
-      const secret = text.parse(form.client_secret).trim();
+      const secret = text.parse(form.client_secret).trim() || connections.read(rider.player_id, 'strava')?.[1];
 
       if (id && secret) {
         connections.save(rider.player_id, 'strava', [id, secret]);
         message = 'Credentials saved.';
-      } else message = "Client ID and secret can't be empty.";
+      } else {
+        failed = true;
+        message = "Client ID and secret can't be empty.";
+      }
     }
 
-    return stravaPage(c, rider, message);
+    return stravaPage(c, rider, message, failed);
   });
 
   app.get('/strava/:username/test', async (c) => {
@@ -297,34 +341,37 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     }
   });
 
-  function garminPage(c: Env, rider: Rider, message = '') {
+  function garminPage(c: Env, rider: Rider, message = '', failed = false, redirect?: string) {
     const client = connections.read(rider.player_id, 'garmin');
-
     const authorized = runtime.services.files.exists(resolve(folder(rider), 'garth/oauth1_token.json'));
 
-    return c.html(
-      page(
+    return launcherPage(
+      c,
+      runtime,
+      model(
+        c,
+        'connection',
         'Garmin',
-        html`${message ? html`<p>${message}</p>` : ''}
-          <form method="post">
-            ${token(c)}<label>Username<input name="username" value="${client?.[0] ?? ''}" /></label>
-            <label>Password<input type="password" name="password" placeholder="${client ? 'Saved' : ''}" /></label>
-            <button>Save credentials</button>
-          </form>
-          <p>
-            ${authorized ? 'Authorized.' : 'Not authorized.'}
-            ${client
-              ? html`<form method="post" action="/garmin_auth">${token(c)}<button>Authorize with Garmin</button></form>`
-              : ''}
-          </p>
-          ${removable.options
-            .filter((file) => file.startsWith('gar'))
+        [
+          makeForm(
+            'garmin-credentials',
+            `/garmin/${rider.username}/`,
+            [
+              field('username', 'Username', { value: client?.[0] ?? '', required: true }),
+              secret('password', 'Password', !!client),
+            ],
+            'Save credentials',
+          ),
+          ...(client ? [makeForm('garmin-authorize', '/garmin_auth', [], 'Authorize with Garmin')] : []),
+          ...removable.options
+            .filter((file) => file.startsWith('gar') && runtime.services.files.exists(resolve(folder(rider), file)))
             .map((file) =>
-              runtime.services.files.exists(resolve(folder(rider), file))
-                ? html`<form method="post" action="/delete/${file}">${token(c)}<button>Remove ${file}</button></form>`
-                : '',
-            )}`,
+              makeForm(`remove-${file}`, `/delete/${file}`, [], `Remove ${file}`, { confirmation: `Remove ${file}?` }),
+            ),
+        ],
+        { message, failed, paragraphs: [authorized ? 'Authorized.' : 'Not authorized.'] },
       ),
+      redirect,
     );
   }
 
@@ -334,9 +381,9 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     if (c.req.method !== 'POST') return garminPage(c, rider);
     const form = await csrf(c, runtime);
     const username = text.parse(form.username).trim();
-    const password = text.parse(form.password);
+    const password = text.parse(form.password) || connections.read(rider.player_id, 'garmin')?.[1];
 
-    if (!username || !password) return garminPage(c, rider, "Garmin credentials can't be empty.");
+    if (!username || !password) return garminPage(c, rider, "Garmin credentials can't be empty.", true);
 
     connections.save(rider.player_id, 'garmin', [username, password]);
 
@@ -357,37 +404,56 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       );
 
       if (outcome === 'mfa')
-        return c.html(
-          page(
+        return launcherPage(
+          c,
+          runtime,
+          model(
+            c,
+            'connection',
             'Garmin verification',
-            html`<form method="post" action="/garmin_auth">
-              ${token(c)}<label>Verification code<input name="code" autocomplete="one-time-code" required /></label>
-              <button>Verify</button>
-            </form>`,
+            [
+              makeForm(
+                'garmin-mfa',
+                '/garmin_auth',
+                [
+                  field('code', 'Verification code', {
+                    type: 'password',
+                    required: true,
+                    maxLength: 32,
+                    autocomplete: 'one-time-code',
+                  }),
+                ],
+                'Verify',
+              ),
+            ],
+            { links: [{ href: `/garmin/${rider.username}/`, label: 'Restart Garmin authorization' }] },
           ),
         );
 
       return garminPage(c, rider, 'Garmin authorized.');
     } catch {
-      return garminPage(c, rider, 'Garmin authorization failed or expired. Try again.');
+      return garminPage(c, rider, 'Garmin authorization failed or expired. Try again.', true);
     }
   });
 
   app.post('/delete/*', async (c) => {
     const rider = authenticated(c);
-    await csrf(c, runtime);
+    const input = await csrf(c, runtime);
 
     const file = removable.safeParse(decodeURIComponent(c.req.path.slice('/delete/'.length)));
 
     if (!file.success) throw new HTTPException(403);
+
+    if (input.confirm_action !== 'on') throw new HTTPException(400, { message: 'Confirm the removal first.' });
     runtime.services.files.remove(resolve(folder(rider), file.data), { force: true });
 
-    if (file.data.startsWith('strava')) return c.redirect(`/strava/${rider.username}/`);
+    if (file.data.startsWith('strava'))
+      return stravaPage(c, rider, `Removed ${file.data}.`, false, `/strava/${rider.username}/`);
 
     if (file.data.startsWith('garmin') || file.data.startsWith('garth'))
-      return c.redirect(`/garmin/${rider.username}/`);
+      return garminPage(c, rider, `Removed ${file.data}.`, false, `/garmin/${rider.username}/`);
 
-    return c.redirect(`/settings/${rider.username}/`);
+    return zwiftPage(c, rider, `Removed ${file.data}.`, false, `/settings/${rider.username}/`);
   });
 
   app.on(['GET', 'POST'], '/power_curves/:username/', async (c) => {
@@ -396,9 +462,19 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     if (c.req.method === 'POST') {
       const form = await csrf(c, runtime);
 
+      if (form.confirm_action !== 'on')
+        throw new HTTPException(400, { message: 'Confirm deleting power curves first.' });
       service.deletePowerCurve(rider.player_id);
 
-      if (!form.create) return c.redirect(`/settings/${rider.username}/`);
+      if (!form.create)
+        return launcherPage(
+          c,
+          runtime,
+          model(c, 'message', 'Power curves', [], {
+            message: form.create ? 'Power curves rebuilt.' : 'Power curves deleted.',
+          }),
+          `/settings/${rider.username}/`,
+        );
       const fit = resolve(folder(rider), 'fit');
 
       if (runtime.services.files.exists(fit))
@@ -412,17 +488,28 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
             runtime.world.lifecycle.log.warn('activity.power_curve_unavailable', 'Power curve unavailable');
           }
 
-      return c.redirect(`/settings/${rider.username}/`);
+      return launcherPage(
+        c,
+        runtime,
+        model(c, 'message', 'Power curves', [], {
+          message: form.create ? 'Power curves rebuilt.' : 'Power curves deleted.',
+        }),
+        `/settings/${rider.username}/`,
+      );
     }
 
-    return c.html(
-      page(
-        'Power curves',
-        html`<form method="post">
-          ${token(c)}<label><input type="checkbox" name="create" />Recreate from saved activities</label
-          ><button>Delete existing power curves</button>
-        </form>`,
-      ),
+    return launcherPage(
+      c,
+      runtime,
+      model(c, 'maintenance', 'Power curves', [
+        makeForm(
+          'power-curves',
+          `/power_curves/${rider.username}/`,
+          [checkbox('create', 'Recreate from saved activities')],
+          'Delete existing power curves',
+          { confirmation: 'Delete existing power curves? Rebuilding may take some time.' },
+        ),
+      ]),
     );
   });
 
@@ -467,11 +554,20 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
   app.post('/restart', async (c) => {
     const { rider, allowed } = admin(c);
-    await csrf(c, runtime);
+    const input = await csrf(c, runtime);
+
+    if (input.confirm_action !== 'on') throw new HTTPException(400, { message: 'Confirm the server command first.' });
 
     if (allowed) restart.start();
 
-    return c.redirect(`/user/${rider.username}/`);
+    return launcherPage(
+      c,
+      runtime,
+      model(c, 'message', 'Server', [], {
+        message: 'Restart scheduled. The server will disconnect riders when it restarts.',
+      }),
+      `/user/${rider.username}/`,
+    );
   });
 
   app.post('/cancelrestart', async (c) => {
@@ -480,15 +576,27 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
     if (allowed) restart.cancel();
 
-    return c.redirect(`/user/${rider.username}/`);
+    return launcherPage(
+      c,
+      runtime,
+      model(c, 'message', 'Server', [], { message: 'Restart canceled.' }),
+      `/user/${rider.username}/`,
+    );
   });
 
   app.post('/reloadbots', async (c) => {
     const { rider, allowed } = admin(c);
-    await csrf(c, runtime);
+    const input = await csrf(c, runtime);
+
+    if (input.confirm_action !== 'on') throw new HTTPException(400, { message: 'Confirm the server command first.' });
 
     if (allowed) runtime.world.simulation?.reload();
 
-    return c.redirect(`/user/${rider.username}/`);
+    return launcherPage(
+      c,
+      runtime,
+      model(c, 'message', 'Server', [], { message: 'Bots reloaded.' }),
+      `/user/${rider.username}/`,
+    );
   });
 }

@@ -1,3 +1,4 @@
+import { inputValue } from '#tests/support/html';
 import { createApp } from '#src/http/app';
 import { migrateAccounts } from '#src/migrations/accounts';
 import { LoginRequestSchema, LoginResponseSchema } from '#src/protocol/generated/login_pb';
@@ -41,7 +42,7 @@ function browser(app: ReturnType<typeof createApp>) {
     async picker() {
       const response = await client.request('/login/');
       const text = await response.text();
-      csrf = /name="csrf_token"\s+value="([^"]+)"/.exec(text)?.[1] ?? '';
+      csrf = inputValue(text, 'csrf_token') ?? '';
 
       return text;
     },
@@ -66,7 +67,7 @@ await test('first-owner setup and passwordless rider selection are real HTTP flo
   const setup = await client.request(redirect.headers.get('Location')!);
   const html = await setup.text();
   assert.match(html, /<link rel="stylesheet" href="\/style\/site.css"/);
-  const csrf = /name="csrf_token"\s+value="([^"]+)"/.exec(html)?.[1] ?? '';
+  const csrf = inputValue(html, 'csrf_token') ?? '';
 
   assert.match(html, /<title>Add rider<\/title>/);
   assert.ok(!html.includes('setup_token'));
@@ -153,7 +154,7 @@ await test('folder collisions, failed duplicate username and unsafe names preser
   await assert.rejects(f.accounts.create('Duplicate', '', false, user.username));
   assert.equal(existsSync(resolve(f.accounts.storage, '9')), false);
   const html = await browser(f.app).picker();
-  assert.ok(html.includes('&lt;script&gt;'));
+  assert.match(html, /&lt;script(?:&gt;|>)/);
   assert.ok(!html.includes('<script>evil'));
 });
 

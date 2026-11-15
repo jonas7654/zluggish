@@ -1,3 +1,4 @@
+import { inputValue } from '#tests/support/html';
 import {
   LoginRequestSchema,
   LoginResponseSchema,
@@ -56,7 +57,7 @@ await test('Calendar clears pending map and climb selections for the launching c
       const response = await f.app.request(path, { ...init, headers: { Cookie: cookie } });
       cookie = response.headers.getSetCookie().at(-1)?.split(';', 1)[0] ?? cookie;
       const text = await response.clone().text();
-      csrf = /name="csrf_token"\s+value="([^"]+)"/.exec(text)?.[1] ?? csrf;
+      csrf = inputValue(text, 'csrf_token') ?? csrf;
 
       return response;
     };

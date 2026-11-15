@@ -9,6 +9,7 @@ import { defineConfig } from 'eslint/config';
 import globals from 'globals';
 import { createTypeScriptImportResolver } from 'eslint-import-resolver-typescript';
 import typescriptEslint from 'typescript-eslint';
+import svelte from 'eslint-plugin-svelte';
 
 export default defineConfig([
   {
@@ -139,5 +140,27 @@ export default defineConfig([
         },
       },
     ],
+  },
+  ...svelte.configs.recommended,
+  {
+    basePath: fileURLToPath(new URL('.', import.meta.url)),
+    files: ['web/**/*.svelte'],
+    languageOptions: {
+      parserOptions: { parser: typescriptEslint.parser },
+      globals: globals.browser,
+    },
+    rules: { 'svelte/no-at-html-tags': 'error', 'svelte/prefer-svelte-reactivity': 'off' },
+  },
+  {
+    basePath: fileURLToPath(new URL('.', import.meta.url)),
+    files: ['web/**/*.ts'],
+    languageOptions: { parser: typescriptEslint.parser, globals: { ...globals.browser, ...globals.node } },
+    rules: {
+      ...typescriptEslint.configs.recommended[2].rules,
+      'no-undef': 'off',
+      'unicorn/consistent-boolean-name': 'off',
+      'unicorn/prefer-simple-condition-first': 'off',
+      'import-x/no-unresolved': ['error', { ignore: ['^vite/modulepreload-polyfill$'] }],
+    },
   },
 ]);

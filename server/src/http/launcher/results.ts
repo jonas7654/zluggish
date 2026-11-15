@@ -1,0 +1,39 @@
+import type { FormResult, LauncherSaved } from '#src/dtos/launcher.dto';
+import type { RuntimeEnv } from '#src/http/runtime';
+import type { Context } from 'hono';
+
+// Explicit browser routes only. Protocol APIs and the native handoff are excluded.
+const routes = [
+  /^\/login\/$/,
+  /^\/riders\/(?:add|switch)\/$/,
+  /^\/(?:user|settings|reset|zwift|strava|garmin|intervals|trainingpeaks|profile|power_curves)\/[^/]+\/$/,
+  /^\/profile\/[^/]+\/confirm\/$/,
+  /^\/(?:intervals|trainingpeaks)\/[^/]+\/sync$/,
+  /^\/(?:garmin_auth|restart|cancelrestart|reloadbots)$/,
+  /^\/delete\/[^/]+$/,
+  /^\/ui\/status\/(?:uploads|session)$/,
+];
+
+export function browserJson(c: Context<RuntimeEnv>) {
+  return c.req.header('Accept')?.includes('application/json') && routes.some((route) => route.test(c.req.path));
+}
+
+export function navigationPath(path: string) {
+  return (
+    /^\/(?:login\/|riders\/add\/|(?:user|settings|profile|zwift|strava|garmin|intervals|trainingpeaks)\/[^/?#]+\/(?:confirm\/)?)$/.test(
+      path,
+    ) &&
+    !path.includes('\\') &&
+    !/%(?:2f|5c)/i.test(path)
+  );
+}
+
+export function launcherRedirect(c: Context<RuntimeEnv>, path: string) {
+  if (!navigationPath(path)) throw new Error('Unsafe launcher redirect');
+  c.header('Cache-Control', 'no-store');
+
+  if (!browserJson(c)) return c.redirect(path);
+  const result: FormResult<LauncherSaved> = { ok: true, data: {}, redirectTo: path };
+
+  return c.json(result);
+}

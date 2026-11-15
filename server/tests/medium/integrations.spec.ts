@@ -1,3 +1,4 @@
+import { inputValue } from '#tests/support/html';
 import { createApp } from '#src/http/app';
 import { UploadsService } from '#src/services/uploads.service';
 import { Connections } from '#src/repositories/connections.repository';
@@ -40,13 +41,13 @@ function browser(app: ReturnType<typeof createApp>) {
     async signIn(player: number, username: string) {
       const response1 = await client.request('/login/');
       const picker = await response1.text();
-      csrf = /name="csrf_token"\s+value="([^"]+)"/.exec(picker)?.[1] ?? '';
+      csrf = inputValue(picker, 'csrf_token') ?? '';
       await client.form('/login/', { player_id: String(player) });
 
       // Signing in starts a fresh browser session with its own CSRF token.
       const response2 = await client.request(`/user/${username}/`);
       const home = await response2.text();
-      csrf = /name="csrf_token"\s+value="([^"]+)"/.exec(home)?.[1] ?? '';
+      csrf = inputValue(home, 'csrf_token') ?? '';
     },
   };
 
@@ -94,7 +95,7 @@ await test('Strava credentials are stored encrypted, never echoed, and removal i
   const response5 = await client.form('/delete/..%2Fprofile.bin', {});
   assert.equal(response5.status, 403);
 
-  const removed = await client.form('/delete/strava4_session.txt', {});
+  const removed = await client.form('/delete/strava4_session.txt', { confirm_action: 'on' });
   assert.equal(removed.status, 302);
   assert.equal(existsSync(cookieFile), false);
   const response6 = await f.app.request('/delete/strava_token.txt');
@@ -242,12 +243,12 @@ await test('only administrators can control restarts and bot reloads', async (t)
   ] as const) {
     const client = browser(f.app);
     await client.signIn(user.player_id, user.username);
-    const response = await client.form('/restart', {});
-    assert.equal(response.status, 302);
-    assert.equal(response.headers.get('Location'), `/user/${user.username}/`);
+    const response = await client.form('/restart', { confirm_action: 'on' });
+    assert.equal(response.status, user.is_admin ? 302 : 403);
+    assert.equal(response.headers.get('Location'), user.is_admin ? `/user/${user.username}/` : null);
     assert.equal(queued(), expected);
-    const response7 = await client.form('/reloadbots', {});
-    assert.equal(response7.status, 302);
+    const response7 = await client.form('/reloadbots', { confirm_action: 'on' });
+    assert.equal(response7.status, user.is_admin ? 302 : 403);
   }
 
   const client = browser(f.app);

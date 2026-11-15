@@ -287,7 +287,7 @@ for (const choice of ['profile', 'achievements', 'both']) {
     });
 
     assert.equal(invalidCsrf.status, 400);
-    const removed = await browser.form('/delete/zwift_credentials.bin');
+    const removed = await browser.form('/delete/zwift_credentials.bin', { confirm_action: 'on' });
     assert.equal(removed.status, 302);
     assert.equal(new Connections(f.config.storageDir).read(f.rider.player_id, 'zwift'), null);
   });

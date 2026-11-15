@@ -1,6 +1,6 @@
+import { browserJson } from '#src/http/launcher/results';
 import { ApplicationError } from '#src/errors';
 import { parseProtobuf } from '#src/http/protobuf';
-import { launcherPrototypeRoutes } from '#src/http/routes/launcher-prototype';
 import { accountRoutes, authenticated } from '#src/http/routes/accounts';
 import { activityRoutes } from '#src/http/routes/activities';
 import { assetRoutes } from '#src/http/routes/assets';
@@ -65,7 +65,6 @@ export function createApp(metadata: PublicMetadata, runtime?: Runtime) {
 
   if (runtime) {
     accountRoutes(app, runtime);
-    launcherPrototypeRoutes(app, runtime);
     profileRoutes(app, runtime);
     relayRoutes(app, runtime);
     activityRoutes(app, runtime);
@@ -153,6 +152,32 @@ export function createApp(metadata: PublicMetadata, runtime?: Runtime) {
       }),
     );
   app.onError((error, c) => {
+    if (browserJson(c)) {
+      c.header('Cache-Control', 'no-store');
+
+      if (error instanceof z.ZodError) {
+        const fieldErrors: Record<string, string[]> = {};
+
+        for (const issue of error.issues) {
+          const field = String(issue.path[0] ?? 'form');
+          (fieldErrors[field] ??= []).push(issue.message);
+        }
+
+        return c.json({ ok: false, message: 'Check the form fields.', fieldErrors }, 400);
+      }
+
+      if (error instanceof HTTPException || error instanceof ApplicationError) {
+        const status = error.status;
+        const reload = status === 401 || error.message.includes('Reload') || error.message.includes('expired');
+
+        return c.json({ ok: false, message: error.message || 'The request was refused.', reload }, status);
+      }
+
+      log.error('http.failed', 'Launcher request failed', { requestId: c.get('requestId'), error });
+
+      return c.json({ ok: false, message: 'Could not save. Try again.' }, 500);
+    }
+
     if (error instanceof ApplicationError)
       return new HTTPException(error.status, { message: error.message }).getResponse();
 

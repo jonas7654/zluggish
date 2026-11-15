@@ -1,3 +1,4 @@
+import { inputValue } from '#tests/support/html';
 import assert from 'node:assert/strict';
 import type { TestContext } from 'node:test';
 import type { DescMessage } from '@bufbuild/protobuf';
@@ -41,7 +42,7 @@ export async function mediumBrowser(f: Awaited<ReturnType<typeof mediumFixture>>
     const response = await f.app.request(path, { ...init, headers });
     cookie = response.headers.getSetCookie().at(-1)?.split(';', 1)[0] ?? cookie;
     const body = await response.clone().text();
-    csrf = /name="csrf_token"\s+value="([^"]+)"/.exec(body)?.[1] ?? csrf;
+    csrf = inputValue(body, 'csrf_token') ?? csrf;
 
     return response;
   };
