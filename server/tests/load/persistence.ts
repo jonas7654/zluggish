@@ -39,6 +39,9 @@ const { values } = parseArgs({
     'media-mb': { type: 'string', default: '32' },
     'phase-seconds': { type: 'string', default: '8' },
     'long-reader': { type: 'boolean', default: false },
+    // macOS fsync() does not flush the drive cache; F_FULLFSYNC does. SQLite uses it
+    // with this pragma, which makes each commit pay a real flush.
+    'full-fsync': { type: 'boolean', default: false },
     storage: { type: 'string' },
     output: { type: 'string' },
   },
@@ -202,6 +205,8 @@ for (let index = 0; index < riders; index++) {
   fleet.push({ id, activity, auth, tick: 0, riding: false });
 }
 
+if (values['full-fsync']) accounts.db.exec('PRAGMA fullfsync=ON; PRAGMA checkpoint_fullfsync=ON;');
+
 const simulation = new Simulation(runtime);
 
 await simulation.ready;
@@ -344,6 +349,7 @@ const result = {
     phaseSeconds,
     fitBytes: fit.length,
     longReader: values['long-reader'],
+    fullFsync: values['full-fsync'],
   },
   pendingJobs: accounts.repositories.jobsRepository.list().filter((job) => job.state !== 'done').length,
   providerCalls,
