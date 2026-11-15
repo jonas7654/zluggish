@@ -128,6 +128,7 @@ export const configSchema = z
       .strictObject({
         unlockEntitlements: z.boolean().default(false),
         unlockAll: z.boolean().default(false),
+        unlockBikeUpgrades: z.boolean().default(false),
       })
       .prefault({})
       .readonly(),

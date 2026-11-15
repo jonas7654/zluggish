@@ -1,3 +1,5 @@
+import { validateConfig } from '#src/config/index';
+import { StorageService } from '#src/services/storage.service';
 import { createCdn } from '#src/node/network/cdn';
 import { AchievementsSchema, PlayerProfileSchema } from '#src/protocol/generated/profile_pb';
 import { RouteResultSaveRequestSchema } from '#src/protocol/generated/route-result_pb';
@@ -311,4 +313,58 @@ await test('zfile uploads cannot create internal import journals through either 
 
   assert.equal(f.accounts.db.prepare('SELECT count(*) AS n FROM zfile').get()?.n, 0);
   assert.doesNotThrow(() => new ImportsService(f.accounts, f.world).recover());
+});
+
+await test('bike upgrade unlocks include extra frames, preserve settings and leave saved progress unchanged', async (t) => {
+  const f = await mediumFixture(t);
+  const id = f.rider.player_id;
+  await f.request('/api/player-profile/user-game-storage/attributes', {
+    method: 'POST',
+    ...binary(UserStorageSchema, {
+      attributes: [{ bikeProgress: { signature: '270803031', level: 2 }, gameSettings: { minimalLeaderboards: 1 } }],
+    }),
+  });
+  const file = resolve(f.profiles.folder(id), 'user_storage.bin');
+  const before = readFileSync(file);
+
+  const service = new StorageService({
+    ...f,
+    config: validateConfig({ storageDir: f.config.storageDir, equipment: { unlockBikeUpgrades: true } }),
+  });
+
+  const start = BigInt(Date.now());
+  const result = service.attributes(id, new Set([24, 22]));
+
+  const dictionary = z
+    .object({ bikeframes: z.record(z.string(), z.string()), bikeframesextra: z.record(z.string(), z.string()) })
+    .parse(JSON.parse(readFileSync(resolve(f.assets, 'data/game_dictionary.txt'), 'utf8')));
+
+  const bikes = result.attributes.flatMap((a) => (a.bikeProgress ? [a.bikeProgress] : []));
+  assert.equal(
+    bikes.length,
+    Object.keys(dictionary.bikeframes).length + Object.keys(dictionary.bikeframesextra).length,
+  );
+  assert.deepEqual(
+    new Set(bikes.map((b) => b.signature)),
+    new Set([...Object.keys(dictionary.bikeframes), ...Object.keys(dictionary.bikeframesextra)]),
+  );
+
+  for (const bike of bikes) {
+    assert.equal(bike.level, 5);
+    assert.equal(bike.percentage, 1);
+    assert.ok(bike.time !== undefined && bike.time >= start);
+    assert.equal(bike.lastUpgrade, bike.time);
+  }
+
+  assert.equal(result.attributes.filter((a) => a.gameSettings).length, 1);
+  assert.equal(service.attributes(id, new Set([22])).attributes.length, 1);
+  assert.equal(service.attributes(id, new Set()).attributes.length, 0);
+  assert.deepEqual(readFileSync(file), before);
+
+  const original = await decode(
+    await f.request('/api/player-profile/user-game-storage/attributes?n=24'),
+    UserStorageSchema,
+  );
+
+  assert.equal(original.attributes[0]?.bikeProgress?.level, 2);
 });

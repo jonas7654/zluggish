@@ -1,4 +1,4 @@
-<img src="https://raw.githubusercontent.com/zluggish/zluggish/feat/hono/media/zluggish.svg" alt="An orange snail with a Z" height="200">
+<img src="https://raw.githubusercontent.com/zluggish/zluggish/main/media/zluggish.svg" alt="An orange snail with a Z" height="200">
 
 # Zluggish
 
@@ -416,6 +416,7 @@ export default defineConfig({
 <details><summary>Entitlements</summary>
 
 - To unlock entitlements (special equipment), set `equipment.unlockEntitlements` to `true` in `zluggish.config.ts`.
+- To unlock bike upgrades, set `equipment.unlockBikeUpgrades` to `true` in `zluggish.config.ts`.
 - To unlock all equipment, set `equipment.unlockAll` to `true` instead.
 
 </details>

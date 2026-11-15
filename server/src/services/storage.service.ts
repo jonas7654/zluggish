@@ -6,7 +6,7 @@ import type { UserStorage } from '#src/protocol/generated/user_storage_pb';
 import { AttributesSchema, UserStorageSchema } from '#src/protocol/generated/user_storage_pb';
 import { AchievementService } from '#src/services/achievement.service';
 import { BaseService } from '#src/services/base.service';
-import { create, isFieldSet } from '@bufbuild/protobuf';
+import { clone, create, isFieldSet } from '@bufbuild/protobuf';
 import { reflect } from '@bufbuild/protobuf/reflect';
 import { resolve } from 'node:path';
 import { z } from 'zod';
@@ -51,11 +51,47 @@ export class StorageService extends BaseService {
       resolve(this.context.profiles.folder(id), 'user_storage.bin'),
     );
 
-    return create(UserStorageSchema, {
-      attributes: storage.attributes.filter((attribute) =>
-        AttributesSchema.fields.some((field) => requested.has(field.number) && isFieldSet(attribute, field)),
+    const unlockBikes = requested.has(24) && this.context.config.equipment.unlockBikeUpgrades;
+
+    const attributes = storage.attributes.filter((attribute) =>
+      AttributesSchema.fields.some(
+        (field) => requested.has(field.number) && !(unlockBikes && field.number === 24) && isFieldSet(attribute, field),
       ),
-    });
+    );
+
+    if (unlockBikes) {
+      // A stored attribute can contain both progress and unrelated settings.
+      for (let index = 0; index < attributes.length; index++) {
+        const attribute = clone(AttributesSchema, attributes[index]!);
+        delete attribute.bikeProgress;
+        attributes[index] = attribute;
+      }
+
+      const dictionary = z
+        .object({
+          bikeframes: z.record(z.string(), z.string()),
+          bikeframesextra: z.record(z.string(), z.string()).default({}),
+        })
+        .parse(
+          JSON.parse(
+            this.filesRepository.readFileSync(resolve(this.context.assets, 'data/game_dictionary.txt'), 'utf8'),
+          ),
+        );
+
+      const now = BigInt(Date.now());
+
+      for (const signature of new Set([
+        ...Object.keys(dictionary.bikeframes),
+        ...Object.keys(dictionary.bikeframesextra),
+      ]))
+        attributes.push(
+          create(AttributesSchema, {
+            bikeProgress: { signature, level: 5, percentage: 1, lastUpgrade: now, time: now },
+          }),
+        );
+    }
+
+    return create(UserStorageSchema, { attributes });
   }
 
   saveAttributes(id: number, incoming: UserStorage) {

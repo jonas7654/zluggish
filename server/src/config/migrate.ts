@@ -163,6 +163,7 @@ export function migrationCandidate(options: MigrationOptions) {
     equipment: {
       unlockEntitlements: exists('unlock_entitlements.txt'),
       unlockAll: exists('unlock_all_equipment.txt'),
+      unlockBikeUpgrades: exists('unlock_bike_upgrades.txt'),
     },
     proxy: {
       mode: exists('cdn-proxy.txt') ? 'enabled' : exists('disable_proxy.txt') ? 'disabled' : 'auto',
