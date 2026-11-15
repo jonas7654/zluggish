@@ -129,7 +129,14 @@ mkdirSync(storage, { recursive: true });
 
 const accounts = new AccountsService(storage);
 const sessions = new SessionsService(accounts);
-const config = validateConfig({ storageDir: storage, logging: { level: 'ERROR', rideProgressIntervalSeconds: 0 } });
+
+const config = validateConfig({
+  storageDir: storage,
+  logging: { level: 'ERROR', rideProgressIntervalSeconds: 0 },
+  // A short interval puts several ride recovery checkpoints in each phase.
+  recovery: { checkpointSeconds: 5 },
+});
+
 const assets = resolve(packageRoot(), '../assets');
 
 const tokens = z
@@ -218,6 +225,8 @@ const checkpoints = new CheckpointRepository(accounts.db, resolve(storage, 'zlug
 checkpoints.start();
 
 runtime.services.durability.start();
+
+runtime.services.recovery.start();
 
 runtime.services.uploads.start();
 
@@ -326,6 +335,8 @@ clearInterval(driver);
 await simulation.close();
 
 await runtime.services.jobs.close();
+
+await runtime.services.recovery.close();
 
 await runtime.services.durability.close();
 

@@ -57,11 +57,13 @@ export async function openRuntime(config: ResolvedConfig, assets: string) {
     resources.defer(() => runtime.discord?.close());
     resources.defer(() => runtime.services.jobs.close());
     resources.defer(() => simulation.close());
+    resources.defer(() => runtime.services.recovery.close());
     resources.defer(() => world.lifecycle.close());
     resources.defer(runtime.services.metrics.start(config.logging.metricsIntervalSeconds));
     await simulation.ready;
     simulation.start();
     runtime.services.durability.start();
+    runtime.services.recovery.start();
     runtime.services.uploads.start();
     runtime.services.retention.schedule();
     runtime.services.jobs.start();

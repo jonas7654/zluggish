@@ -8,6 +8,8 @@ export const Metric = {
   WalBytes: 'db.wal_bytes',
   Checkpoint: 'db.checkpoint_ms',
   Flush: 'db.flush_ms',
+  RecoveryAppend: 'recovery.append_ms',
+  RecoveryBytes: 'recovery.file_bytes',
   QueueDepth: 'persistence.queue_depth',
   QueueWait: 'persistence.queue_wait_ms',
   QueueRejected: 'persistence.rejected',

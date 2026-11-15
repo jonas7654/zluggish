@@ -47,3 +47,7 @@ Automatic retry of ambiguous deliveries is allowed only for a provider that reli
 `zluggish storage restore` sets a persistent upload pause in the restored database: a delivery can succeed after its backup was made. While the pause is set, no delivery job runs. Review the waiting deliveries with `zluggish uploads list`, cancel unwanted ones with `zluggish uploads cancel --activity ID --provider NAME`, then run `zluggish uploads resume --confirm`.
 
 A manual directory copy cannot identify itself as a restore. After a manual restore, run `zluggish uploads pause` before the first server start.
+
+## Unfinished rides
+
+The server keeps each rider's ride history (the source of the ghost recording) in `<rider>/ride-recovery.bin`. Every 30 seconds it appends the new samples. After a crash or restart, a login within 15 minutes on the same course gets the history back, so the ghost recording of the finished activity is complete. The activity and its FIT data come from the game client: the server never completes or uploads a ride because its connection ends. Finishing the activity or logging out removes the recording.

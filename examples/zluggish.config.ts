@@ -2,6 +2,7 @@ import { defineConfig } from 'zluggish/config';
 
 export default defineConfig({
   storageDir: '../storage',
+  recovery: { checkpointSeconds: 30, resumeMinutes: 15, maxBytes: 4194304 },
   retention: {
     finishedJobsDays: 14,
     deliveryRecordsDays: 365,

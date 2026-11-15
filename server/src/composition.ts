@@ -15,6 +15,7 @@ import { ProfilesService } from '#src/services/profile.service';
 import { RecordDataService } from '#src/services/record-data.service';
 import { RecordsService } from '#src/services/records.service';
 import { RetentionService } from '#src/services/retention.service';
+import { RideRecoveryService } from '#src/services/ride-recovery.service';
 import { SettingsService } from '#src/services/settings.service';
 import { SocialService } from '#src/services/social.service';
 import { StorageService } from '#src/services/storage.service';
@@ -50,6 +51,7 @@ export function createServices(context: RepositoryContext) {
     integrations: new IntegrationsService(context),
     metrics: new MetricsService(context),
     jobs: new JobsService(context),
+    recovery: new RideRecoveryService(context),
     retention: new RetentionService(context.accounts.repositories, context.config.retention, context.config.storageDir),
   };
 

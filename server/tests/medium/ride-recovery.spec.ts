@@ -1,0 +1,139 @@
+import { ActivitySchema } from '#src/protocol/generated/activity_pb';
+import { GhostSchema, PlayerStateSchema } from '#src/protocol/generated/udp-node-msgs_pb';
+import { RideRecoveryService } from '#src/services/ride-recovery.service';
+import { World, worldTime } from '#src/world/state';
+import { binary, mediumFixture } from '#tests/medium/support';
+import { create, fromBinary } from '@bufbuild/protobuf';
+import assert from 'node:assert/strict';
+import { existsSync, readdirSync, readFileSync, truncateSync, utimesSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { test } from 'node:test';
+import { z } from 'zod';
+
+const sample = (id: bigint, index: number, courseId = 6) =>
+  create(PlayerStateSchema, {
+    id,
+    roadTime: 1000 + index,
+    worldTime: worldTime() + BigInt(index) * 3000n,
+    f19: (courseId << 16) | 4,
+    aux3: 1 << 8,
+    distance: index * 30,
+  });
+
+async function riding(t: Parameters<typeof mediumFixture>[0]) {
+  const f = await mediumFixture(t);
+  f.services.recovery.start();
+  t.after(() => f.services.recovery.close());
+  const id = BigInt(f.rider.player_id);
+  f.world.login(id, new Uint8Array(16));
+  await f.services.recovery.recordings.idle();
+
+  return { f, id, path: f.services.recovery.recordings.path(f.rider.player_id) };
+}
+
+function ride(world: World, id: bigint, from: number, to: number, courseId = 6) {
+  for (let index = from; index < to; index++) world.receive(id, sample(id, index, courseId));
+}
+
+await test('checkpoints append only new samples; a cut last record is ignored', async (t) => {
+  const { f, id, path } = await riding(t);
+  ride(f.world, id, 0, 10);
+  await f.services.recovery.checkpoint();
+  const first = await f.services.recovery.recordings.read(f.rider.player_id);
+  assert.equal(first?.states.length, 10);
+  await f.services.recovery.checkpoint();
+  ride(f.world, id, 10, 15);
+  await f.services.recovery.checkpoint();
+  const recorded = await f.services.recovery.recordings.read(f.rider.player_id);
+  assert.deepEqual(
+    recorded?.states.map((state) => state.distance),
+    Array.from({ length: 15 }, (_, index) => index * 30),
+  );
+
+  truncateSync(path, readFileSync(path).length - 3);
+  const cut = await f.services.recovery.recordings.read(f.rider.player_id);
+  assert.equal(cut?.states.length, 14);
+});
+
+await test('a restarted server resumes a recent ride on the same course and its ghost keeps every sample', async (t) => {
+  const { f, id } = await riding(t);
+  f.settings.save(f.rider.player_id, { 'ghosts.enabled': true });
+  ride(f.world, id, 0, 20);
+  await f.services.recovery.close();
+
+  // The process stops: memory is gone. A new world resumes from the recording.
+  const world = new World();
+  const restarted = new RideRecoveryService({ ...f, world });
+  restarted.start();
+  t.after(() => restarted.close());
+  world.login(id, new Uint8Array(16));
+  await restarted.recordings.idle();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  ride(world, id, 20, 25);
+  await restarted.checkpoint();
+  assert.equal(world.histories.get(id)?.length, 25);
+  await restarted.checkpoint();
+  const recording = await restarted.recordings.read(f.rider.player_id);
+  assert.equal(recording?.states.length, 25);
+
+  const services = { ...f, world };
+
+  const response = await f.request(`/api/profiles/${f.rider.player_id}/activities`, {
+    method: 'POST',
+    ...binary(ActivitySchema, { playerId: id, courseId: 6n, name: 'Recovered', startDate: new Date().toISOString() }),
+  });
+
+  const { id: activity } = z.object({ id: z.number() }).parse(await response.json());
+  f.world.histories.set(id, world.histories.get(id) ?? []);
+  services.services.activities.finalize(
+    create(ActivitySchema, {
+      id: BigInt(activity),
+      playerId: id,
+      courseId: 6n,
+      name: 'Recovered',
+      startDate: new Date().toISOString(),
+      distanceInMeters: 3000,
+    }),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const folder = resolve(f.profiles.folder(f.rider.player_id), 'ghosts', '6', '1');
+  const ghost = fromBinary(GhostSchema, readFileSync(resolve(folder, readdirSync(folder)[0] ?? '')));
+  assert.equal(ghost.states.length, 25);
+});
+
+await test('a recording on another course or past the resume window is discarded', async (t) => {
+  const { f, id, path } = await riding(t);
+  ride(f.world, id, 0, 5);
+  await f.services.recovery.checkpoint();
+  f.world.login(id, new Uint8Array(16));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  ride(f.world, id, 5, 6, 7);
+  await f.services.recovery.checkpoint();
+  await f.services.recovery.recordings.idle();
+  assert.equal(f.world.histories.get(id)?.length, 1, 'another course starts a new history');
+
+  ride(f.world, id, 6, 9, 7);
+  await f.services.recovery.checkpoint();
+  const old = (Date.now() - 16 * 60_000) / 1000;
+  utimesSync(path, old, old);
+  f.world.login(id, new Uint8Array(16));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  await f.services.recovery.recordings.idle();
+  assert.equal(existsSync(path), false);
+});
+
+await test('a connection end neither completes nor uploads a ride, and keeps the recording', async (t) => {
+  const { f, id, path } = await riding(t);
+  f.services.documents.put(f.rider.player_id, 'runalyze_token.txt', 'token');
+  ride(f.world, id, 0, 5);
+  await f.services.recovery.checkpoint();
+  f.world.logout(id, 'inactivity_timeout');
+  await f.services.recovery.recordings.idle();
+  assert.ok(existsSync(path));
+  assert.equal(f.accounts.db.prepare('SELECT count(*) AS n FROM activity_completion').get()?.n, 0);
+  assert.equal(f.accounts.db.prepare('SELECT count(*) AS n FROM job').get()?.n, 0);
+
+  f.world.logout(id, 'activity_finished');
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(existsSync(path), false);
+});
