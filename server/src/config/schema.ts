@@ -179,6 +179,12 @@ export const configSchema = z
           .min(0)
           .refine((value) => value === 0 || value >= 10, 'Use 0 or at least 10 seconds')
           .default(60),
+        metricsIntervalSeconds: z
+          .number()
+          .int()
+          .min(0)
+          .refine((value) => value === 0 || value >= 10, 'Use 0 or at least 10 seconds')
+          .default(60),
       })
       .prefault({})
       .readonly(),

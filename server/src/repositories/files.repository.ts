@@ -1,4 +1,5 @@
 import { CryptoRepository } from '#src/repositories/crypto.repository';
+import { Metric, metrics } from '#src/repositories/metrics.repository';
 import type { DescMessage } from '@bufbuild/protobuf';
 import { create, fromBinary, toBinary } from '@bufbuild/protobuf';
 import {
@@ -30,6 +31,32 @@ function syncDirectory(path: string) {
   }
 }
 
+// temporary -> fsynced -> linked/renamed -> directory synced; failure retains no success marker.
+function publish(path: string, text: string | Uint8Array, replace: boolean) {
+  mkdirSync(dirname(path), { recursive: true });
+  const temporary = `${path}.${new CryptoRepository().randomUUID()}.tmp`;
+  const fd = openSync(temporary, 'wx', 0o600);
+
+  try {
+    writeFileSync(fd, text, 'utf8');
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+
+  try {
+    if (replace) renameSync(temporary, path);
+    else {
+      linkSync(temporary, path);
+      unlinkSync(temporary);
+    }
+
+    syncDirectory(dirname(path));
+  } finally {
+    rmSync(temporary, { force: true });
+  }
+}
+
 export class AssetFiles {
   readData<Schema extends DescMessage>(schema: Schema, path: string) {
     return existsSync(path) ? fromBinary(schema, readFileSync(path)) : create(schema);
@@ -51,30 +78,9 @@ export class AssetFiles {
     if (existsSync(path)) unlinkSync(path);
   }
 
-  // temporary -> fsynced -> linked/renamed -> directory synced; failure retains no success marker.
   writeDurable(path: string, text: string | Uint8Array, replace = false) {
-    mkdirSync(dirname(path), { recursive: true });
-    const temporary = `${path}.${new CryptoRepository().randomUUID()}.tmp`;
-    const fd = openSync(temporary, 'wx', 0o600);
-
-    try {
-      writeFileSync(fd, text, 'utf8');
-      fsyncSync(fd);
-    } finally {
-      closeSync(fd);
-    }
-
-    try {
-      if (replace) renameSync(temporary, path);
-      else {
-        linkSync(temporary, path);
-        unlinkSync(temporary);
-      }
-
-      syncDirectory(dirname(path));
-    } finally {
-      rmSync(temporary, { force: true });
-    }
+    // Callers pass this method unbound, so it must not use `this`.
+    metrics.time(Metric.DurableWrite, () => publish(path, text, replace));
   }
 
   existsSync = existsSync;

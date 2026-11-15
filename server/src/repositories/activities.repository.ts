@@ -1,6 +1,7 @@
 import { integer } from '#src/db/values';
 import type { IntegerInput } from '#src/db/values';
 import { query, SqliteExecutor } from '#src/db/query';
+import { immediate } from '#src/db/transaction';
 import { sql } from 'kysely';
 import type { DatabaseSync } from 'node:sqlite';
 
@@ -48,9 +49,7 @@ export class ActivitiesRepository {
   }
 
   deleteActivityData(id: IntegerInput, player: number | bigint) {
-    this.db.exec('BEGIN IMMEDIATE');
-
-    try {
+    immediate(this.db, () => {
       for (const table of [
         'activity_file',
         'activity_image',
@@ -60,11 +59,7 @@ export class ActivitiesRepository {
       ] as const)
         this.executor.run(query.deleteFrom(table).where('activity_id', '=', integer(id)));
       this.deleteActivity(id, player);
-      this.db.exec('COMMIT');
-    } catch (error) {
-      this.db.exec('ROLLBACK');
-      throw error;
-    }
+    });
   }
 
   findActivityFile(id: IntegerInput) {

@@ -1,4 +1,5 @@
 import { query, SqliteExecutor } from '#src/db/query';
+import { immediate } from '#src/db/transaction';
 import type { DatabaseSync } from 'node:sqlite';
 import { z } from 'zod';
 
@@ -50,9 +51,7 @@ export class Completions {
   }
 
   complete(id: bigint, providers: string[], save: () => void) {
-    this.db.exec('BEGIN IMMEDIATE');
-
-    try {
+    immediate(this.db, () => {
       save();
 
       for (const provider of providers)
@@ -63,10 +62,6 @@ export class Completions {
             .onConflict((conflict) => conflict.doNothing()),
         );
       this.executor.run(query.updateTable('activity_completion').set({ done: 1 }).where('activity_id', '=', id));
-      this.db.exec('COMMIT');
-    } catch (error) {
-      this.db.exec('ROLLBACK');
-      throw error;
-    }
+    });
   }
 }

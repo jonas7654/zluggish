@@ -1,3 +1,4 @@
+import { Metric, metrics } from '#src/repositories/metrics.repository';
 import { BaseService } from '#src/services/base.service';
 import { Decoder, Stream } from '@garmin/fitsdk';
 import { z } from 'zod';
@@ -18,6 +19,10 @@ const recordSchema = z.object({
 
 export class FitService extends BaseService {
   static decodeFit(bytes: Uint8Array) {
+    return metrics.time(Metric.FitProcessing, () => FitService.decode(bytes));
+  }
+
+  private static decode(bytes: Uint8Array) {
     const decoder = new Decoder(Stream.fromByteArray(bytes));
 
     if (!decoder.isFIT()) throw new Error('Invalid FIT activity');

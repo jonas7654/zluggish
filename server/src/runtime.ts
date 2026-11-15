@@ -54,6 +54,7 @@ export async function openRuntime(config: ResolvedConfig, assets: string) {
     resources.defer(() => simulation.close());
     resources.defer(() => world.lifecycle.close());
     runtime.services.activities.recover();
+    resources.defer(runtime.services.metrics.start(config.logging.metricsIntervalSeconds));
     simulation.start();
     runtime.services.uploads.start();
 

@@ -27,6 +27,7 @@
     "codegen": "buf generate && node scripts/normalize-generated.mjs",
     "test:unit": "node --conditions=development --import tsx --test \"src/**/*.spec.ts\"",
     "test:medium": "node --conditions=development --import tsx --test tests/medium/*.spec.ts",
+    "test:load": "node --conditions=development --import tsx tests/load/persistence.ts",
     "lint:anti-slop": "cd .. && node server/node_modules/oxlint/bin/oxlint --config server/.oxlintrc.json server/src server/tests",
     "lint:eslint": "cd .. && node server/node_modules/eslint/bin/eslint.js --config server/eslint.config.mjs \"server/src/**/*.{ts,tsx}\" \"server/tests/**/*.ts\" --max-warnings 0",
     "cli": "node --conditions=development --import tsx src/cli/bin.ts"

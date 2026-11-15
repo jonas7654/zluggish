@@ -6,6 +6,7 @@ import { FilesService } from '#src/services/files.service';
 import { FitnessService } from '#src/services/fitness.service';
 import { GoalService } from '#src/services/goals.service';
 import { IntegrationsService } from '#src/services/integrations.service';
+import { MetricsService } from '#src/services/metrics.service';
 import { ImportsService } from '#src/services/profile-import.service';
 import { ProfilesService } from '#src/services/profile.service';
 import { RecordDataService } from '#src/services/record-data.service';
@@ -41,6 +42,7 @@ export function createServices(context: RepositoryContext) {
     activities: new ActivitiesService(context),
     social: new SocialService(context),
     integrations: new IntegrationsService(context),
+    metrics: new MetricsService(context),
   };
 }
 

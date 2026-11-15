@@ -1,0 +1,334 @@
+// Repeatable persistence and riding-latency load test. Run with `pnpm test:load`.
+// It drives the riding path in process, finishes a group of riders at once while
+// others keep riding, and can add a slow disk, large media and a slow provider.
+import { createServices } from '#src/composition';
+import { validateConfig } from '#src/config/index';
+import { packageRoot } from '#src/config/load';
+import { createApp } from '#src/http/app';
+import {
+  ActivityMediaSaveRequestSchema,
+  ActivityMediaSaveResultSchema,
+  ActivitySchema,
+} from '#src/protocol/generated/activity_pb';
+import { GhostSchema, PlayerStateSchema } from '#src/protocol/generated/udp-node-msgs_pb';
+import type { PlayerState } from '#src/protocol/generated/udp-node-msgs_pb';
+import { metrics } from '#src/repositories/metrics.repository';
+import { AccountsService } from '#src/services/auth.service';
+import { SessionsService } from '#src/services/browser-session.service';
+import { Simulation } from '#src/world/simulation';
+import { World, worldTime } from '#src/world/state';
+import { create, fromBinary, toBinary } from '@bufbuild/protobuf';
+import { Encoder, Profile, type RecordMesg } from '@garmin/fitsdk';
+import fs, { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
+import { cpus, platform, release, tmpdir, totalmem } from 'node:os';
+import { resolve } from 'node:path';
+import { mock } from 'node:test';
+import { parseArgs } from 'node:util';
+import { z } from 'zod';
+
+const { values } = parseArgs({
+  options: {
+    riders: { type: 'string', default: '40' },
+    finishers: { type: 'string', default: '15' },
+    'ghost-files': { type: 'string', default: '4' },
+    'slow-disk-ms': { type: 'string', default: '0' },
+    'provider-ms': { type: 'string', default: '2000' },
+    'media-mb': { type: 'string', default: '32' },
+    'phase-seconds': { type: 'string', default: '8' },
+    storage: { type: 'string' },
+    output: { type: 'string' },
+  },
+});
+
+const count = (name: keyof typeof values) => z.coerce.number().int().min(0).parse(values[name]);
+const riders = count('riders');
+const finishers = Math.min(riders, count('finishers'));
+const ghostFiles = count('ghost-files');
+const slowDisk = count('slow-disk-ms');
+const providerDelay = count('provider-ms');
+const mediaBytes = count('media-mb') * 1024 * 1024;
+const phaseSeconds = count('phase-seconds');
+const sleep = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
+
+// A slow disk delays every flush. Synchronous flushes block the caller, just as a
+// slow fsync does; asynchronous flushes wait off the main thread.
+if (slowDisk > 0) {
+  const wait = new Int32Array(new SharedArrayBuffer(4));
+  const fsyncSync = fs.fsyncSync;
+  const fsync = fs.fsync;
+  fs.fsyncSync = (fd) => {
+    Atomics.wait(wait, 0, 0, slowDisk);
+    fsyncSync(fd);
+  };
+
+  // SAFETY: The load test replaces only the callback form; promisify is unused.
+  fs.fsync = ((fd: number, callback: fs.NoParamCallback) => {
+    setTimeout(() => fsync(fd, callback), slowDisk);
+  }) as typeof fs.fsync;
+
+  syncBuiltinESMExports();
+  const handle = await fs.promises.open(resolve(tmpdir(), 'zluggish-load-probe'), 'w');
+  const prototype = Object.getPrototypeOf(handle);
+  const sync = prototype.sync;
+  prototype.sync = async function (this: typeof handle) {
+    await sleep(slowDisk);
+
+    return sync.call(this);
+  };
+
+  await handle.close();
+}
+
+function fitActivity(seconds: number) {
+  const encoder = new Encoder();
+  const record = z.number().parse(Profile.MesgNum.RECORD);
+
+  for (let index = 0; index < seconds; index++) {
+    const mesg: RecordMesg = {
+      timestamp: 1_100_000_000 + index,
+      power: 150 + (index % 120),
+      cadence: 85,
+      heartRate: 130,
+      distance: index * 8,
+      speed: 8,
+      altitude: 100,
+      positionLat: 0,
+      positionLong: 0,
+    };
+
+    encoder.onMesg(record, mesg);
+  }
+
+  return encoder.close();
+}
+
+function riderState(id: bigint, tick: number) {
+  return create(PlayerStateSchema, {
+    id,
+    worldTime: worldTime(),
+    roadTime: 5000 + tick * 3000,
+    distance: tick * 8,
+    f19: (6 << 16) | 4,
+    aux3: 10 << 8,
+    x: tick * 10,
+    z: Number(id),
+    sport: 0,
+  });
+}
+
+const storage = values.storage ? resolve(values.storage) : mkdtempSync(resolve(tmpdir(), 'zluggish-load-'));
+
+mkdirSync(storage, { recursive: true });
+
+const accounts = new AccountsService(storage);
+const sessions = new SessionsService(accounts);
+const config = validateConfig({ storageDir: storage, logging: { level: 'ERROR', rideProgressIntervalSeconds: 0 } });
+const assets = resolve(packageRoot(), '../assets');
+
+const tokens = z
+  .object({ access: z.string(), refresh: z.string(), id: z.string() })
+  .parse(JSON.parse(readFileSync(resolve(assets, 'tokens.json'), 'utf8')));
+
+const world = new World();
+
+const context = {
+  accounts,
+  sessions,
+  profiles: accounts.repositories.profileRepository,
+  settings: accounts.repositories.settingsRepository,
+  world,
+  config,
+  assets,
+  tokens,
+};
+
+const runtime = Object.assign(context, { services: createServices(context) });
+const app = createApp({ gameInfo: '{}', gameInfoHash: '0', variants: '{}' }, runtime);
+const providerCalls = { started: 0, finished: 0 };
+
+mock.method(globalThis, 'fetch', async () => {
+  providerCalls.started++;
+  await sleep(providerDelay);
+  providerCalls.finished++;
+
+  return Response.json({ id: 1 });
+});
+
+const fit = fitActivity(3600);
+
+const ghost = toBinary(
+  GhostSchema,
+  create(GhostSchema, { playerId: 1, states: Array.from({ length: 1200 }, (_, tick) => riderState(1n, tick)) }),
+);
+
+type LoadRider = { id: bigint; activity: number; auth: string; tick: number; riding: boolean };
+
+const fleet: LoadRider[] = [];
+
+for (let index = 0; index < riders; index++) {
+  const rider = await accounts.create(`Load Rider ${index}`, '', index === 0);
+  const id = BigInt(rider.player_id);
+  runtime.services.settings.save(rider.player_id, { 'ghosts.enabled': true });
+  runtime.services.connections.save(rider.player_id, 'intervals', ['1', 'key']);
+
+  for (let file = 0; file < ghostFiles; file++) {
+    const folder = resolve(runtime.profiles.folder(rider.player_id), 'ghosts', '6', '10');
+    mkdirSync(folder, { recursive: true });
+    writeFileSync(resolve(folder, `activity-${file}.bin`), ghost);
+  }
+
+  const auth = `Bearer ${sessions.tokens(rider, tokens).access_token}`;
+
+  const created = await app.request(`/api/profiles/${id}/activities`, {
+    method: 'POST',
+    headers: { Authorization: auth, 'Content-Type': 'application/x-protobuf-lite' },
+    body: toBinary(
+      ActivitySchema,
+      create(ActivitySchema, {
+        playerId: id,
+        courseId: 6n,
+        name: 'Load ride',
+        startDate: new Date().toISOString(),
+        sport: 0,
+      }),
+    ),
+  });
+
+  const activity = z.object({ id: z.number() }).parse(await created.json()).id;
+  fleet.push({ id, activity, auth, tick: 0, riding: false });
+}
+
+const simulation = new Simulation(runtime);
+
+simulation.start();
+
+metrics.monitorEventLoop();
+
+// Each rider sends one state per second, spread across the second like real clients.
+const driver = setInterval(() => {
+  const slot = Math.floor(performance.now() / 50) % 20;
+
+  for (const [index, rider] of fleet.entries()) {
+    if (!rider.riding || index % 20 !== slot) continue;
+    rider.tick++;
+    const state: PlayerState = riderState(rider.id, rider.tick);
+    world.receive(rider.id, state);
+    world.responses(rider.id, state, worldTime());
+  }
+}, 50);
+
+async function finish(rider: LoadRider) {
+  rider.riding = false;
+
+  const activity = create(ActivitySchema, {
+    id: BigInt(rider.activity),
+    playerId: rider.id,
+    courseId: 6n,
+    name: 'Load ride',
+    sport: 0,
+    distanceInMeters: 28_800,
+    startDate: new Date(Date.now() - 3_600_000).toISOString(),
+    endDate: new Date().toISOString(),
+    fit,
+    fitFilename: 'load.fit',
+  });
+
+  const response = await app.request(`/api/profiles/${rider.id}/activities/${rider.activity}?upload-to-strava=true`, {
+    method: 'PUT',
+    headers: { Authorization: rider.auth, 'Content-Type': 'application/x-protobuf-lite' },
+    body: toBinary(ActivitySchema, activity),
+  });
+
+  if (response.status !== 200) throw new Error(`Completion failed with HTTP ${response.status}`);
+}
+
+const phases: Record<string, ReturnType<typeof metrics.summary>> = {};
+
+async function phase(name: string, action: () => Promise<void>) {
+  metrics.reset();
+  await Promise.all([action(), sleep(phaseSeconds * 1000)]);
+  phases[name] = metrics.summary();
+}
+
+await phase('join', async () => {
+  for (const rider of fleet) {
+    world.login(rider.id, new Uint8Array(16));
+    rider.riding = true;
+    await sleep((phaseSeconds * 500) / Math.max(1, riders));
+  }
+});
+
+await phase('riding', () => Promise.resolve());
+
+await phase('completion', async () => {
+  const group = fleet.slice(0, finishers);
+
+  const media = async () => {
+    if (mediaBytes === 0) return;
+    const rider = fleet.at(-1);
+
+    if (!rider) return;
+
+    const issued = await app.request(`/api/profiles/${rider.id}/activities/${rider.activity}/medias`, {
+      method: 'POST',
+      headers: { Authorization: rider.auth, 'Content-Type': 'application/x-protobuf-lite' },
+      body: toBinary(
+        ActivityMediaSaveRequestSchema,
+        create(ActivityMediaSaveRequestSchema, { contentType: 'video/mp4' }),
+      ),
+    });
+
+    const url = new URL(
+      fromBinary(ActivityMediaSaveResultSchema, new Uint8Array(await issued.arrayBuffer())).uploadUrl,
+    );
+
+    await app.request(url.pathname + url.search, { method: 'PUT', body: new Uint8Array(mediaBytes) });
+  };
+
+  await Promise.all([media(), ...group.map((rider) => finish(rider))]);
+});
+
+clearInterval(driver);
+
+simulation.close();
+
+await runtime.services.uploads.close();
+
+metrics.stopEventLoop();
+
+const result = {
+  date: new Date().toISOString(),
+  hardware: {
+    cpu: cpus()[0]?.model ?? 'unknown',
+    cores: cpus().length,
+    memoryGiB: Math.round(totalmem() / 1024 ** 3),
+    platform: `${platform()} ${release()}`,
+    node: process.version,
+    storage: values.storage ? resolve(values.storage) : `temporary directory under ${tmpdir()}`,
+  },
+  parameters: {
+    riders,
+    finishers,
+    ghostFiles,
+    slowDisk,
+    providerDelay,
+    mediaBytes,
+    phaseSeconds,
+    fitBytes: fit.length,
+  },
+  providerCalls,
+  phases,
+};
+
+accounts.close();
+
+runtime.settings.close();
+
+if (!values.storage) rmSync(storage, { recursive: true, force: true });
+
+const text = JSON.stringify(result, null, 2);
+
+if (values.output) writeFileSync(values.output, `${text}\n`);
+
+process.stdout.write(`${text}\n`);

@@ -4,6 +4,7 @@ import { PlayerProfileSchema } from '#src/protocol/generated/profile_pb';
 import type { PlayerState } from '#src/protocol/generated/udp-node-msgs_pb';
 import { GhostSchema, PlayerStateSchema, UserBikeAction } from '#src/protocol/generated/udp-node-msgs_pb';
 import { AssetFiles } from '#src/repositories/files.repository';
+import { Metric, metrics } from '#src/repositories/metrics.repository';
 import { SettingsService } from '#src/services/settings.service';
 import { Blob } from '#src/world/blob';
 import { Random, clamp } from '#src/world/geometry';
@@ -104,7 +105,14 @@ export class Simulation {
   }
 
   start() {
-    if (!this.timer) this.timer = setInterval(() => this.tick(), 500);
+    if (this.timer) return;
+    let expected = performance.now() + 500;
+    this.timer = setInterval(() => {
+      const now = performance.now();
+      metrics.record(Metric.SimulationTickDelay, Math.max(0, now - expected));
+      expected = now + 500;
+      this.tick();
+    }, 500);
   }
 
   close() {
