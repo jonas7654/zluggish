@@ -1,3 +1,4 @@
+import { packageRoot } from '#src/config/load';
 import type { HttpRuntime as Runtime, RuntimeEnv } from '#src/http/runtime';
 import type { Hono } from 'hono';
 import { extname, relative, resolve } from 'node:path';
@@ -38,6 +39,23 @@ export function assetRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
         'Content-Type': types.get(extname(file)) ?? 'application/octet-stream',
       });
     });
+
+  app.get('/static/launcher-ui/*', (c) => {
+    const file = inside(resolve(packageRoot(), 'dist/web/client'), c.req.path.slice('/static/launcher-ui'.length));
+
+    if (
+      !file ||
+      !c.req.path.startsWith('/static/launcher-ui/assets/') ||
+      !runtime.services.files.exists(file) ||
+      !runtime.services.files.stat(file).isFile()
+    )
+      return c.notFound();
+
+    return c.body(runtime.services.files.read(file), 200, {
+      'Content-Type': types.get(extname(file)) ?? 'application/octet-stream',
+      'Cache-Control': 'public, max-age=31536000, immutable',
+    });
+  });
 
   serve('/style', resolve(runtime.assets, 'cdn/style'));
   serve('/static', resolve(runtime.assets, 'cdn/static'));
