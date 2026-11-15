@@ -7,6 +7,7 @@ export const Metric = {
   FitCopy: 'fit.copy_ms',
   WalBytes: 'db.wal_bytes',
   Checkpoint: 'db.checkpoint_ms',
+  Flush: 'db.flush_ms',
   QueueDepth: 'persistence.queue_depth',
   QueueWait: 'persistence.queue_wait_ms',
   QueueRejected: 'persistence.rejected',

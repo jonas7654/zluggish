@@ -52,6 +52,8 @@ export async function openRuntime(config: ResolvedConfig, assets: string) {
     const simulation = new Simulation(runtime);
     const checkpoints = new CheckpointRepository(accounts.db, resolve(config.storageDir, 'zluggish.db'));
     resources.defer(() => checkpoints.close());
+    // Stops after the job runner and the simulation: the last flush covers their commits.
+    resources.defer(() => runtime.services.durability.close());
     resources.defer(() => runtime.discord?.close());
     resources.defer(() => runtime.services.jobs.close());
     resources.defer(() => simulation.close());
@@ -59,6 +61,7 @@ export async function openRuntime(config: ResolvedConfig, assets: string) {
     resources.defer(runtime.services.metrics.start(config.logging.metricsIntervalSeconds));
     await simulation.ready;
     simulation.start();
+    runtime.services.durability.start();
     runtime.services.uploads.start();
     runtime.services.retention.schedule();
     runtime.services.jobs.start();

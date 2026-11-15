@@ -1,6 +1,7 @@
 import { openDatabase } from '#src/db/open';
 import { AccountsRepository } from '#src/repositories/accounts.repository';
 import { BookmarksRepository } from '#src/repositories/bookmark.repository';
+import { DurabilityRepository } from '#src/repositories/durability.repository';
 import { JobsRepository } from '#src/repositories/jobs.repository';
 import { RiderDocuments } from '#src/repositories/rider-document.repository';
 import { SystemFlagsRepository } from '#src/repositories/system-flag.repository';
@@ -30,6 +31,7 @@ import { StravaRepository } from '#src/repositories/strava.repository';
 import { StreakRepository } from '#src/repositories/streak.repository';
 import { UploadsRepository } from '#src/repositories/uploads.repository';
 import { ZwiftRepository } from '#src/repositories/zwift.repository';
+import { resolve } from 'node:path';
 
 /** One repository set per account database, shared by every service. */
 export class Repositories {
@@ -99,6 +101,8 @@ export class Repositories {
 
   readonly systemFlagsRepository: SystemFlagsRepository;
 
+  readonly durabilityRepository: DurabilityRepository;
+
   constructor(readonly storage: string) {
     this.db = openDatabase(storage);
     this.accountsRepository = new AccountsRepository(this.db);
@@ -106,6 +110,7 @@ export class Repositories {
     this.bookmarksRepository = new BookmarksRepository(this.db);
     this.jobsRepository = new JobsRepository(this.db);
     this.systemFlagsRepository = new SystemFlagsRepository(this.db);
+    this.durabilityRepository = new DurabilityRepository(this.db, resolve(storage, 'zluggish.db'));
     this.activitiesRepository = new ActivitiesRepository(this.db);
     this.connectionsRepository = new Connections(this.riderDocuments);
     this.eventsRepository = new EventsRepository(this.db);

@@ -196,6 +196,9 @@ export class UploadsService extends BaseService {
       return;
     }
 
+    // sending must survive a power loss before the provider can receive the activity.
+    await this.durabilityRepository.flush();
+
     let outcome: 'sent' | 'failed' | 'ambiguous' = 'sent';
     let code: string | null = null;
 
@@ -408,8 +411,10 @@ export class UploadsService extends BaseService {
 
       full.id = BigInt(z.object({ id: z.number().int().positive() }).parse(await created.json()).id);
 
-      if (attempt)
+      if (attempt) {
         this.uploadsRepository.progress(attempt.activity, attempt.provider, attempt.token, 'created', String(full.id));
+        await this.durabilityRepository.flush();
+      }
     }
 
     await checked(

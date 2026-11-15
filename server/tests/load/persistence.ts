@@ -217,6 +217,8 @@ const checkpoints = new CheckpointRepository(accounts.db, resolve(storage, 'zlug
 
 checkpoints.start();
 
+runtime.services.durability.start();
+
 runtime.services.uploads.start();
 
 runtime.services.jobs.start(250);
@@ -324,6 +326,8 @@ clearInterval(driver);
 await simulation.close();
 
 await runtime.services.jobs.close();
+
+await runtime.services.durability.close();
 
 await checkpoints.close();
 

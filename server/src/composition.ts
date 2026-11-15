@@ -6,6 +6,7 @@ import { FilesService } from '#src/services/files.service';
 import { FitnessService } from '#src/services/fitness.service';
 import { GoalService } from '#src/services/goals.service';
 import { DocumentsService } from '#src/services/documents.service';
+import { DurabilityService } from '#src/services/durability.service';
 import { IntegrationsService } from '#src/services/integrations.service';
 import { JobsService } from '#src/services/jobs.service';
 import { MetricsService } from '#src/services/metrics.service';
@@ -33,6 +34,7 @@ export function createServices(context: RepositoryContext) {
     settings: new SettingsService(context),
     connections: new ConnectionsService(context),
     documents: new DocumentsService(context),
+    durability: new DurabilityService(context),
     imports: new ImportsService(context.accounts, context.world),
     workouts: new WorkoutsService(context),
     uploads: new UploadsService(context),

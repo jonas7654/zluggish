@@ -59,3 +59,12 @@ one transaction at startup.
 change that requires it. A handler commits its result with `job.commit(result)`, which
 checks the claim token and the lease in the same transaction. Payloads hold
 identifiers only.
+
+## Durability barrier
+
+While the runtime runs, the main connection uses `synchronous=NORMAL`: commits write
+the WAL without a flush on the main thread. `DurabilityRepository.flush()` flushes the
+WAL on the libuv thread pool. The HTTP middleware waits for it before the response of
+any request that changed the database, and a delivery waits for it after it commits
+`sending`. Work that acknowledges a save outside HTTP must also wait for `flush()`.
+Offline commands keep `synchronous=FULL`.

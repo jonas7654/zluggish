@@ -129,6 +129,10 @@ export abstract class BaseService {
     return this.repositories.systemFlagsRepository;
   }
 
+  protected get durabilityRepository() {
+    return this.repositories.durabilityRepository;
+  }
+
   protected get settingsRepository() {
     return this.repositories.settingsRepository;
   }
