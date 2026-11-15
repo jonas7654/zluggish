@@ -86,6 +86,7 @@ await test('direct migration generates loadable TS and preferences with no JSONC
   addRiders(f.storage);
   writeFileSync(resolve(f.storage, 'server-ip.txt'), '192.0.2.5');
   writeFileSync(resolve(f.storage, 'fake-dns.txt'), '');
+  writeFileSync(resolve(f.storage, 'unlock_bike_upgrades.txt'), '');
   writeFileSync(resolve(f.storage, 'bot.txt'), '[]');
   writeFileSync(
     resolve(f.storage, 'discord.cfg'),
@@ -98,6 +99,7 @@ await test('direct migration generates loadable TS and preferences with no JSONC
   await migrateConfig(f);
   const loaded = await loadConfig({ path: f.output });
   assert.equal(loaded.config.server.advertisedIp, '192.0.2.5');
+  assert.equal(loaded.config.equipment.unlockBikeUpgrades, true);
   assert.equal(loaded.config.integrations.discord.channel, '1234567890123456789');
   assert.equal(loaded.config.integrations.discord.announcePlayers, true);
   assert.equal(loaded.config.soloBlob.riders, 12);
