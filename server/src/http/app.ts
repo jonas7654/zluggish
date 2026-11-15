@@ -1,5 +1,6 @@
 import { ApplicationError } from '#src/errors';
 import { parseProtobuf } from '#src/http/protobuf';
+import { launcherPrototypeRoutes } from '#src/http/routes/launcher-prototype';
 import { accountRoutes, authenticated } from '#src/http/routes/accounts';
 import { activityRoutes } from '#src/http/routes/activities';
 import { assetRoutes } from '#src/http/routes/assets';
@@ -74,6 +75,7 @@ export function createApp(metadata: PublicMetadata, runtime?: Runtime) {
 
   if (runtime) {
     accountRoutes(app, runtime);
+    launcherPrototypeRoutes(app, runtime);
     profileRoutes(app, runtime);
     relayRoutes(app, runtime);
     activityRoutes(app, runtime);

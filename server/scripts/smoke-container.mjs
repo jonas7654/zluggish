@@ -128,6 +128,61 @@ try {
   assert.equal((await fetch('http://127.0.0.1:24443/api/game_info')).status, 200);
   assert.equal((await fetch('http://127.0.0.1:24080/gameassets/Zwift_Updates_Root/Zwift_ver_cur.xml')).status, 200);
   assert.ok(existsSync('/usr/src/app/zluggish/storage/zluggish.db'));
+
+  let cookie = '';
+  async function uiRequest(path, init = {}) {
+    const response = await fetch(`http://127.0.0.1:24443${path}`, {
+      ...init,
+      redirect: 'manual',
+      headers: { Cookie: cookie, ...init.headers },
+    });
+    cookie = response.headers.getSetCookie().at(-1)?.split(';', 1)[0] ?? cookie;
+    return response;
+  }
+  function token(html) {
+    const value = /name="csrf_token"\s+value="([^"]+)"/.exec(html)?.[1];
+    assert.ok(value);
+    return value;
+  }
+  const setup = await uiRequest('/riders/add/');
+  const setupToken = token(await setup.text());
+  assert.equal(
+    (
+      await uiRequest('/riders/add/', {
+        method: 'POST',
+        body: new URLSearchParams({ csrf_token: setupToken, display_name: 'Container Rider' }),
+      })
+    ).status,
+    302,
+  );
+  const picker = await uiRequest('/login/');
+  const pickerHtml = await picker.text();
+  const playerId = /name="player_id"\s+value="(\d+)"/.exec(pickerHtml)?.[1];
+  assert.ok(playerId);
+  assert.equal(
+    (
+      await uiRequest('/login/', {
+        method: 'POST',
+        body: new URLSearchParams({ csrf_token: token(pickerHtml), player_id: playerId }),
+      })
+    ).status,
+    302,
+  );
+  const prototype = await uiRequest('/ui/prototype/settings');
+  assert.equal(prototype.status, 200);
+  assert.match(prototype.headers.get('content-type'), /text\/html/);
+  const prototypeHtml = await prototype.text();
+  for (const [pattern, mime] of [
+    [/src="(\/static\/launcher-ui\/[^"]+\.js)"/, /text\/javascript/],
+    [/href="(\/static\/launcher-ui\/[^"]+\.css)"/, /text\/css/],
+  ]) {
+    const path = pattern.exec(prototypeHtml)?.[1];
+    assert.ok(path);
+    const asset = await uiRequest(path);
+    assert.equal(asset.status, 200);
+    assert.match(asset.headers.get('content-type'), mime);
+  }
+
   child.kill('SIGTERM');
 
   const result = await Promise.race([

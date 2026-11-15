@@ -18,7 +18,7 @@ run = 'pnpm test'
 [tasks.lint]
 description = 'Lint and typecheck server, including its admin CLI'
 depends = ['build']
-run = ['pnpm lint', 'pnpm typecheck']
+run = ['pnpm lint', 'pnpm typecheck', 'pnpm check:web']
 
 [tasks.format-fix]
 description = 'Format project files'

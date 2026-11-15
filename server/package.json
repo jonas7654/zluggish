@@ -14,10 +14,10 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && pnpm build:web",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "pnpm test:unit && pnpm test:medium",
-    "dev": "node --conditions=development --import tsx src/main.ts",
+    "dev": "node --watch --conditions=development --import tsx --import ./scripts/register-svelte.mjs src/main.ts",
     "start": "node dist/src/main.js",
     "format": "prettier --config .prettierrc --ignore-path ../.prettierignore --check ..",
     "format:fix": "prettier --config .prettierrc --ignore-path ../.prettierignore --write ..",
@@ -25,17 +25,22 @@
     "lint:fix": "cd .. && node server/node_modules/oxlint/bin/oxlint --config server/.oxlintrc.json --fix server/src server/tests && node server/node_modules/eslint/bin/eslint.js --config server/eslint.config.mjs \"server/src/**/*.{ts,tsx}\" \"server/tests/**/*.ts\" --fix",
     "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm format",
     "codegen": "buf generate && node scripts/normalize-generated.mjs",
-    "test:unit": "node --conditions=development --import tsx --test \"src/**/*.spec.ts\"",
-    "test:medium": "node --conditions=development --import tsx --test tests/medium/*.spec.ts",
+    "test:unit": "node --conditions=development --import tsx --import ./scripts/register-svelte.mjs --test \"src/**/*.spec.ts\"",
+    "test:medium": "pnpm build:web && node --conditions=development --import tsx --import ./scripts/register-svelte.mjs --test tests/medium/*.spec.ts",
     "test:load": "node --conditions=development --import tsx tests/load/persistence.ts",
     "lint:anti-slop": "cd .. && node server/node_modules/oxlint/bin/oxlint --config server/.oxlintrc.json server/src server/tests",
     "lint:eslint": "cd .. && node server/node_modules/eslint/bin/eslint.js --config server/eslint.config.mjs \"server/src/**/*.{ts,tsx}\" \"server/tests/**/*.ts\" --max-warnings 0",
-    "cli": "node --conditions=development --import tsx src/cli/bin.ts"
+    "cli": "node --conditions=development --import tsx src/cli/bin.ts",
+    "build:web": "vite build && vite build --ssr",
+    "dev:web": "vite build --watch",
+    "check:web": "svelte-check --tsconfig web/tsconfig.json",
+    "test:browser": "pnpm build && node --test dist/tests/browser/*.spec.js"
   },
   "dependencies": {
     "@bufbuild/protobuf": "^2.0.0",
     "@garmin/fitsdk": "^21.221.0",
     "@hono/node-server": "2.1.8",
+    "@types/node": "^24.0.0",
     "argon2": "^0.45.2",
     "discord.js": "^14.28.1",
     "dns-packet": "^5.6.1",
@@ -46,19 +51,18 @@
     "ini": "^6.0.0",
     "jiti": "^2.0.0",
     "kysely": "^0.29.9",
-    "zod": "^4.0.0",
     "typescript": "^6.0.3",
-    "@types/node": "^24.0.0"
+    "zod": "^4.0.0"
   },
   "devDependencies": {
     "@bufbuild/buf": "1.75.0",
     "@bufbuild/protoc-gen-es": "2.17.0",
-    "@types/dns-packet": "^5.6.5",
-    "@types/ini": "^4.1.1",
-    "tsx": "^4.0.0",
     "@eslint/js": "^10.0.1",
     "@oxlint/plugins": "1.93.0",
     "@stylistic/eslint-plugin": "^6.0.0",
+    "@sveltejs/vite-plugin-svelte": "7.3.1",
+    "@types/dns-packet": "^5.6.5",
+    "@types/ini": "^4.1.1",
     "eslint": "^10.14.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-import-resolver-typescript": "^4.4.5",
@@ -66,8 +70,14 @@
     "eslint-plugin-unicorn": "^79.0.0",
     "globals": "^17.14.0",
     "oxlint": "1.93.0",
+    "playwright": "1.65.1",
     "prettier": "3.6.2",
-    "typescript-eslint": "^8.72.2"
+    "prettier-plugin-svelte": "4.1.1",
+    "svelte": "5.57.3",
+    "svelte-check": "4.7.8",
+    "tsx": "^4.0.0",
+    "typescript-eslint": "^8.72.2",
+    "vite": "8.3.8"
   },
   "imports": {
     "#src/*": {
@@ -79,6 +89,11 @@
       "types": "./tests/*.ts",
       "development": "./tests/*.ts",
       "default": "./dist/tests/*.js"
+    },
+    "#launcher": {
+      "types": "./web/server.ts",
+      "development": "./web/server.ts",
+      "default": "./dist/web/server/entry.js"
     }
   },
   "bin": {
