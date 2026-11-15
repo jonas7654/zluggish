@@ -43,8 +43,12 @@ export function settingsRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
                 value="${settings.workouts.trainingpeaks.bridgeFolder}" /></label
             ><label
               >Strava method<select name="strava_method">
-                <option value="paid">API</option>
-                <option value="free">Session cookie</option>
+                <option value="paid" ${settings.uploads.strava.method === StravaMethod.Paid ? html`selected` : ''}>
+                  API
+                </option>
+                <option value="free" ${settings.uploads.strava.method === StravaMethod.Free ? html`selected` : ''}>
+                  Session cookie
+                </option>
               </select></label
             ><button>Save preferences</button>
           </form>
