@@ -224,7 +224,7 @@ for (const count of [0, 1, 9, 10, 24, 25]) {
       );
     }
 
-    assert.ok(existsSync(resolve(f.profiles.folder(f.rider.player_id), 'achievements.bin')));
+    assert.ok(f.services.documents.has(f.rider.player_id, 'achievements.bin'));
   });
 }
 
@@ -324,8 +324,7 @@ await test('bike upgrade unlocks include extra frames, preserve settings and lea
       attributes: [{ bikeProgress: { signature: '270803031', level: 2 }, gameSettings: { minimalLeaderboards: 1 } }],
     }),
   });
-  const file = resolve(f.profiles.folder(id), 'user_storage.bin');
-  const before = readFileSync(file);
+  const before = f.services.documents.get(id, 'user_storage.bin');
 
   const service = new StorageService({
     ...f,
@@ -359,7 +358,7 @@ await test('bike upgrade unlocks include extra frames, preserve settings and lea
   assert.equal(result.attributes.filter((a) => a.gameSettings).length, 1);
   assert.equal(service.attributes(id, new Set([22])).attributes.length, 1);
   assert.equal(service.attributes(id, new Set()).attributes.length, 0);
-  assert.deepEqual(readFileSync(file), before);
+  assert.deepEqual(f.services.documents.get(id, 'user_storage.bin'), before);
 
   const original = await decode(
     await f.request('/api/player-profile/user-game-storage/attributes?n=24'),

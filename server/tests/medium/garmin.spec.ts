@@ -1,24 +1,25 @@
 import { GarminRepository } from '#src/repositories/garmin.repository';
 import { runtimeFixture } from '#tests/support/runtime';
 import assert from 'node:assert/strict';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { z } from 'zod';
 import { test } from 'node:test';
 
-await test('Garmin imports FIT using existing garth tokens entirely through Node', async (t) => {
+await test('Garmin imports FIT using garth-format tokens stored as encrypted documents', async (t) => {
   const f = runtimeFixture(t);
-  const folder = resolve(f.config.storageDir, 'garth');
-  mkdirSync(folder);
-  writeFileSync(
-    resolve(folder, 'oauth1_token.json'),
+  const rider = await f.accounts.create('Garmin Rider', '', true);
+  const documents = f.accounts.repositories.riderDocuments;
+  documents.put(
+    rider.player_id,
+    'garth/oauth1_token.json',
     JSON.stringify({
       oauth_token: 'synthetic',
       oauth_token_secret: 'synthetic-secret',
       domain: 'garmin.com',
     }),
   );
-  writeFileSync(
-    resolve(folder, 'oauth2_token.json'),
+  documents.put(
+    rider.player_id,
+    'garth/oauth2_token.json',
     JSON.stringify({
       scope: '',
       jti: '',
@@ -50,7 +51,16 @@ await test('Garmin imports FIT using existing garth tokens entirely through Node
       },
     });
   });
-  await new GarminRepository().uploadGarmin(folder, 'garmin.com', 'ride.fit', new Uint8Array([1, 2, 3]));
+  const garmin = new GarminRepository();
+  const store = garmin.tokenStore(documents, rider.player_id);
+  await garmin.uploadGarmin(store, 'garmin.com', 'ride.fit', new Uint8Array([1, 2, 3]));
   assert.equal(uploads, 1);
-  assert.throws(() => new GarminRepository().garminClient(folder, 'untrusted.example'), /Unsupported/);
+  assert.throws(() => garmin.garminClient(store, 'untrusted.example'), /Unsupported/);
+
+  const stored = f.accounts.db
+    .prepare("SELECT data, encrypted FROM rider_document WHERE name='garth/oauth2_token.json'")
+    .get();
+
+  assert.equal(stored?.encrypted, 1);
+  assert.equal(Buffer.from(z.instanceof(Uint8Array).parse(stored?.data)).includes('synthetic-access'), false);
 });

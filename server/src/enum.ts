@@ -192,6 +192,61 @@ export const UploadState = {
   Cancelled: 'cancelled',
   Sent: 'sent',
   Failed: 'failed',
+  Ambiguous: 'ambiguous',
 } as const;
 
 export type UploadState = (typeof UploadState)[keyof typeof UploadState];
+
+/** Rider state stored in rider_document rows. Names match the legacy rider files. */
+export const RiderDocumentName = {
+  ProfileBin: 'profile.bin',
+  AchievementsBin: 'achievements.bin',
+  UserStorageBin: 'user_storage.bin',
+  StreaksBin: 'streaks.bin',
+  RouteCompletionAchievementsBin: 'route_completion_achievements.bin',
+  EconomyConfigTxt: 'economy_config.txt',
+  PrivacyJson: 'privacy.json',
+  ZwiftCredentialsBin: 'zwift_credentials.bin',
+  IntervalsCredentialsBin: 'intervals_credentials.bin',
+  GarminCredentialsBin: 'garmin_credentials.bin',
+  StravaApiBin: 'strava_api.bin',
+  StravaTokenTxt: 'strava_token.txt',
+  Strava4SessionTxt: 'strava4_session.txt',
+  RunalyzeTokenTxt: 'runalyze_token.txt',
+  GarthOauth1TokenJson: 'garth/oauth1_token.json',
+  GarthOauth2TokenJson: 'garth/oauth2_token.json',
+  EncryptionKeyBin: 'encryption_key.bin',
+} as const;
+
+export type RiderDocumentName = (typeof RiderDocumentName)[keyof typeof RiderDocumentName];
+
+/** Plain-text secrets in legacy files. The database stores them encrypted. */
+export const SecretDocuments: readonly RiderDocumentName[] = [
+  'strava_token.txt',
+  'strava4_session.txt',
+  'runalyze_token.txt',
+  'garth/oauth1_token.json',
+  'garth/oauth2_token.json',
+  'encryption_key.bin',
+];
+
+export const JobType = {
+  PowerCurve: 'power_curve',
+  FitExport: 'fit_export',
+  Chart: 'chart',
+  Delivery: 'delivery',
+  ArtifactCleanup: 'artifact_cleanup',
+  Retention: 'retention',
+  CompletionDeliveries: 'completion_deliveries',
+} as const;
+
+export type JobType = (typeof JobType)[keyof typeof JobType];
+
+export const JobState = {
+  Queued: 'queued',
+  Running: 'running',
+  Done: 'done',
+  Failed: 'failed',
+} as const;
+
+export type JobState = (typeof JobState)[keyof typeof JobState];

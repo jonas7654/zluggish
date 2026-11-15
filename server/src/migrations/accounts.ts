@@ -1,6 +1,7 @@
 import { removeLegacyAccountFields } from '#src/db/account-upgrade';
 import { ConfigError } from '#src/config/index';
 import { createSchemaSQL } from '#src/db/ddl';
+import { STORAGE_VERSION } from '#src/migrations/storage';
 import { PlayerProfileSchema } from '#src/protocol/generated/profile_pb';
 import { CryptoRepository } from '#src/repositories/crypto.repository';
 import { fromBinary } from '@bufbuild/protobuf';
@@ -24,14 +25,18 @@ export async function migrateAccounts(storage: string, soloPlayer?: number) {
     if (!fresh) await backup(db, `${path}.accounts-${Date.now()}.bak`);
 
     const versionTable = db.prepare("SELECT 1 FROM sqlite_master WHERE name='version'").get();
+    let version = 5;
 
     if (versionTable) {
-      const version = z
+      const found = z
         .object({ version: z.number() })
         .parse(db.prepare('SELECT version FROM version LIMIT 1').get()).version;
 
-      if (version > 5 || version < 3)
+      if (found > STORAGE_VERSION || found < 3)
         throw new ConfigError('Unsupported activity database version; migrate with the original release first');
+
+      // A merged database keeps its version; the next start upgrades older ones.
+      version = Math.max(found, 5);
     }
 
     db.exec('BEGIN IMMEDIATE');
@@ -120,7 +125,9 @@ export async function migrateAccounts(storage: string, soloPlayer?: number) {
     );
     removeLegacyAccountFields(db, storage);
 
-    db.exec('DELETE FROM version; INSERT INTO version VALUES (5); COMMIT;');
+    db.exec('DELETE FROM version');
+    db.prepare('INSERT INTO version VALUES (?)').run(version);
+    db.exec('COMMIT');
 
     if (path !== destination) db.exec('PRAGMA journal_mode=DELETE');
     db.close();

@@ -1,7 +1,7 @@
 import { CryptoRepository } from '#src/repositories/crypto.repository';
-import { AssetFiles } from '#src/repositories/files.repository';
+import { DeliveryRefusedError, refused } from '#src/errors';
 import { CookieSession, SessionRepository } from '#src/repositories/session.repository';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { extname } from 'node:path';
 import { z } from 'zod';
 
@@ -157,25 +157,19 @@ export class StravaRepository {
     })}`;
   }
 
-  readToken(file: string): StravaToken | null {
-    if (!existsSync(file)) return null;
-
-    const [clientId, clientSecret, access, refresh, expires] = readFileSync(file, 'utf8').split(/\r?\n/, 5);
+  parseToken(text: string): StravaToken {
+    const [clientId, clientSecret, access, refresh, expires] = text.split(/\r?\n/, 5);
 
     const expiresAt = Number(expires);
 
     if (!clientId || !clientSecret || !access || !refresh || !Number.isFinite(expiresAt))
-      throw new Error('Invalid Strava token file');
+      throw new DeliveryRefusedError('strava_invalid_token');
 
     return { clientId, clientSecret, access, refresh, expiresAt };
   }
 
-  writeToken(file: string, token: StravaToken) {
-    new AssetFiles().writeDurable(
-      file,
-      `${token.clientId}\n${token.clientSecret}\n${token.access}\n${token.refresh}\n${token.expiresAt}\n`,
-      true,
-    );
+  serializeToken(token: StravaToken) {
+    return `${token.clientId}\n${token.clientSecret}\n${token.access}\n${token.refresh}\n${token.expiresAt}\n`;
   }
 
   async exchangeCode(clientId: string, clientSecret: string, code: string): Promise<StravaToken> {
@@ -195,18 +189,29 @@ export class StravaRepository {
     };
   }
 
-  async uploadPaid(file: string, fit: Uint8Array, name: string, now = Date.now() / 1000) {
-    let token = this.readToken(file);
-
-    if (!token) return false;
+  /** A failed token refresh happens before the upload request: it is a refusal. */
+  async uploadPaid(
+    current: StravaToken,
+    fit: Uint8Array,
+    name: string,
+    save: (token: StravaToken) => void,
+    now = Date.now() / 1000,
+  ) {
+    let token = current;
 
     if (now > token.expiresAt) {
-      const result = await oauth({
-        client_id: token.clientId,
-        client_secret: token.clientSecret,
-        grant_type: 'refresh_token',
-        refresh_token: token.refresh,
-      });
+      let result;
+
+      try {
+        result = await oauth({
+          client_id: token.clientId,
+          client_secret: token.clientSecret,
+          grant_type: 'refresh_token',
+          refresh_token: token.refresh,
+        });
+      } catch {
+        throw new DeliveryRefusedError('strava_refresh');
+      }
 
       token = {
         ...token,
@@ -214,7 +219,7 @@ export class StravaRepository {
         refresh: result.refresh_token,
         expiresAt: result.expires_at,
       };
-      this.writeToken(file, token);
+      save(token);
     }
 
     const form = new FormData();
@@ -229,9 +234,11 @@ export class StravaRepository {
       signal: AbortSignal.timeout(60_000),
     });
 
-    if (!response.ok) throw new Error(`Strava upload failed: ${response.status}`);
+    if (response.ok) return true;
+    await response.body?.cancel();
 
-    return true;
+    if (refused(response.status)) throw new DeliveryRefusedError(`strava_${response.status}`);
+    throw new Error(`Strava upload failed: ${response.status}`);
   }
 
   async checkSession(cookie: string) {
@@ -294,16 +301,23 @@ export class StravaRepository {
     delay = 1000,
   ) {
     const session = cookieSession(cookie);
-    const select = await session.request(selectUrl);
-    const text = await select.text();
+    let text: string;
 
-    if (!text.includes(marker)) throw new Error('Invalid Strava session');
+    // The upload form is read before anything is sent: a failure here is a refusal.
+    try {
+      const select = await session.request(selectUrl);
+      text = await select.text();
+    } catch {
+      throw new DeliveryRefusedError('strava_session_unavailable');
+    }
+
+    if (!text.includes(marker)) throw new DeliveryRefusedError('strava_session_invalid');
 
     const token =
       /<meta name="csrf-token" content="([^"]+)"/.exec(text)?.[1] ??
       /name="authenticity_token" value="([^"]+)"/.exec(text)?.[1];
 
-    if (token === undefined) throw new Error('Cannot find the upload token');
+    if (token === undefined) throw new DeliveryRefusedError('strava_upload_token');
 
     const form = new FormData();
     form.set('_method', 'post');

@@ -2,15 +2,13 @@ import { StravaRepository } from '#src/repositories/strava.repository';
 import { UploadsService } from '#src/services/uploads.service';
 import { openRuntime } from '#src/runtime';
 import { ActivitySchema } from '#src/protocol/generated/activity_pb';
-import { Completions } from '#src/repositories/completion.repository';
 import { UploadsRepository } from '#src/repositories/uploads.repository';
 import { GarminRepository } from '#src/repositories/garmin.repository';
-import { AssetFiles } from '#src/repositories/files.repository';
 import { mediumFixture } from '#tests/medium/support';
-import { create, toBinary } from '@bufbuild/protobuf';
+import { create } from '@bufbuild/protobuf';
 import { GarminClient, type LoginResult, type Tokens, type MfaState } from 'garminconnect-js';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
 
@@ -37,65 +35,59 @@ const mfa: MfaState = {
   loginParams: { clientId: 'test', locale: 'en', service: 'test' },
 };
 
-await test('upload transitions claim once, require manual retry and never recreate deleted jobs', async (t) => {
+await test('delivery records send once, retry failures manually and never recreate deleted records', async (t) => {
   const f = await mediumFixture(t);
-  const journal = new Completions(f.accounts.db);
   const uploads = new UploadsRepository(f.accounts.db);
-  journal.prepare(1n, f.rider.player_id, new Uint8Array(), null);
-  assert.equal(journal.state(1n).status, 'prepared');
-  journal.complete(1n, ['runalyze'], () => {});
-  assert.equal(journal.state(1n).status, 'completed');
-  assert.equal(uploads.finish(1, 'runalyze', 'sent'), false);
-  assert.equal(uploads.claim(1, 'runalyze'), true);
-  assert.equal(uploads.claim(1, 'runalyze'), false);
-  uploads.failInterrupted();
-  assert.equal(uploads.claim(1, 'runalyze'), false);
-  uploads.retry(f.other.player_id);
-  assert.equal(uploads.claim(1, 'runalyze'), false);
-  uploads.retry(f.rider.player_id);
-  assert.equal(uploads.claim(1, 'runalyze'), true);
+  f.accounts.db.prepare('INSERT INTO activity (id, player_id) VALUES (1, ?)').run(f.rider.player_id);
+  assert.equal(uploads.insert(1, 'runalyze'), true);
+  assert.equal(uploads.insert(1, 'runalyze'), false);
+  assert.equal(uploads.record(1, 'runalyze', 'attempt', 'sent', null), false);
+  assert.equal(uploads.begin(1, 'runalyze', 'attempt'), true);
+  assert.equal(uploads.begin(1, 'runalyze', 'other'), false);
+  assert.equal(uploads.record(1, 'runalyze', 'other', 'sent', null), false);
+  assert.equal(uploads.record(1, 'runalyze', 'attempt', 'failed', 'runalyze_400'), true);
+  assert.equal(uploads.begin(1, 'runalyze', 'retry'), false);
+  assert.deepEqual(uploads.retry(f.other.player_id, false), []);
+  assert.deepEqual(uploads.retry(f.rider.player_id, false), [{ activity: 1, provider: 'runalyze' }]);
+  assert.equal(uploads.begin(1, 'runalyze', 'retry'), true);
+  assert.equal(uploads.interrupted(), 1);
+  assert.equal(uploads.get(1, 'runalyze')?.state, 'ambiguous');
+  assert.deepEqual(uploads.retry(f.rider.player_id, false), [], 'ambiguous deliveries need confirmation');
+  assert.deepEqual(uploads.retry(f.rider.player_id, true), [{ activity: 1, provider: 'runalyze' }]);
   f.accounts.db.exec('DELETE FROM activity_upload');
-  assert.equal(uploads.finish(1, 'runalyze', 'sent'), false);
+  assert.equal(uploads.record(1, 'runalyze', 'retry', 'sent', null), false);
   assert.equal(uploads.status(f.rider.player_id).length, 0);
 });
 
-await test('upload worker shares draining and closing work and refuses work after close', async (t) => {
+await test('the job runner finishes admitted work at close and admits nothing after', async (t) => {
   const f = await mediumFixture(t);
-
-  const activity = create(ActivitySchema, {
-    courseId: 6n,
-    name: 'Test',
-    startDate: '2026-11-14T08:00:00Z',
-    id: 1n,
-    playerId: BigInt(f.rider.player_id),
-    fitFilename: 'ride.fit',
-  });
-
-  const journal = new Completions(f.accounts.db);
-  journal.prepare(1n, f.rider.player_id, toBinary(ActivitySchema, activity), null);
-  journal.complete(1n, ['runalyze'], () => {});
-  new AssetFiles().writeDurable(resolve(f.profiles.folder(f.rider.player_id), 'runalyze_token.txt'), 'test');
+  const jobs = f.services.jobs;
   const gate = Promise.withResolvers<void>();
-  let deliveries = 0;
-  t.mock.method(f.services.uploads, 'runalyze', async () => {
-    deliveries++;
-    await gate.promise;
+  let runs = 0;
+  jobs.register('retention', {
+    concurrency: 1,
+    attempts: 1,
+    timeoutMs: 60_000,
+    run: async () => {
+      runs++;
+      await gate.promise;
+    },
   });
-  const first = f.services.uploads.drain();
-  assert.equal(f.services.uploads.drain(), first);
-  assert.equal(f.services.uploads.workerStatus, 'draining');
-  f.services.uploads.start();
-  assert.equal(f.services.uploads.status(f.rider.player_id)[0]?.state, 'sending');
-  const closing = f.services.uploads.close();
-  assert.equal(f.services.uploads.workerStatus, 'stopping');
-  assert.equal(f.services.uploads.drain(), first);
+  jobs.enqueue('retention', {});
+  jobs.start();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(runs, 1);
+  const closing = jobs.close();
+  jobs.enqueue('retention', {});
   gate.resolve();
   await closing;
-  assert.equal(f.services.uploads.workerStatus, 'stopped');
-  f.services.uploads.start();
-  await f.services.uploads.drain();
-  assert.equal(deliveries, 1);
-  await f.services.uploads.close();
+  jobs.start();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(runs, 1);
+  assert.deepEqual(
+    f.accounts.repositories.jobsRepository.list('retention').map((job) => job.state),
+    ['done', 'queued'],
+  );
 });
 
 await test('media upload claims serialize requests and deletion during body read cannot recreate a file', async (t) => {
@@ -184,8 +176,10 @@ await test('Garmin MFA consumes one code and persists compatible tokens only for
   });
   assert.equal(await f.services.integrations.authorizeGarmin(opened.id, opened.session, f.rider), 'mfa');
   assert.equal(await f.services.integrations.authorizeGarmin(opened.id, opened.session, f.rider, '123'), 'authorized');
-  const saved = resolve(f.profiles.folder(f.rider.player_id), 'garth/oauth1_token.json');
-  assert.deepEqual(JSON.parse(readFileSync(saved, 'utf8')), tokens.oauth1);
+  assert.deepEqual(
+    JSON.parse(f.services.documents.text(f.rider.player_id, 'garth/oauth1_token.json') ?? ''),
+    tokens.oauth1,
+  );
   await assert.rejects(f.services.integrations.authorizeGarmin(opened.id, opened.session, f.rider, '123'), /Expired/);
 });
 
@@ -275,7 +269,7 @@ await test('Strava authorization cannot publish a token after browser logout', a
   f.sessions.end(opened.id);
   gate.resolve();
   await assert.rejects(pending, /Expired/);
-  assert.equal(existsSync(resolve(f.profiles.folder(f.rider.player_id), 'strava_token.txt')), false);
+  assert.equal(f.services.documents.has(f.rider.player_id, 'strava_token.txt'), false);
 });
 
 await test('partially opened runtimes release storage ownership and close is idempotent', async (t) => {
@@ -298,8 +292,8 @@ await test('partially opened runtimes release storage ownership and close is ide
 await test('runtime cleanup releases the storage lock even when an earlier service close fails', async (t) => {
   const f = await mediumFixture(t);
   const owner = await openRuntime(f.config, f.assets);
-  const close = owner.runtime.services.uploads.close.bind(owner.runtime.services.uploads);
-  t.mock.method(owner.runtime.services.uploads, 'close', async () => {
+  const close = owner.runtime.services.jobs.close.bind(owner.runtime.services.jobs);
+  t.mock.method(owner.runtime.services.jobs, 'close', async () => {
     await close();
     throw new Error('close failed');
   });

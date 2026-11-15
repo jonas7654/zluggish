@@ -27,3 +27,33 @@ CREATE TABLE IF NOT EXISTS activity_upload (
  activity_id INTEGER NOT NULL, provider TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'pending',
  PRIMARY KEY(activity_id, provider)
 );`;
+
+// Version 6 merges settings.db and rider files into the main database, and adds
+// durable jobs and delivery states. Fresh installations apply it to an empty v5 schema.
+export const storageSchemaSQL = `
+CREATE TABLE IF NOT EXISTS rider_settings (player_id INTEGER PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS config_migration (id TEXT PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS world_settings (id TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS rider_document (
+ player_id INTEGER NOT NULL REFERENCES user(player_id) ON DELETE CASCADE, name TEXT NOT NULL,
+ data BLOB NOT NULL, encrypted INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (player_id, name)
+);
+CREATE TABLE IF NOT EXISTS bookmark (
+ player_id INTEGER NOT NULL REFERENCES user(player_id) ON DELETE CASCADE, course INTEGER NOT NULL,
+ sport INTEGER NOT NULL, name TEXT NOT NULL, state BLOB NOT NULL, PRIMARY KEY (player_id, course, sport, name)
+);
+CREATE TABLE IF NOT EXISTS rider_import (stage TEXT PRIMARY KEY, player_id INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS job (
+ id INTEGER PRIMARY KEY, type TEXT NOT NULL, payload_version INTEGER NOT NULL DEFAULT 1, payload TEXT NOT NULL,
+ state TEXT NOT NULL DEFAULT 'queued', attempts INTEGER NOT NULL DEFAULT 0, next_run_at INTEGER NOT NULL,
+ lease_expires_at INTEGER, claim_token TEXT, last_error TEXT, created_at INTEGER NOT NULL, finished_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS job_ready ON job(state, next_run_at);
+CREATE TABLE IF NOT EXISTS system_flag (name TEXT PRIMARY KEY, value TEXT NOT NULL);
+ALTER TABLE activity_upload ADD COLUMN attempt TEXT;
+ALTER TABLE activity_upload ADD COLUMN remote_id TEXT;
+ALTER TABLE activity_upload ADD COLUMN step TEXT;
+ALTER TABLE activity_upload ADD COLUMN last_error TEXT;
+ALTER TABLE activity_upload ADD COLUMN updated_at INTEGER;
+ALTER TABLE power_curve ADD COLUMN activity_id INTEGER;
+`;

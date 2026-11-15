@@ -5,7 +5,9 @@ import { EventsService } from '#src/services/events.service';
 import { FilesService } from '#src/services/files.service';
 import { FitnessService } from '#src/services/fitness.service';
 import { GoalService } from '#src/services/goals.service';
+import { DocumentsService } from '#src/services/documents.service';
 import { IntegrationsService } from '#src/services/integrations.service';
+import { JobsService } from '#src/services/jobs.service';
 import { MetricsService } from '#src/services/metrics.service';
 import { ImportsService } from '#src/services/profile-import.service';
 import { ProfilesService } from '#src/services/profile.service';
@@ -23,12 +25,13 @@ export function createServices(context: RepositoryContext) {
   context.world.lifecycle.log = logging.child({ component: 'server' });
   context.world.lifecycle.intervalSeconds = context.config.logging.rideProgressIntervalSeconds;
 
-  return {
+  const services = {
     accounts: context.accounts,
     sessions: context.sessions,
     profiles: new ProfilesService(context),
     settings: new SettingsService(context),
     connections: new ConnectionsService(context),
+    documents: new DocumentsService(context),
     imports: new ImportsService(context.accounts, context.world),
     workouts: new WorkoutsService(context),
     uploads: new UploadsService(context),
@@ -43,7 +46,13 @@ export function createServices(context: RepositoryContext) {
     social: new SocialService(context),
     integrations: new IntegrationsService(context),
     metrics: new MetricsService(context),
+    jobs: new JobsService(context),
   };
+
+  services.activities.registerJobs(services.jobs);
+  services.uploads.registerJobs(services.jobs);
+
+  return services;
 }
 
 export type Services = ReturnType<typeof createServices>;

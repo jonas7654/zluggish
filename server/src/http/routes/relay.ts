@@ -41,17 +41,14 @@ export function relayRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       await runtime.services.workouts.syncWorkoutsAutomatically(user.player_id, true);
     runtime.world.login(BigInt(user.player_id), request.key);
 
-    const economyPath = resolve(runtime.services.profiles.folder(user.player_id), 'economy_config.txt');
+    const imported = runtime.services.documents.text(user.player_id, 'economy_config.txt');
 
     const economy = fromJsonString(
       EconomyConfigSchema,
-      runtime.services.files.read(
-        runtime.services.files.exists(economyPath) ? economyPath : resolve(runtime.assets, 'data/economy_config.txt'),
-        'utf8',
-      ),
+      imported ?? runtime.services.files.read(resolve(runtime.assets, 'data/economy_config.txt'), 'utf8'),
     );
 
-    if (!runtime.services.files.exists(economyPath)) {
+    if (imported === null) {
       const profile = runtime.services.profiles.get(user.player_id);
       const currentLevel = Math.floor(profile.achievementLevel / 100);
 
@@ -78,7 +75,7 @@ export function relayRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
           if (level.level <= currentLevel) level.xp = Math.max(0, level.xp - offset);
       }
 
-      runtime.services.files.write(economyPath, toJsonString(EconomyConfigSchema, economy));
+      runtime.services.documents.put(user.player_id, 'economy_config.txt', toJsonString(EconomyConfigSchema, economy));
     }
 
     const peer = peerAddress(c);

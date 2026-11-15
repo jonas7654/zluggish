@@ -2,7 +2,10 @@ import { ConfigError } from '#src/config/index';
 import type { LoadOptions } from '#src/config/load';
 import { loadConfig, packageRoot, selectConfigPath } from '#src/config/load';
 import { migrateConfig } from '#src/config/migrate';
+import { openDatabase } from '#src/db/open';
+import { backupStorage, pauseUploads, restoreStorage } from '#src/migrations/backup';
 import { migrateAccounts } from '#src/migrations/accounts';
+import { SystemFlag } from '#src/repositories/system-flag.repository';
 import { AssetFiles } from '#src/repositories/files.repository';
 import { LockRepository } from '#src/repositories/lock.repository';
 import type { Overrides } from '#src/dtos/settings.dto';
@@ -27,6 +30,12 @@ config init                                 Create a default typed config; never
 config validate                             Evaluate trusted config and validate its values
 config typecheck                            Typecheck the selected operator config
 settings set/reset                          Update SQLite overrides, never TypeScript source
+storage backup --output DIR                 Back up the stopped server's storage and config
+storage restore --input DIR                 Restore a backup while stopped; uploads stay paused
+uploads list                                Show deliveries that wait or need a decision
+uploads pause                               Stop automatic deliveries (after a manual restore)
+uploads resume --confirm                    Allow automatic deliveries again
+uploads cancel --activity ID --provider P   Cancel one delivery
 
 Config files are trusted executable code. Editing operator config requires restart.
 JSONC is not read or produced. The Node server is still under compatibility development.
@@ -48,6 +57,10 @@ export async function run(argv: string[], output: (message: string) => void = co
       admin: { type: 'boolean' },
       'remove-password': { type: 'boolean' },
       'password-file': { type: 'string' },
+      input: { type: 'string' },
+      activity: { type: 'string' },
+      provider: { type: 'string' },
+      confirm: { type: 'boolean' },
     },
   });
 
@@ -124,6 +137,24 @@ export async function run(argv: string[], output: (message: string) => void = co
     }
 
     return 0;
+  }
+
+  if (group === 'storage' || group === 'uploads') {
+    if (key !== undefined || raw !== undefined) throw new ConfigError(`Unexpected ${group} arguments`);
+    const options: LoadOptions = { path: selected };
+
+    if (values['storage-dir'] !== undefined) options.storageDir = storage;
+    const loaded = existsSync(selected) ? await loadConfig(options) : null;
+    const directory = loaded?.config.storageDir ?? storage;
+    const release = await new LockRepository().acquireStorageLock(directory);
+
+    try {
+      if (group === 'storage') return storageCommand(action, directory, loaded?.path ?? null, values, output);
+
+      return uploadsCommand(action, directory, values, output);
+    } finally {
+      await release();
+    }
   }
 
   if (group === 'config') {
@@ -243,9 +274,7 @@ export async function run(argv: string[], output: (message: string) => void = co
 
   if (action === 'show') {
     if (key !== undefined) throw new ConfigError('Unexpected settings show arguments');
-    const path = resolve(config.storageDir, 'settings.db');
-
-    const store = existsSync(path) ? new SettingsStore(config.storageDir, true) : null;
+    const store = SettingsStore.openReadOnly(config.storageDir);
 
     try {
       output(
@@ -278,9 +307,7 @@ export async function run(argv: string[], output: (message: string) => void = co
   };
 
   if (values['dry-run']) {
-    const store = existsSync(resolve(config.storageDir, 'settings.db'))
-      ? new SettingsStore(config.storageDir, true)
-      : null;
+    const store = SettingsStore.openReadOnly(config.storageDir);
 
     try {
       change(store?.read(playerId) ?? {});
@@ -296,7 +323,7 @@ export async function run(argv: string[], output: (message: string) => void = co
   const release = await new LockRepository().acquireStorageLock(config.storageDir);
 
   try {
-    const store = new SettingsStore(config.storageDir);
+    const store = SettingsStore.open(config.storageDir);
 
     try {
       store.save(playerId, change(store.read(playerId)));
@@ -310,4 +337,104 @@ export async function run(argv: string[], output: (message: string) => void = co
   }
 
   return 0;
+}
+
+type Values = {
+  output?: string | undefined;
+  input?: string | undefined;
+  activity?: string | undefined;
+  provider?: string | undefined;
+  confirm?: boolean | undefined;
+};
+
+function storageCommand(
+  action: string | undefined,
+  storage: string,
+  config: string | null,
+  values: Values,
+  output: (message: string) => void,
+) {
+  if (action === 'backup') {
+    if (!values.output) throw new ConfigError('Choose a backup directory with --output DIR');
+    // Opening the database applies pending migrations, so the backup has the current schema.
+    openDatabase(storage).close();
+    const files = backupStorage(storage, resolve(values.output), config);
+    output(`Backup complete: ${files} files`);
+
+    return 0;
+  }
+
+  if (action === 'restore') {
+    if (!values.input) throw new ConfigError('Choose a backup directory with --input DIR');
+    restoreStorage(storage, resolve(values.input), config);
+    output('Restore complete. Uploads stay paused: review them with uploads list, then run uploads resume --confirm');
+
+    return 0;
+  }
+
+  throw new ConfigError('Unknown storage command');
+}
+
+function uploadsCommand(
+  action: string | undefined,
+  storage: string,
+  values: Values,
+  output: (message: string) => void,
+) {
+  if (action === 'pause') {
+    pauseUploads(storage, 'operator');
+    output('Uploads paused');
+
+    return 0;
+  }
+
+  const accounts = new AccountsService(storage);
+
+  try {
+    const repositories = accounts.repositories;
+    const flags = repositories.systemFlagsRepository;
+
+    const list = () => {
+      for (const delivery of repositories.uploadsRepository.waiting())
+        output(`activity ${delivery.activity_id} ${delivery.provider} ${delivery.state}`);
+    };
+
+    switch (action) {
+      case 'list': {
+        output(flags.get(SystemFlag.UploadPause) === null ? 'Uploads are running' : 'Uploads are paused');
+        list();
+
+        return 0;
+      }
+
+      case 'resume': {
+        if (!values.confirm) {
+          list();
+          throw new ConfigError('Cancel unwanted deliveries first, then run uploads resume --confirm');
+        }
+
+        flags.clear(SystemFlag.UploadPause);
+        output('Uploads resumed');
+
+        return 0;
+      }
+
+      case 'cancel': {
+        const activity = z.coerce.number().int().positive().safe().parse(values.activity);
+        const provider = z.string().min(1).parse(values.provider);
+
+        if (!repositories.uploadsRepository.cancel(activity, provider))
+          throw new ConfigError('No pending, failed or ambiguous delivery matches');
+        output('Delivery cancelled');
+
+        return 0;
+      }
+
+      default: {
+        throw new ConfigError('Unknown uploads command');
+      }
+    }
+  } finally {
+    accounts.close();
+  }
 }

@@ -196,6 +196,7 @@ export interface Database {
     power: Integer;
     power_wkg: number;
     timestamp: Integer;
+    activity_id: Generated<NullableInteger>;
   };
   version: {
     version: Generated<Integer>;
@@ -211,8 +212,31 @@ export interface Database {
     activity_id: Integer;
     provider: string;
     state: Generated<string>;
+    attempt: Generated<string | null>;
+    remote_id: Generated<string | null>;
+    step: Generated<string | null>;
+    last_error: Generated<string | null>;
+    updated_at: Generated<NullableInteger>;
   };
   rider_settings: { player_id: Integer; value: string };
   config_migration: { id: string };
   world_settings: { id: string; value: string };
+  rider_document: { player_id: Integer; name: string; data: Uint8Array; encrypted: Generated<Integer> };
+  bookmark: { player_id: Integer; course: Integer; sport: Integer; name: string; state: Uint8Array };
+  rider_import: { stage: string; player_id: Integer };
+  job: {
+    id: Generated<Integer>;
+    type: string;
+    payload_version: Generated<Integer>;
+    payload: string;
+    state: Generated<string>;
+    attempts: Generated<Integer>;
+    next_run_at: Integer;
+    lease_expires_at: Generated<NullableInteger>;
+    claim_token: Generated<string | null>;
+    last_error: Generated<string | null>;
+    created_at: Integer;
+    finished_at: Generated<NullableInteger>;
+  };
+  system_flag: { name: string; value: string };
 }

@@ -7,8 +7,8 @@ export class ConnectionsService extends BaseService {
     super(context.accounts.repositories);
   }
 
-  file(...args: Parameters<Connections['file']>) {
-    return this.connectionsRepository.file(...args);
+  has(...args: Parameters<Connections['has']>) {
+    return this.connectionsRepository.has(...args);
   }
 
   read(...args: Parameters<Connections['read']>) {

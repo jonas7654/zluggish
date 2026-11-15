@@ -256,8 +256,8 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     const session = c.get('browser');
 
     if (c.req.method === 'POST') {
-      await csrf(c, runtime);
-      void runtime.services.uploads.retry(user.player_id);
+      const form = await csrf(c, runtime);
+      void runtime.services.uploads.retry(user.player_id, form.ambiguous === '1');
 
       return c.redirect(`/user/${user.username}/`);
     }
@@ -291,11 +291,18 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
               .map((job) => html`<li>Activity ${job.activity_id}: ${job.provider} — ${job.state}</li>`)}
           </ul>
           <p>
-            Check the provider before retrying a failed upload: it may have received the activity before the connection
-            failed.
+            A failed upload was rejected by the provider. An upload with an unknown result may have reached the provider
+            before the connection failed: check the provider first, because a retry can create a duplicate.
           </p>
           <form method="post">
             <input type="hidden" name="csrf_token" value="${session.csrf}" /><button>Retry failed uploads</button>
+          </form>
+          <form method="post">
+            <input type="hidden" name="csrf_token" value="${session.csrf}" /><input
+              type="hidden"
+              name="ambiguous"
+              value="1"
+            /><button>Retry failed uploads and uploads with an unknown result</button>
           </form>
           <form method="post" action="/start-zwift">
             <input type="hidden" name="csrf_token" value="${session.csrf}" /><label

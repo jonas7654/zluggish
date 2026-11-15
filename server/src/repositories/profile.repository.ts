@@ -1,28 +1,29 @@
+import { atomic } from '#src/db/transaction';
 import type { PlayerProfile } from '#src/protocol/generated/profile_pb';
 import { PlayerProfileSchema } from '#src/protocol/generated/profile_pb';
 import type { AccountsRepository } from '#src/repositories/accounts.repository';
 import { CryptoRepository } from '#src/repositories/crypto.repository';
-import { AssetFiles } from '#src/repositories/files.repository';
+import type { RiderDocuments } from '#src/repositories/rider-document.repository';
 import { clone, create, fromBinary, toBinary } from '@bufbuild/protobuf';
-import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import type { DatabaseSync } from 'node:sqlite';
 
 export class Profiles {
   readonly synthetic = new Map<bigint, PlayerProfile>();
 
-  // Each committed change or external replacement advances the source version.
-  // An asynchronous load stores its result only if the version did not change.
+  // Each committed change advances the source version and replaces the cache entry.
   private readonly cache = new Map<number, PlayerProfile>();
 
   private readonly versions = new Map<number, number>();
 
-  private readonly files = new AssetFiles();
-
   constructor(
     readonly storage: string,
+    private readonly db: DatabaseSync,
     private readonly accounts: AccountsRepository,
+    private readonly documents: RiderDocuments,
   ) {}
 
+  /** Media and replaceable exports stay in the rider folder. */
   folder(id: number) {
     return resolve(this.storage, String(id));
   }
@@ -38,34 +39,19 @@ export class Profiles {
     const cached = this.cache.get(id);
 
     if (cached) return clone(PlayerProfileSchema, cached);
-    const path = resolve(this.folder(id), 'profile.bin');
-    const profile = this.decode(id, existsSync(path) ? readFileSync(path) : null);
+    const profile = this.decode(id, this.documents.get(id, 'profile.bin'));
     this.cache.set(id, profile);
 
     return clone(PlayerProfileSchema, profile);
   }
 
-  /** Load into the cache without blocking the main thread. */
-  async load(id: number): Promise<PlayerProfile> {
-    const synthetic = this.synthetic.get(BigInt(id));
+  /** Database reads are short lookups; the asynchronous form keeps session loads uniform. */
+  load(id: number): Promise<PlayerProfile> {
+    return Promise.try(() => this.get(id));
+  }
 
-    if (synthetic) return clone(PlayerProfileSchema, synthetic);
-
-    for (;;) {
-      const cached = this.cache.get(id);
-
-      if (cached) return clone(PlayerProfileSchema, cached);
-      const version = this.version(id);
-
-      const bytes = await this.files.readAsync(resolve(this.folder(id), 'profile.bin'));
-
-      // A newer change replaced the source during the read: discard and read again.
-      if (this.version(id) !== version) continue;
-      const profile = this.decode(id, bytes);
-      this.cache.set(id, profile);
-
-      return clone(PlayerProfileSchema, profile);
-    }
+  exists(id: number) {
+    return this.documents.has(id, 'profile.bin');
   }
 
   private decode(id: number, bytes: Uint8Array | null) {
@@ -94,16 +80,18 @@ export class Profiles {
     });
   }
 
+  /** The profile and the account names commit together: they cannot differ after a crash. */
   save(id: number, profile: PlayerProfile) {
     profile.id = BigInt(id);
-    new AssetFiles().writeDurable(
-      resolve(this.folder(id), 'profile.bin'),
-      toBinary(PlayerProfileSchema, profile),
-      true,
-    );
-    this.accounts.updateName(id, profile.firstName, profile.lastName);
+    // Inside a caller's transaction the commit is not known yet: only invalidate.
+    const joined = this.db.isTransaction;
+    atomic(this.db, () => {
+      this.documents.put(id, 'profile.bin', toBinary(PlayerProfileSchema, profile));
+      this.accounts.updateName(id, profile.firstName, profile.lastName);
+    });
     this.invalidate(id);
-    this.cache.set(id, clone(PlayerProfileSchema, profile));
+
+    if (!joined) this.cache.set(id, clone(PlayerProfileSchema, profile));
   }
 
   /** Call after any change to the stored profile or account names outside save(). */

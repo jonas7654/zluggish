@@ -130,11 +130,7 @@ export function socialRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     profile.defaultActivityPrivacy =
       input.defaultActivityPrivacy === 'PRIVATE' ? 1 : input.defaultActivityPrivacy === 'FRIENDS' ? 2 : 0;
     runtime.services.profiles.save(user.player_id, profile);
-    runtime.services.files.write(
-      resolve(runtime.services.profiles.folder(user.player_id), 'privacy.json'),
-      JSON.stringify(input),
-      true,
-    );
+    runtime.services.documents.put(user.player_id, 'privacy.json', JSON.stringify(input));
 
     return c.body(null, 200);
   });

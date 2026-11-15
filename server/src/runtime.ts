@@ -4,6 +4,7 @@ import type { ResolvedConfig } from '#src/config/index';
 import { packageRoot } from '#src/config/load';
 import type { RepositoryContext } from '#src/context';
 import type { Runtime } from '#src/http/runtime';
+import { CheckpointRepository } from '#src/repositories/checkpoint.repository';
 import { LockRepository } from '#src/repositories/lock.repository';
 import { AccountsService } from '#src/services/auth.service';
 import { SessionsService } from '#src/services/browser-session.service';
@@ -49,14 +50,18 @@ export async function openRuntime(config: ResolvedConfig, assets: string) {
 
     new ImportsService(accounts, world).recover();
     const simulation = new Simulation(runtime);
+    const checkpoints = new CheckpointRepository(accounts.db, resolve(config.storageDir, 'zluggish.db'));
+    resources.defer(() => checkpoints.close());
     resources.defer(() => runtime.discord?.close());
-    resources.defer(() => runtime.services.uploads.close());
+    resources.defer(() => runtime.services.jobs.close());
     resources.defer(() => simulation.close());
     resources.defer(() => world.lifecycle.close());
-    runtime.services.activities.recover();
     resources.defer(runtime.services.metrics.start(config.logging.metricsIntervalSeconds));
+    await simulation.ready;
     simulation.start();
     runtime.services.uploads.start();
+    runtime.services.jobs.start();
+    checkpoints.start();
 
     if (config.integrations.discord.enabled) {
       try {

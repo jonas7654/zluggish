@@ -6,3 +6,27 @@ export class ApplicationError extends Error {
     super(message);
   }
 }
+
+/** The provider did not complete the delivery: the request was not sent, or the
+provider rejected it. Any other delivery error has an unknown remote result.
+*/
+export class DeliveryRefusedError extends Error {
+  constructor(readonly code: string) {
+    super(code);
+  }
+}
+
+/** 4xx responses reject the request; 408, 425 and 429 may follow a completed request. */
+export function refused(status: number) {
+  return status >= 400 && status < 500 && ![408, 425, 429].includes(status);
+}
+
+/** A failure with a safe code. Other errors record only their type name. */
+export class JobError extends Error {
+  constructor(
+    readonly code: string,
+    readonly retry = true,
+  ) {
+    super(code);
+  }
+}

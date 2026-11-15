@@ -12,6 +12,7 @@ import {
 } from '#src/protocol/generated/activity_pb';
 import { GhostSchema, PlayerStateSchema } from '#src/protocol/generated/udp-node-msgs_pb';
 import type { PlayerState } from '#src/protocol/generated/udp-node-msgs_pb';
+import { CheckpointRepository } from '#src/repositories/checkpoint.repository';
 import { metrics } from '#src/repositories/metrics.repository';
 import { AccountsService } from '#src/services/auth.service';
 import { SessionsService } from '#src/services/browser-session.service';
@@ -24,6 +25,7 @@ import { syncBuiltinESMExports } from 'node:module';
 import { cpus, platform, release, tmpdir, totalmem } from 'node:os';
 import { resolve } from 'node:path';
 import { mock } from 'node:test';
+import { DatabaseSync } from 'node:sqlite';
 import { parseArgs } from 'node:util';
 import { z } from 'zod';
 
@@ -36,6 +38,7 @@ const { values } = parseArgs({
     'provider-ms': { type: 'string', default: '2000' },
     'media-mb': { type: 'string', default: '32' },
     'phase-seconds': { type: 'string', default: '8' },
+    'long-reader': { type: 'boolean', default: false },
     storage: { type: 'string' },
     output: { type: 'string' },
   },
@@ -201,7 +204,17 @@ for (let index = 0; index < riders; index++) {
 
 const simulation = new Simulation(runtime);
 
+await simulation.ready;
+
 simulation.start();
+
+const checkpoints = new CheckpointRepository(accounts.db, resolve(storage, 'zluggish.db'), 1000);
+
+checkpoints.start();
+
+runtime.services.uploads.start();
+
+runtime.services.jobs.start(250);
 
 metrics.monitorEventLoop();
 
@@ -286,14 +299,28 @@ await phase('completion', async () => {
     await app.request(url.pathname + url.search, { method: 'PUT', body: new Uint8Array(mediaBytes) });
   };
 
+  // A long reader keeps a snapshot open across the burst; checkpoints cannot pass it.
+  const reader = values['long-reader'] ? new DatabaseSync(resolve(storage, 'zluggish.db'), { readOnly: true }) : null;
+  reader?.exec('BEGIN');
+  reader?.prepare('SELECT count(*) FROM activity').get();
   await Promise.all([media(), ...group.map((rider) => finish(rider))]);
+  await sleep(phaseSeconds * 500);
+  reader?.exec('COMMIT');
+  reader?.close();
+});
+
+// Post-commit work (power curves, exports, charts, deliveries) runs while riders ride.
+await phase('jobs', async () => {
+  while (runtime.services.jobs.busy) await sleep(100);
 });
 
 clearInterval(driver);
 
 await simulation.close();
 
-await runtime.services.uploads.close();
+await runtime.services.jobs.close();
+
+await checkpoints.close();
 
 metrics.stopEventLoop();
 
@@ -316,7 +343,9 @@ const result = {
     mediaBytes,
     phaseSeconds,
     fitBytes: fit.length,
+    longReader: values['long-reader'],
   },
+  pendingJobs: accounts.repositories.jobsRepository.list().filter((job) => job.state !== 'done').length,
   providerCalls,
   phases,
 };

@@ -14,21 +14,10 @@ import { HTTPException } from 'hono/http-exception';
 import { resolve } from 'node:path';
 import { z } from 'zod';
 
-function filename(value: string) {
-  return (
-    value
-      .normalize('NFKD')
-      .replaceAll(/[^\w. -]/g, '_')
-      .replace(/^\.+/, '') || 'activity.fit'
-  );
-}
-
 export function activityRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
   const service = runtime.services.activities;
 
   const records = runtime.services.recordData;
-
-  const uploads = runtime.services.uploads;
 
   app.on(['GET', 'POST'], ['/api/profiles/:id/activities', '/api/profiles/:id/activities/'], async (c) => {
     const user = authenticated(c);
@@ -87,9 +76,7 @@ export function activityRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     activity.id = id;
 
     const finish = c.req.query('upload-to-strava') === 'true';
-    const outcome = service.save(activity, finish);
-
-    if (outcome === 'completed') void uploads.drain();
+    const outcome = await service.saveInTurn(activity, finish);
 
     if (finish && outcome !== 'unchanged') runtime.world.logout(BigInt(user.player_id), 'activity_finished');
 
@@ -98,7 +85,7 @@ export function activityRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     });
   });
 
-  app.get('/api/activities/:activityId', async (c) => {
+  app.get('/api/activities/:activityId', (c) => {
     const user = authenticated(c);
 
     const row = service.activityById(c.req.param('activityId'));
@@ -110,51 +97,21 @@ export function activityRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     const fitness = service.fitnessVisible(activity, user.player_id);
     const data = service.companion(activity, fitness);
 
-    const fit = resolve(
-      runtime.services.profiles.folder(Number(activity.playerId)),
-      'fit',
-      `${activity.id} - ${filename(activity.fitFilename)}`,
-    );
+    // Charts come from the canonical FIT payload. A missing chart is created by a job;
+    // the details omit fitness data until it is ready.
+    const fileId = fitness ? service.chartFile(activity.id) : null;
 
-    const previous = service.findActivityFile(activity.id);
+    if (fileId !== null) {
+      const url = `https://us-or-rly101.zwift.com/api/activities/${activity.id}/file/${fileId}`;
 
-    const fileId = previous
-      ? z.number().parse(previous.id)
-      : runtime.services.files.exists(fit)
-        ? Number(service.insertActivityFile(activity.id).lastInsertRowid)
-        : null;
-
-    if (fitness && fileId !== null) {
-      const chart = resolve(runtime.config.storageDir, 'activities', String(fileId));
-
-      if (!runtime.services.files.exists(chart) && runtime.services.files.exists(fit)) {
-        try {
-          const bytes = await runtime.services.files.readAsync(fit);
-
-          if (bytes)
-            await runtime.services.files.writeAsync(
-              chart,
-              JSON.stringify(await runtime.services.activities.chart(bytes)),
-            );
-        } catch {
-          runtime.world.lifecycle.log.warn('activity.chart_unavailable', 'Activity chart unavailable', {
-            activityId: activity.id,
-          });
-        }
-      }
-
-      if (runtime.services.files.exists(chart)) {
-        const url = `https://us-or-rly101.zwift.com/api/activities/${activity.id}/file/${fileId}`;
-
-        return c.json({
-          ...data,
-          fitnessData: {
-            status: 'AVAILABLE',
-            fullDataUrl: url,
-            smallDataUrl: url,
-          },
-        });
-      }
+      return c.json({
+        ...data,
+        fitnessData: {
+          status: 'AVAILABLE',
+          fullDataUrl: url,
+          smallDataUrl: url,
+        },
+      });
     }
 
     return c.json(data);
@@ -199,7 +156,7 @@ export function activityRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     const id = z.coerce.number().int().positive().safe().parse(c.req.param('fileId'));
 
     if (!service.findOwnedActivityFile(id, c.req.param('activityId'))) throw new HTTPException(404);
-    const file = resolve(runtime.config.storageDir, 'activities', String(id));
+    const file = service.chartPath(id);
 
     if (!runtime.services.files.exists(file)) throw new HTTPException(404);
 

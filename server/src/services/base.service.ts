@@ -113,6 +113,22 @@ export abstract class BaseService {
     return this.repositories.profileRepository;
   }
 
+  protected get riderDocuments() {
+    return this.repositories.riderDocuments;
+  }
+
+  protected get bookmarksRepository() {
+    return this.repositories.bookmarksRepository;
+  }
+
+  protected get jobsRepository() {
+    return this.repositories.jobsRepository;
+  }
+
+  protected get systemFlagsRepository() {
+    return this.repositories.systemFlagsRepository;
+  }
+
   protected get settingsRepository() {
     return this.repositories.settingsRepository;
   }

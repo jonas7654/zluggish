@@ -1,7 +1,7 @@
 import { integer } from '#src/db/values';
 import type { IntegerInput } from '#src/db/values';
 import { query, SqliteExecutor } from '#src/db/query';
-import { immediate } from '#src/db/transaction';
+import { atomic } from '#src/db/transaction';
 import { sql } from 'kysely';
 import type { DatabaseSync } from 'node:sqlite';
 
@@ -48,8 +48,33 @@ export class ActivitiesRepository {
     return this.executor.all(query.selectFrom('activity_file').select('id').where('activity_id', '=', integer(id)));
   }
 
+  /** The canonical FIT payload; export files are replaceable copies. */
+  fit(id: IntegerInput) {
+    const row = this.executor.get(
+      query.selectFrom('activity').select(['player_id', 'fit', 'fit_filename']).where('id', '=', integer(id)),
+    );
+
+    return row ? { player: row.player_id, fit: row.fit, filename: row.fit_filename ?? '' } : null;
+  }
+
+  setFit(id: IntegerInput, fit: Uint8Array) {
+    this.executor.run(
+      query
+        .updateTable('activity')
+        .set({ fit: fit.length > 0 ? fit : null })
+        .where('id', '=', integer(id)),
+    );
+  }
+
+  /** Activities of a rider that hold a FIT payload, without loading the payloads. */
+  withFit(player: number) {
+    return this.executor
+      .all(query.selectFrom('activity').select('id').where('player_id', '=', player).where('fit', 'is not', null))
+      .map((row) => row.id);
+  }
+
   deleteActivityData(id: IntegerInput, player: number | bigint) {
-    immediate(this.db, () => {
+    atomic(this.db, () => {
       for (const table of [
         'activity_file',
         'activity_image',

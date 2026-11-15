@@ -1,53 +1,39 @@
-import type { ConnectionProvider } from '#src/enum';
+import type { ConnectionProvider, RiderDocumentName } from '#src/enum';
 import { CryptoRepository } from '#src/repositories/crypto.repository';
-import { AssetFiles } from '#src/repositories/files.repository';
-import { existsSync, readFileSync, unlinkSync } from 'node:fs';
-import { resolve } from 'node:path';
+import type { RiderDocuments } from '#src/repositories/rider-document.repository';
 
 export type Connection = ConnectionProvider;
 
-const names: Record<Connection, string> = {
+export const connectionDocuments: Record<Connection, RiderDocumentName> = {
   zwift: 'zwift_credentials.bin',
   intervals: 'intervals_credentials.bin',
   garmin: 'garmin_credentials.bin',
   strava: 'strava_api.bin',
 };
 
+/** Provider credentials, encrypted with the credentials key before they are stored. */
 export class Connections {
-  constructor(readonly storage: string) {}
+  constructor(private readonly documents: RiderDocuments) {}
 
-  private key() {
-    const file = resolve(this.storage, 'credentials-key.bin');
-
-    if (!existsSync(file)) new AssetFiles().writeDurable(file, new CryptoRepository().randomBytes(32));
-    const key = readFileSync(file);
-
-    if (key.length !== 32) throw new Error('Invalid credentials key');
-
-    return key;
-  }
-
-  file(player: number, service: Connection) {
-    return resolve(this.storage, String(player), names[service]);
+  has(player: number, service: Connection) {
+    return this.documents.has(player, connectionDocuments[service]);
   }
 
   read(player: number, service: Connection) {
-    const file = this.file(player, service);
+    const data = this.documents.get(player, connectionDocuments[service]);
 
-    return existsSync(file) ? new CryptoRepository().decryptCredentials(this.key(), readFileSync(file)) : null;
+    return data ? new CryptoRepository().decryptCredentials(this.documents.key(), data) : null;
   }
 
   save(player: number, service: Connection, credentials: readonly [string, string]) {
-    new AssetFiles().writeDurable(
-      this.file(player, service),
-      new CryptoRepository().encryptCredentials(this.key(), credentials),
-      true,
+    this.documents.put(
+      player,
+      connectionDocuments[service],
+      new CryptoRepository().encryptCredentials(this.documents.key(), credentials),
     );
   }
 
   remove(player: number, service: Connection) {
-    const file = this.file(player, service);
-
-    if (existsSync(file)) unlinkSync(file);
+    this.documents.remove(player, connectionDocuments[service]);
   }
 }

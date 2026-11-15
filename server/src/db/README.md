@@ -31,3 +31,31 @@ and larger row IDs as bigint.
 changes. Raw SQL remains appropriate for schema inspection and legacy migrations,
 which may operate before the current schema exists. SQLite-specific expressions
 in ordinary queries use Kysely's parameterized `sql` template.
+
+## Transactions, WAL and checkpoints
+
+Use `immediate(db, operation)` from `transaction.ts` for a write transaction, or
+`atomic(db, operation)` to join a caller's transaction. Both record the duration in
+the metrics summary.
+
+Connections use WAL with `synchronous=FULL` and foreign keys (`configureConnection`).
+While the runtime runs, the checkpoint worker (`checkpoint.repository.ts`) owns WAL
+checkpoints: it uses its own connection and `PRAGMA wal_checkpoint(PASSIVE)`, and the
+main connection does not auto-checkpoint. At shutdown the main connection truncates
+the WAL once.
+
+## Migrations
+
+`open.ts` creates version 6 directly. Version 4 upgrades to 5 in place. Version 5,
+or a `settings.db` from an offline config migration, runs the storage merge in
+`../migrations/storage.ts`: backup, import into a temporary database, validation,
+closed-database publication with a durable manifest, and a startup check of that
+manifest. Later schema changes go in the `migrations` list in `open.ts`; each runs in
+one transaction at startup.
+
+## Durable jobs
+
+`jobs.repository.ts` holds the job table. Insert a job in the same transaction as the
+change that requires it. A handler commits its result with `job.commit(result)`, which
+checks the claim token and the lease in the same transaction. Payloads hold
+identifiers only.

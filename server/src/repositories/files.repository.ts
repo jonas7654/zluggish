@@ -121,6 +121,16 @@ export class AssetFiles {
     metrics.time(Metric.DurableWrite, () => publish(path, text, replace));
   }
 
+  renameSync = renameSync;
+
+  syncDirectoryAsync(path: string) {
+    return syncDirectoryAsync(path);
+  }
+
+  async removeAsync(path: string) {
+    await rm(path, { force: true });
+  }
+
   writeDurableAsync(path: string, data: string | Uint8Array, replace = false) {
     return metrics.timeAsync(Metric.DurableWrite, () => publishAsync(path, data, replace));
   }

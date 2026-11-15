@@ -1,90 +1,176 @@
 import type { UploadState } from '#src/enum';
 import { query, SqliteExecutor } from '#src/db/query';
 import type { DatabaseSync } from 'node:sqlite';
+import { z } from 'zod';
 
+const delivery = z.object({
+  activity_id: z.number(),
+  provider: z.string(),
+  state: z.string(),
+  attempt: z.string().nullable(),
+  remote_id: z.string().nullable(),
+  step: z.string().nullable(),
+  last_error: z.string().nullable(),
+});
+
+export type Delivery = z.infer<typeof delivery>;
+
+/** Delivery records, separate from completion. pending -> sending (attempt token) ->
+sent | failed | ambiguous; pending | failed | ambiguous -> cancelled. Only the attempt
+that committed sending records its result. Records outlive their jobs.
+*/
 export class UploadsRepository {
   private readonly executor: SqliteExecutor;
 
-  constructor(db: DatabaseSync) {
+  constructor(
+    db: DatabaseSync,
+    private readonly now: () => number = Date.now,
+  ) {
     this.executor = new SqliteExecutor(db);
-  }
-
-  private jobs() {
-    return query
-      .selectFrom('activity_upload as u')
-      .innerJoin('activity_completion as c', 'c.activity_id', 'u.activity_id');
   }
 
   status(player: number) {
     return this.executor.all(
-      this.jobs()
-        .select(['u.activity_id', 'u.provider', 'u.state'])
-        .where('c.player_id', '=', player)
+      query
+        .selectFrom('activity_upload as u')
+        .innerJoin('activity as a', 'a.id', 'u.activity_id')
+        .select(['u.activity_id', 'u.provider', 'u.state', 'u.last_error'])
+        .where('a.player_id', '=', player)
         .orderBy('u.activity_id', 'desc')
         .limit(100),
     );
   }
 
-  retry(player: number) {
-    this.executor.run(
-      query
-        .updateTable('activity_upload')
-        .set({ state: 'pending' })
-        .where('state', '=', 'failed')
-        .where(
-          'activity_id',
-          'in',
-          query.selectFrom('activity_completion').select('activity_id').where('player_id', '=', player),
-        ),
-    );
-  }
-
-  failInterrupted() {
-    this.executor.run(query.updateTable('activity_upload').set({ state: 'failed' }).where('state', '=', 'sending'));
-  }
-
-  pending() {
+  /** Deliveries that wait for a send or a decision, for operator review during an upload pause. */
+  waiting() {
     return this.executor.all(
-      this.jobs()
-        .select(['u.activity_id', 'u.provider'])
-        .where('u.state', '=', 'pending')
-        .where('c.done', '=', 1)
-        .orderBy('u.activity_id')
-        .orderBy('u.provider')
-        .limit(10),
+      query
+        .selectFrom('activity_upload')
+        .select(['activity_id', 'provider', 'state'])
+        .where('state', 'in', ['pending', 'sending', 'ambiguous'])
+        .orderBy('activity_id')
+        .orderBy('provider'),
     );
   }
 
-  ready(activity: number, provider: string) {
-    return this.executor.get(
-      this.jobs()
-        .select(['u.activity_id', 'u.provider', 'c.player_id', 'c.payload'])
-        .where('u.activity_id', '=', activity)
-        .where('u.provider', '=', provider)
-        .where('u.state', '=', 'pending')
-        .where('c.done', '=', 1),
+  insert(activity: number | bigint, provider: string) {
+    return (
+      this.executor.run(
+        query
+          .insertInto('activity_upload')
+          .values({ activity_id: activity, provider, updated_at: this.now() })
+          .onConflict((conflict) => conflict.doNothing()),
+      ).changes !== 0
     );
   }
 
-  /** Only pending jobs can be claimed; terminal results cannot resurrect deleted jobs. */
-  claim(activity: number, provider: string) {
-    return this.transition(activity, provider, 'pending', 'sending');
+  get(activity: number, provider: string): Delivery | null {
+    const row = this.executor.get(
+      query
+        .selectFrom('activity_upload')
+        .select(['activity_id', 'provider', 'state', 'attempt', 'remote_id', 'step', 'last_error'])
+        .where('activity_id', '=', activity)
+        .where('provider', '=', provider),
+    );
+
+    return row ? delivery.parse(row) : null;
   }
 
-  finish(activity: number, provider: string, state: 'sent' | 'failed' | 'cancelled') {
-    return this.transition(activity, provider, 'sending', state);
+  /** Commit sending before the provider request. */
+  begin(activity: number, provider: string, attempt: string) {
+    return this.update(activity, provider, ['pending'], { state: 'sending', attempt, last_error: null });
   }
 
-  private transition(activity: number, provider: string, expected: UploadState, state: UploadState) {
-    const result = this.executor.run(
+  /** A send that may have reached the provider, with no known result. */
+  abandon(activity: number, provider: string) {
+    return this.update(activity, provider, ['sending'], { state: 'ambiguous', last_error: 'interrupted' });
+  }
+
+  /** Record the outcome of this attempt. A confirmed result also resolves an attempt that
+  another handler marked ambiguous after the lease expired.
+  */
+  record(
+    activity: number,
+    provider: string,
+    attempt: string,
+    state: 'sent' | 'failed' | 'ambiguous',
+    error: string | null,
+  ) {
+    return (
+      this.executor.run(
+        query
+          .updateTable('activity_upload')
+          .set({ state, last_error: error, updated_at: this.now() })
+          .where('activity_id', '=', activity)
+          .where('provider', '=', provider)
+          .where('attempt', '=', attempt)
+          .where('state', 'in', ['sending', 'ambiguous']),
+      ).changes !== 0
+    );
+  }
+
+  /** Persist a confirmed step of a multi-request delivery before the next request. */
+  progress(activity: number, provider: string, attempt: string, step: string, remoteId: string) {
+    return (
+      this.executor.run(
+        query
+          .updateTable('activity_upload')
+          .set({ step, remote_id: remoteId, updated_at: this.now() })
+          .where('activity_id', '=', activity)
+          .where('provider', '=', provider)
+          .where('attempt', '=', attempt)
+          .where('state', '=', 'sending'),
+      ).changes !== 0
+    );
+  }
+
+  cancel(activity: number, provider: string) {
+    return this.update(activity, provider, ['pending', 'failed', 'ambiguous'], { state: 'cancelled' });
+  }
+
+  /** At startup no request is in flight: an earlier send has an unknown result. */
+  interrupted() {
+    return this.executor.run(
       query
         .updateTable('activity_upload')
-        .set({ state })
-        .where('activity_id', '=', activity)
-        .where('provider', '=', provider)
-        .where('state', '=', expected),
+        .set({ state: 'ambiguous', last_error: 'interrupted', updated_at: this.now() })
+        .where('state', '=', 'sending'),
+    ).changes;
+  }
+
+  /** Failed deliveries, and ambiguous ones only on explicit request, become pending. */
+  retry(player: number, ambiguous: boolean) {
+    const states: UploadState[] = ambiguous ? ['failed', 'ambiguous'] : ['failed'];
+
+    const rows = this.executor.all(
+      query
+        .selectFrom('activity_upload as u')
+        .innerJoin('activity as a', 'a.id', 'u.activity_id')
+        .select(['u.activity_id', 'u.provider'])
+        .where('a.player_id', '=', player)
+        .where('u.state', 'in', states),
     );
 
-    return result.changes !== 0;
+    for (const row of rows) this.update(row.activity_id, row.provider, states, { state: 'pending' });
+
+    return rows.map((row) => ({ activity: row.activity_id, provider: row.provider }));
+  }
+
+  private update(
+    activity: number,
+    provider: string,
+    from: UploadState[],
+    values: { state: UploadState; attempt?: string; last_error?: string | null },
+  ) {
+    return (
+      this.executor.run(
+        query
+          .updateTable('activity_upload')
+          .set({ ...values, updated_at: this.now() })
+          .where('activity_id', '=', activity)
+          .where('provider', '=', provider)
+          .where('state', 'in', from),
+      ).changes !== 0
+    );
   }
 }

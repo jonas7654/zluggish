@@ -1,7 +1,7 @@
 import type { ProtobufTable } from '#src/enum';
 import { query, SqliteExecutor } from '#src/db/query';
 import type { DescMessage } from '@bufbuild/protobuf';
-import { fromJsonString, toJsonString } from '@bufbuild/protobuf';
+import { clearField, clone, fromJsonString, toJsonString } from '@bufbuild/protobuf';
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
 import { z } from 'zod';
 
@@ -22,9 +22,15 @@ export class ProtobufRows {
     message: ProtobufMessage<Schema>,
     exclude: string[] = [],
   ) {
+    // Clear excluded fields before serialization: a FIT payload would otherwise be
+    // encoded to base64 JSON and parsed again on the main thread.
+    const included = clone(schema, message);
+
+    for (const field of schema.fields) if (exclude.includes(field.name)) clearField(included, field);
+
     const json = z.record(z.string(), z.json()).parse(
       JSON.parse(
-        toJsonString(schema, message, {
+        toJsonString(schema, included, {
           useProtoFieldName: true,
           enumAsInteger: true,
         }),

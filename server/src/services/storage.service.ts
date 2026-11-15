@@ -6,7 +6,7 @@ import type { UserStorage } from '#src/protocol/generated/user_storage_pb';
 import { AttributesSchema, UserStorageSchema } from '#src/protocol/generated/user_storage_pb';
 import { AchievementService } from '#src/services/achievement.service';
 import { BaseService } from '#src/services/base.service';
-import { clone, create, isFieldSet } from '@bufbuild/protobuf';
+import { clone, create, fromBinary, isFieldSet, toBinary } from '@bufbuild/protobuf';
 import { reflect } from '@bufbuild/protobuf/reflect';
 import { resolve } from 'node:path';
 import { z } from 'zod';
@@ -36,20 +36,17 @@ export class StorageService extends BaseService {
 
   /** Repeated unlocks are idempotent membership additions, not progression increments. */
   unlock(id: number, incoming: Achievements) {
-    const file = resolve(this.context.profiles.folder(id), 'achievements.bin');
-    const achievements = this.filesRepository.readData(AchievementsSchema, file);
+    const stored = this.riderDocuments.get(id, 'achievements.bin');
+    const achievements = stored ? fromBinary(AchievementsSchema, stored) : create(AchievementsSchema);
 
     for (const achievement of incoming.achievements)
       if (achievements.achievements.every((item) => item.id !== achievement.id))
         achievements.achievements.push(achievement);
-    this.filesRepository.saveData(AchievementsSchema, file, achievements);
+    this.riderDocuments.put(id, 'achievements.bin', toBinary(AchievementsSchema, achievements));
   }
 
   attributes(id: number, requested: Set<number>) {
-    const storage = this.filesRepository.readData(
-      UserStorageSchema,
-      resolve(this.context.profiles.folder(id), 'user_storage.bin'),
-    );
+    const storage = this.userStorage(id);
 
     const unlockBikes = requested.has(24) && this.context.config.equipment.unlockBikeUpgrades;
 
@@ -95,8 +92,7 @@ export class StorageService extends BaseService {
   }
 
   saveAttributes(id: number, incoming: UserStorage) {
-    const file = resolve(this.context.profiles.folder(id), 'user_storage.bin');
-    const storage = this.filesRepository.readData(UserStorageSchema, file);
+    const storage = this.userStorage(id);
 
     for (const attribute of incoming.attributes) {
       const incomingFields = reflect(AttributesSchema, attribute);
@@ -117,7 +113,13 @@ export class StorageService extends BaseService {
       storage.attributes.push(attribute);
     }
 
-    this.filesRepository.saveData(UserStorageSchema, file, storage);
+    this.riderDocuments.put(id, 'user_storage.bin', toBinary(UserStorageSchema, storage));
+  }
+
+  private userStorage(id: number) {
+    const stored = this.riderDocuments.get(id, 'user_storage.bin');
+
+    return stored ? fromBinary(UserStorageSchema, stored) : create(UserStorageSchema);
   }
 
   upload(id: number, upload: { folder: string; filename: string; file: Uint8Array }) {

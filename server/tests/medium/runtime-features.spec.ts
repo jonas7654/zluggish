@@ -1,6 +1,5 @@
 import { PrivateEventProtoSchema } from '#src/protocol/generated/events_pb';
 import { PlayerStateSchema, UserBikeAction } from '#src/protocol/generated/udp-node-msgs_pb';
-import { Connections } from '#src/repositories/connections.repository';
 import { AssetFiles } from '#src/repositories/files.repository';
 import { WorkoutsService } from '#src/services/workout.service';
 import { Simulation } from '#src/world/simulation';
@@ -95,7 +94,7 @@ await test('workout ramps split at power boundaries and cached schedules retain 
   const file = workouts.file(id);
   assert.ok(file);
   new AssetFiles().writeDurable(file, xml);
-  new Connections(f.accounts.storage).save(user.player_id, 'intervals', ['123', 'secret']);
+  f.accounts.repositories.connectionsRepository.save(user.player_id, 'intervals', ['123', 'secret']);
   new AssetFiles().writeDurable(
     resolve(f.profiles.folder(user.player_id), 'intervals_icu_workout.json'),
     JSON.stringify({
@@ -156,7 +155,7 @@ await test('blob chat overrides survive reconstruction, gestures change mode, st
   t.after(() => again.close());
   await again.ready;
   assert.equal(again.blobs.get(BigInt(user.player_id))?.riders.length, 8);
-  assert.ok(existsSync(resolve(f.accounts.storage, 'settings.db')));
+  assert.equal(existsSync(resolve(f.accounts.storage, 'settings.db')), false);
 });
 
 await test('game storage updates preserve other equipment signatures', async (t) => {

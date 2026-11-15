@@ -81,7 +81,7 @@ export function workoutRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       return c.redirect(`/settings/${user.username}/`);
     }
 
-    const connected = runtime.services.files.exists(connections.file(user.player_id, 'intervals'));
+    const connected = connections.has(user.player_id, 'intervals');
 
     return c.html(
       page(

@@ -78,8 +78,6 @@ export class Simulation {
 
   private readonly pending = new Set<Promise<void>>();
 
-  private readonly bookmarkWrites = new Map<bigint, Promise<void>>();
-
   private reloads = 0;
 
   private closed = false;
@@ -491,24 +489,18 @@ export class Simulation {
       }
   }
 
-  async loadBookmarks(id: bigint) {
-    // Read after this rider's pending bookmark write, so a new bookmark is listed.
-    await this.bookmarkWrites.get(id);
+  loadBookmarks(id: bigint) {
+    return Promise.try(() => this.readBookmarks(id));
+  }
 
-    if (this.closed) return this.bookmarks.get(id) ?? new Map<bigint, { state: PlayerState; name: string }>();
+  private readBookmarks(id: bigint) {
     const bookmarks = new Map<bigint, { state: PlayerState; name: string }>();
-    const files = await this.files.filesUnder(resolve(this.runtime.profiles.folder(Number(id)), 'bookmarks'), '.bin');
-    const contents = await Promise.all(files.map((file) => this.files.readAsync(file)));
 
-    for (const [index, file] of files.entries()) {
-      const bytes = contents[index];
-
-      if (!bytes) continue;
-
+    for (const row of this.runtime.accounts.repositories.bookmarksRepository.list(Number(id))) {
       try {
-        const state = fromBinary(PlayerStateSchema, bytes);
+        const state = fromBinary(PlayerStateSchema, row.state);
         state.id = 9_000_000n + (id % 1000n) * 1000n + BigInt(bookmarks.size + 1);
-        bookmarks.set(state.id, { state, name: basename(file, '.bin') });
+        bookmarks.set(state.id, { state, name: row.name });
       } catch {
         this.runtime.world.lifecycle.log.warn('simulation.invalid_bookmark', 'Skipping an invalid bookmark');
       }
@@ -529,30 +521,21 @@ export class Simulation {
     if (!safe) return;
     const id = state.id;
 
-    const path = resolve(
-      this.runtime.profiles.folder(Number(id)),
-      'bookmarks',
-      String(course(state)),
-      String(state.sport),
-      `${safe}.bin`,
-    );
+    try {
+      this.runtime.accounts.repositories.bookmarksRepository.save(
+        Number(id),
+        course(state),
+        state.sport,
+        safe,
+        toBinary(PlayerStateSchema, state),
+      );
+    } catch {
+      this.runtime.world.lifecycle.log.warn('simulation.bookmark_failed', 'Bookmark could not be saved');
 
-    const bytes = toBinary(PlayerStateSchema, state);
+      return;
+    }
 
-    // Writes for one rider run in order; a later bookmark cannot be overtaken.
-    const write = (this.bookmarkWrites.get(id) ?? Promise.resolve())
-      .then(() => this.files.writeDurableAsync(path, bytes, true))
-      .catch(() => {
-        this.runtime.world.lifecycle.log.warn('simulation.bookmark_failed', 'Bookmark could not be saved');
-      });
-
-    this.bookmarkWrites.set(id, write);
-    this.track(
-      write.then(async () => {
-        if (this.bookmarkWrites.get(id) === write) this.bookmarkWrites.delete(id);
-        await this.loadBookmarks(id);
-      }),
-    );
+    this.readBookmarks(id);
   }
 
   logout(id: bigint) {

@@ -19,7 +19,7 @@ import { BinaryWriter } from '@bufbuild/protobuf/wire';
 import assert from 'node:assert/strict';
 import { createSocket } from 'node:dgram';
 import { once } from 'node:events';
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
@@ -251,7 +251,7 @@ await test(
     assert.equal(phone.zcLocalIp, '127.0.0.2');
     assert.equal(phone.zcLocalPort, 21_588);
     assert.deepEqual(phone.zcKey, Buffer.from(secret, 'base64'));
-    assert.ok(existsSync(resolve(f.accounts.storage, String(user.player_id), 'encryption_key.bin')));
+    assert.ok(f.services.documents.has(user.player_id, 'encryption_key.bin'));
     const udp = createSocket('udp4');
     t.after(() => udp.close());
 
@@ -393,11 +393,20 @@ await test('activity create, save and restart preserve ownership, FIT bytes and 
   });
 
   assert.equal(finished.status, 200);
+  // The FIT export and the chart are jobs after the completion commit.
+  const pending = await f.app.request(`/api/activities/${id}`, { headers });
+  assert.equal('fitnessData' in z.record(z.string(), z.json()).parse(await pending.json()), false);
+  await f.services.jobs.drain();
   assert.deepEqual(
     readFileSync(resolve(f.profiles.folder(user.player_id), 'fit', `${id} - synthetic.fit`)),
     Buffer.from(activity.fit),
   );
-  const streaks = fromBinary(StreaksSchema, readFileSync(resolve(f.profiles.folder(user.player_id), 'streaks.bin')));
+
+  const streaks = fromBinary(
+    StreaksSchema,
+    f.services.documents.get(user.player_id, 'streaks.bin') ?? new Uint8Array(),
+  );
+
   assert.equal(streaks.curStreakDistance, 3000);
   assert.equal(streaks.curStreakElevation, 25);
   assert.equal(streaks.curStreakCalories, 50);

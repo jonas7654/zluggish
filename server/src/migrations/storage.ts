@@ -1,0 +1,724 @@
+import { ConfigError } from '#src/config/index';
+import { storageSchemaSQL } from '#src/db/ddl';
+import { RiderDocumentName, SecretDocuments } from '#src/enum';
+import { ActivitySchema } from '#src/protocol/generated/activity_pb';
+import { PlayerProfileSchema, StreaksSchema } from '#src/protocol/generated/profile_pb';
+import { PlayerStateSchema } from '#src/protocol/generated/udp-node-msgs_pb';
+import { CryptoRepository } from '#src/repositories/crypto.repository';
+import { ProtobufRows } from '#src/repositories/protobuf.repository';
+import { StreakService } from '#src/services/streak.service';
+import { clearField, fromBinary, toBinary } from '@bufbuild/protobuf';
+import {
+  closeSync,
+  copyFileSync,
+  existsSync,
+  fsyncSync,
+  linkSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
+import { basename, dirname, relative, resolve } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import { z } from 'zod';
+
+export const StorageFile = {
+  Database: 'zluggish.db',
+  Settings: 'settings.db',
+  Manifest: 'storage-migration.json',
+  Temporary: 'zluggish.db.migrating',
+  RestoreMarker: '.restore-in-progress',
+  CredentialsKey: 'credentials-key.bin',
+} as const;
+
+export const STORAGE_VERSION = 6;
+
+const reportSchema = z.object({
+  riders: z.number(),
+  documents: z.number(),
+  bookmarks: z.number(),
+  settings: z.record(z.string(), z.number()),
+  orphanFolders: z.array(z.string()),
+  invalidOptional: z.array(z.string()),
+  exportMismatches: z.array(z.string()),
+  completionsFinished: z.array(z.string()),
+  ambiguousDeliveries: z.number(),
+  importsRolledBack: z.array(z.string()),
+});
+
+type Report = z.infer<typeof reportSchema>;
+
+const manifestSchema = z.object({
+  version: z.literal(1),
+  state: z.enum(['importing', 'publishing', 'published']),
+  started: z.string(),
+  backup: z.string(),
+  sources: z.record(z.string(), z.string()),
+  destination: z.string().nullable(),
+  schemaVersion: z.number(),
+  report: reportSchema.nullable(),
+});
+
+type Manifest = z.infer<typeof manifestSchema>;
+
+const crypto = new CryptoRepository();
+
+function sha256File(path: string) {
+  return crypto.sha256(readFileSync(path));
+}
+
+function syncFile(path: string) {
+  const fd = openSync(path, 'r+');
+
+  try {
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function syncDirectory(path: string) {
+  if (process.platform === 'win32') return;
+  const fd = openSync(path, 'r');
+
+  try {
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function writeDurable(path: string, data: string | Uint8Array) {
+  const temporary = `${path}.tmp`;
+  writeFileSync(temporary, data, { mode: 0o600 });
+  syncFile(temporary);
+  renameSync(temporary, path);
+  syncDirectory(dirname(path));
+}
+
+function removeDatabase(path: string) {
+  for (const suffix of ['', '-wal', '-shm', '-journal']) rmSync(`${path}${suffix}`, { force: true });
+}
+
+function readManifest(storage: string): Manifest | null {
+  const path = resolve(storage, StorageFile.Manifest);
+
+  return existsSync(path) ? manifestSchema.parse(JSON.parse(readFileSync(path, 'utf8'))) : null;
+}
+
+function writeManifest(storage: string, manifest: Manifest) {
+  writeDurable(resolve(storage, StorageFile.Manifest), `${JSON.stringify(manifest, null, 2)}\n`);
+}
+
+/** Checkpoint a source database completely and confirm that its WAL holds no unapplied
+changes. A WAL file is never deleted to pass this check.
+*/
+function checkpointSource(path: string) {
+  if (!existsSync(path)) return;
+  const db = new DatabaseSync(path);
+
+  try {
+    const result = z
+      .object({ busy: z.number(), log: z.number(), checkpointed: z.number() })
+      .parse(db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get());
+
+    if (result.busy !== 0 || result.log !== result.checkpointed)
+      throw new ConfigError(`${basename(path)} could not be checkpointed; stop other processes and retry`);
+  } finally {
+    db.close();
+  }
+
+  const wal = `${path}-wal`;
+
+  if (existsSync(wal) && statSync(wal).size > 0)
+    throw new ConfigError(`${basename(path)} has unapplied WAL changes; open it with SQLite and checkpoint`);
+}
+
+/** Recursive copy for backups. Rider files are replaced by rename, never changed in
+place, so a hard link is a stable copy; other file systems get a byte copy.
+*/
+function copyTree(source: string, target: string, checksums: Record<string, string>, root: string) {
+  mkdirSync(target, { recursive: true });
+
+  for (const entry of readdirSync(source, { withFileTypes: true })) {
+    const from = resolve(source, entry.name);
+    const to = resolve(target, entry.name);
+
+    if (entry.isDirectory()) copyTree(from, to, checksums, root);
+    else if (entry.isFile()) {
+      try {
+        linkSync(from, to);
+      } catch {
+        copyFileSync(from, to);
+      }
+
+      checksums[relative(root, to)] = sha256File(to);
+    }
+  }
+}
+
+/** Snapshot the legacy stores before a migration changes data. */
+export function backupLegacyStorage(storage: string, target: string) {
+  mkdirSync(target, { recursive: true });
+  const checksums: Record<string, string> = {};
+
+  for (const name of [StorageFile.Database, StorageFile.Settings]) {
+    const source = resolve(storage, name);
+
+    if (!existsSync(source)) continue;
+    const db = new DatabaseSync(source, { readOnly: true });
+
+    try {
+      db.prepare('VACUUM INTO ?').run(resolve(target, name));
+    } finally {
+      db.close();
+    }
+
+    checksums[name] = sha256File(resolve(target, name));
+  }
+
+  for (const entry of readdirSync(storage, { withFileTypes: true }))
+    if (entry.isDirectory() && (/^\d+$/.test(entry.name) || entry.name === 'activities'))
+      copyTree(resolve(storage, entry.name), resolve(target, entry.name), checksums, target);
+
+  for (const name of [StorageFile.CredentialsKey, 'secret-key.txt']) {
+    const source = resolve(storage, name);
+
+    if (!existsSync(source)) continue;
+    copyFileSync(source, resolve(target, name));
+    checksums[name] = sha256File(resolve(target, name));
+  }
+
+  writeDurable(resolve(target, 'backup-manifest.json'), `${JSON.stringify({ version: 1, checksums }, null, 2)}\n`);
+
+  for (const name of Object.keys(checksums)) syncFile(resolve(target, name));
+}
+
+function credentialsKey(storage: string) {
+  const file = resolve(storage, StorageFile.CredentialsKey);
+
+  if (!existsSync(file)) writeDurable(file, crypto.randomBytes(32));
+  const key = readFileSync(file);
+
+  if (key.length !== 32) throw new ConfigError('Invalid credentials key; restore credentials-key.bin');
+
+  return key;
+}
+
+const importManifest = z.object({
+  playerId: z.number(),
+  files: z.array(z.string()),
+  before: z.object({ firstName: z.string(), lastName: z.string(), officialPlayerId: z.string().nullable() }),
+  state: z.enum(['staged', 'publishing', 'committed']),
+});
+
+/** Legacy profile imports that stopped while publishing are rolled back, exactly as the
+previous release did at startup, before their files are imported.
+*/
+function rollbackLegacyImports(storage: string, db: DatabaseSync, report: Report) {
+  for (const rider of readdirSync(storage)) {
+    if (!/^\d+$/.test(rider)) continue;
+    const folder = resolve(storage, rider);
+
+    for (const entry of readdirSync(folder, { withFileTypes: true })) {
+      if (!entry.isDirectory() || !/^\.ts-import-[a-f0-9]{32}$/.test(entry.name)) continue;
+      const stage = resolve(folder, entry.name);
+      const path = resolve(stage, 'manifest.json');
+
+      if (!existsSync(path)) continue;
+      const manifest = importManifest.parse(JSON.parse(readFileSync(path, 'utf8')));
+
+      if (manifest.state !== 'publishing') continue;
+
+      for (const name of manifest.files) {
+        const old = resolve(stage, `old-${name}`);
+        const current = resolve(folder, name);
+
+        if (existsSync(old)) copyFileSync(old, current);
+        else rmSync(current, { force: true });
+      }
+
+      db.prepare('UPDATE user SET first_name=?, last_name=?, official_player_id=? WHERE player_id=?').run(
+        manifest.before.firstName,
+        manifest.before.lastName,
+        manifest.before.officialPlayerId,
+        manifest.playerId,
+      );
+      rmSync(stage, { recursive: true });
+      report.importsRolledBack.push(`${rider}/${entry.name}`);
+    }
+  }
+}
+
+function importSettings(storage: string, db: DatabaseSync) {
+  const path = resolve(storage, StorageFile.Settings);
+  const counts = { rider_settings: 0, config_migration: 0, world_settings: 0 };
+
+  if (!existsSync(path)) return counts;
+  const source = new DatabaseSync(path, { readOnly: true });
+
+  try {
+    const version = z.object({ user_version: z.number() }).parse(source.prepare('PRAGMA user_version').get());
+
+    if (version.user_version > 1) throw new ConfigError('Unsupported settings database version');
+
+    const tables = new Set(
+      source
+        .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+        .all()
+        .map((row) => z.string().parse(row.name)),
+    );
+
+    const statements = [
+      ['rider_settings', 'SELECT player_id, value FROM rider_settings', 'INSERT INTO rider_settings VALUES (?, ?)'],
+      ['config_migration', 'SELECT id FROM config_migration', 'INSERT INTO config_migration VALUES (?)'],
+      ['world_settings', 'SELECT id, value FROM world_settings', 'INSERT INTO world_settings VALUES (?, ?)'],
+    ] as const;
+
+    for (const [table, select, insert] of statements) {
+      if (!tables.has(table)) continue;
+      const statement = db.prepare(insert);
+
+      for (const row of source.prepare(select).all()) {
+        statement.run(...Object.values(row).map((value) => z.union([z.number(), z.string()]).parse(value)));
+        counts[table]++;
+      }
+    }
+  } finally {
+    source.close();
+  }
+
+  return counts;
+}
+
+const documentNames = Object.values(RiderDocumentName);
+
+function importRiderFiles(storage: string, db: DatabaseSync, key: Uint8Array, report: Report) {
+  const users = new Set(
+    db
+      .prepare('SELECT player_id FROM user')
+      .all()
+      .map((row) => z.number().parse(row.player_id)),
+  );
+
+  const insertDocument = db.prepare(
+    'INSERT INTO rider_document (player_id, name, data, encrypted) VALUES (?, ?, ?, ?)',
+  );
+
+  const insertBookmark = db.prepare(
+    'INSERT OR REPLACE INTO bookmark (player_id, course, sport, name, state) VALUES (?, ?, ?, ?, ?)',
+  );
+
+  for (const name of readdirSync(storage)) {
+    if (!/^\d+$/.test(name) || !statSync(resolve(storage, name)).isDirectory()) continue;
+    const player = Number(name);
+
+    if (!users.has(player)) {
+      report.orphanFolders.push(name);
+      continue;
+    }
+
+    report.riders++;
+    const folder = resolve(storage, name);
+
+    for (const document of documentNames) {
+      const path = resolve(folder, document);
+
+      if (!existsSync(path)) continue;
+      const data = readFileSync(path);
+
+      // Required progression documents must decode; invalid files stop the migration.
+      if (document === 'profile.bin') fromBinary(PlayerProfileSchema, data);
+      else if (document === 'streaks.bin') fromBinary(StreaksSchema, data);
+      const secret = SecretDocuments.includes(document);
+      insertDocument.run(player, document, secret ? crypto.encryptSecret(key, data) : data, secret ? 1 : 0);
+      report.documents++;
+    }
+
+    const bookmarks = resolve(folder, 'bookmarks');
+
+    if (!existsSync(bookmarks)) continue;
+
+    for (const course of readdirSync(bookmarks)) {
+      if (!/^\d+$/.test(course) || !statSync(resolve(bookmarks, course)).isDirectory()) continue;
+
+      for (const sport of readdirSync(resolve(bookmarks, course))) {
+        const directory = resolve(bookmarks, course, sport);
+
+        if (!/^\d+$/.test(sport) || !statSync(directory).isDirectory()) continue;
+
+        for (const file of readdirSync(directory)) {
+          if (!file.endsWith('.bin')) continue;
+          const data = readFileSync(resolve(directory, file));
+
+          try {
+            fromBinary(PlayerStateSchema, data);
+          } catch {
+            report.invalidOptional.push(`${name}/bookmarks/${course}/${sport}/${file}`);
+            continue;
+          }
+
+          insertBookmark.run(player, Number(course), Number(sport), basename(file, '.bin'), data);
+          report.bookmarks++;
+        }
+      }
+    }
+  }
+}
+
+const completionRow = z.object({
+  activity_id: z.number(),
+  player_id: z.number(),
+  payload: z.instanceof(Uint8Array),
+  streak: z.instanceof(Uint8Array).nullable(),
+  done: z.number(),
+});
+
+function exportFile(storage: string, player: number, activity: number) {
+  const folder = resolve(storage, String(player), 'fit');
+
+  if (!existsSync(folder)) return null;
+  const name = readdirSync(folder).find((file) => file.startsWith(`${activity} - `));
+
+  return name ? resolve(folder, name) : null;
+}
+
+function enqueue(db: DatabaseSync, type: string, payload: Record<string, number | string>) {
+  const now = Date.now();
+  db.prepare('INSERT INTO job (type, payload, next_run_at, created_at) VALUES (?, ?, ?, ?)').run(
+    type,
+    JSON.stringify(payload),
+    now,
+    now,
+  );
+}
+
+/** One canonical FIT payload in activity.fit. Required copies (column and journal) must
+agree byte for byte; export files are replaceable copies and are created again.
+*/
+function canonicalizeFit(storage: string, db: DatabaseSync, report: Report) {
+  const completions = new Map(
+    db
+      .prepare('SELECT * FROM activity_completion')
+      .all()
+      .map((row) => {
+        const parsed = completionRow.parse(row);
+
+        return [parsed.activity_id, parsed];
+      }),
+  );
+
+  const activities = db.prepare('SELECT id, player_id, fit FROM activity').all();
+  const setFit = db.prepare('UPDATE activity SET fit=? WHERE id=?');
+  const setPayload = db.prepare('UPDATE activity_completion SET payload=? WHERE activity_id=?');
+
+  for (const row of activities) {
+    const activity = z
+      .object({ id: z.number(), player_id: z.number().nullable(), fit: z.instanceof(Uint8Array).nullable() })
+      .parse(row);
+
+    const completion = completions.get(activity.id);
+    const journal = completion ? fromBinary(ActivitySchema, completion.payload) : null;
+    const column = activity.fit && activity.fit.length > 0 ? activity.fit : null;
+    const journalFit = journal && journal.fit.length > 0 ? journal.fit : null;
+
+    if (column && journalFit && !Buffer.from(column).equals(Buffer.from(journalFit)))
+      throw new ConfigError(`Activity ${activity.id} has two different FIT payloads; restore it before migrating`);
+    const file = activity.player_id === null ? null : exportFile(storage, activity.player_id, activity.id);
+    const exported = file ? readFileSync(file) : null;
+    const canonical = column ?? journalFit ?? exported;
+
+    if (exported && canonical && !exported.equals(Buffer.from(canonical)))
+      report.exportMismatches.push(String(activity.id));
+
+    if (canonical && !column) setFit.run(canonical, activity.id);
+
+    if (canonical && activity.player_id !== null && (!file || report.exportMismatches.includes(String(activity.id))))
+      enqueue(db, 'fit_export', { activityId: activity.id });
+
+    if (!journal || !journalFit) continue;
+    clearField(journal, ActivitySchema.field.fit);
+    setPayload.run(toBinary(ActivitySchema, journal), activity.id);
+  }
+}
+
+/** A completion with done = 0 stopped between its journal and its commit. Its streak
+snapshot replaces the rider's streaks once, only if the rider files hold the state
+it was derived from or already hold the snapshot.
+*/
+function finishCompletions(db: DatabaseSync, report: Report) {
+  // Runs after the rider files are imported: report.documents counts the new rows.
+  const rows = db.prepare('SELECT * FROM activity_completion WHERE done=0 ORDER BY activity_id').all();
+
+  for (const row of rows) {
+    const completion = completionRow.parse(row);
+    const activity = fromBinary(ActivitySchema, completion.payload);
+
+    if (completion.streak) {
+      const current = db
+        .prepare("SELECT data FROM rider_document WHERE player_id=? AND name='streaks.bin'")
+        .get(completion.player_id);
+
+      const profile = db
+        .prepare("SELECT data FROM rider_document WHERE player_id=? AND name='profile.bin'")
+        .get(completion.player_id);
+
+      const stored = current ? fromBinary(StreaksSchema, z.instanceof(Uint8Array).parse(current.data)) : null;
+
+      const previous =
+        stored ??
+        StreakService.fromProfile(
+          profile ? fromBinary(PlayerProfileSchema, z.instanceof(Uint8Array).parse(profile.data)) : null,
+        );
+
+      const snapshot = Buffer.from(completion.streak);
+
+      const applied = stored && Buffer.from(toBinary(StreaksSchema, stored)).equals(snapshot);
+
+      const derived = Buffer.from(toBinary(StreaksSchema, StreakService.advancedStreak(previous, activity))).equals(
+        snapshot,
+      );
+
+      if (!applied && !derived)
+        throw new ConfigError(
+          `Activity ${completion.activity_id} has a streak journal that disagrees with rider ${completion.player_id} files`,
+        );
+
+      if (!applied)
+        db.prepare(
+          "INSERT INTO rider_document (player_id, name, data) VALUES (?, 'streaks.bin', ?) ON CONFLICT DO UPDATE SET data=excluded.data",
+        ).run(completion.player_id, snapshot);
+
+      if (!current) report.documents++;
+    }
+
+    new ProtobufRows(db).update('activity', BigInt(completion.activity_id), ActivitySchema, activity, ['fit']);
+    db.prepare('UPDATE activity_completion SET done=1 WHERE activity_id=?').run(completion.activity_id);
+    enqueue(db, 'power_curve', { activityId: completion.activity_id });
+    enqueue(db, 'completion_deliveries', { activityId: completion.activity_id });
+    report.completionsFinished.push(String(completion.activity_id));
+  }
+}
+
+function mapDeliveries(db: DatabaseSync, report: Report) {
+  report.ambiguousDeliveries = Number(
+    db.prepare("UPDATE activity_upload SET state='ambiguous', updated_at=? WHERE state='sending'").run(Date.now())
+      .changes,
+  );
+
+  for (const row of db.prepare("SELECT activity_id, provider FROM activity_upload WHERE state='pending'").all())
+    enqueue(db, 'delivery', {
+      activityId: z.number().parse(row.activity_id),
+      provider: z.string().parse(row.provider),
+    });
+}
+
+function count(db: DatabaseSync, sql: string) {
+  return z.number().parse(db.prepare(sql).get()?.n);
+}
+
+function validate(source: string, destination: DatabaseSync, report: Report) {
+  const integrity = destination.prepare('PRAGMA integrity_check').get();
+
+  if (integrity?.integrity_check !== 'ok') throw new ConfigError('Migrated database failed its integrity check');
+
+  if (destination.prepare('PRAGMA foreign_key_check').all().length > 0)
+    throw new ConfigError('Migrated database has broken references');
+  const original = new DatabaseSync(source, { readOnly: true });
+
+  try {
+    for (const table of [
+      'user',
+      'activity',
+      'activity_completion',
+      'activity_upload',
+      'segment_result',
+      'route_result',
+    ])
+      if (
+        count(original, `SELECT count(*) AS n FROM ${table}`) !==
+        count(destination, `SELECT count(*) AS n FROM ${table}`)
+      )
+        throw new ConfigError(`Migrated ${table} rows differ from the source`);
+
+    const ids = (db: DatabaseSync) =>
+      db
+        .prepare('SELECT player_id, username, pass_hash, auth_version FROM user ORDER BY player_id')
+        .all()
+        .map((row) => JSON.stringify(row));
+
+    if (JSON.stringify(ids(original)) !== JSON.stringify(ids(destination)))
+      throw new ConfigError('Migrated identities differ from the source');
+  } finally {
+    original.close();
+  }
+
+  if (count(destination, 'SELECT count(*) AS n FROM rider_document') !== report.documents)
+    throw new ConfigError('Migrated rider documents are incomplete');
+
+  for (const [table, rows] of Object.entries(report.settings))
+    if (count(destination, `SELECT count(*) AS n FROM ${table}`) !== rows)
+      throw new ConfigError(`Migrated ${table} rows differ from settings.db`);
+
+  // Completed activities keep exactly one FIT copy, outside their journal payloads.
+  for (const row of destination.prepare('SELECT payload FROM activity_completion').all())
+    if (fromBinary(ActivitySchema, z.instanceof(Uint8Array).parse(row.payload)).fit.length > 0)
+      throw new ConfigError('A migrated completion still holds a FIT payload');
+}
+
+/** Resolve an interrupted migration from its manifest before the database opens. */
+export function resolvePendingMigration(storage: string) {
+  const manifest = readManifest(storage);
+
+  if (!manifest || manifest.state === 'published') return;
+  const database = resolve(storage, StorageFile.Database);
+  const temporary = resolve(storage, StorageFile.Temporary);
+
+  if (manifest.state === 'importing') {
+    removeDatabase(temporary);
+    rmSync(resolve(storage, StorageFile.Manifest));
+    syncDirectory(storage);
+
+    return;
+  }
+
+  const current = existsSync(database) ? sha256File(database) : null;
+
+  if (current !== null && current === manifest.destination) {
+    removeDatabase(temporary);
+    writeManifest(storage, { ...manifest, state: 'published' });
+
+    return;
+  }
+
+  if (current !== null && current === manifest.sources[StorageFile.Database]) {
+    removeDatabase(temporary);
+    rmSync(resolve(storage, StorageFile.Manifest));
+    syncDirectory(storage);
+
+    return;
+  }
+
+  throw new ConfigError(
+    `Interrupted storage migration: ${StorageFile.Database} matches neither the source nor the migrated copy. ` +
+      `Restore ${StorageFile.Database} from ${manifest.backup} and start again.`,
+  );
+}
+
+export const MigrationStep = {
+  Checkpointed: 'checkpointed',
+  Importing: 'importing',
+  BackedUp: 'backed-up',
+  Imported: 'imported',
+  Flushed: 'flushed',
+  Publishing: 'publishing',
+  Renamed: 'renamed',
+  DirectoryFlushed: 'directory-flushed',
+  Published: 'published',
+} as const;
+
+export type MigrationStep = (typeof MigrationStep)[keyof typeof MigrationStep];
+
+/** Version 5 -> 6. The caller holds the storage lock; nothing else uses storage.
+backup -> import into a temporary database -> validate -> close -> manifest ->
+atomic rename -> durable manifest. Legacy stores are kept. Tests stop the process
+after a step with `reached`.
+*/
+export function migrateStorage(storage: string, reached: (step: MigrationStep) => void = () => {}) {
+  const database = resolve(storage, StorageFile.Database);
+  const temporary = resolve(storage, StorageFile.Temporary);
+  const started = new Date().toISOString();
+  const backup = resolve(storage, 'backups', `storage-v${STORAGE_VERSION}-${started.replaceAll(/[:.]/g, '-')}`);
+
+  for (const source of [database, resolve(storage, StorageFile.Settings)]) checkpointSource(source);
+  reached('checkpointed');
+
+  const sources = Object.fromEntries(
+    [StorageFile.Database, StorageFile.Settings].flatMap((name) =>
+      existsSync(resolve(storage, name)) ? [[name, sha256File(resolve(storage, name))]] : [],
+    ),
+  );
+
+  const manifest: Manifest = {
+    version: 1,
+    state: 'importing',
+    started,
+    backup,
+    sources,
+    destination: null,
+    schemaVersion: STORAGE_VERSION,
+    report: null,
+  };
+
+  writeManifest(storage, manifest);
+  reached('importing');
+  backupLegacyStorage(storage, backup);
+  reached('backed-up');
+  removeDatabase(temporary);
+
+  const source = new DatabaseSync(database, { readOnly: true });
+
+  try {
+    source.prepare('VACUUM INTO ?').run(temporary);
+  } finally {
+    source.close();
+  }
+
+  const report: Report = {
+    riders: 0,
+    documents: 0,
+    bookmarks: 0,
+    settings: {},
+    orphanFolders: [],
+    invalidOptional: [],
+    exportMismatches: [],
+    completionsFinished: [],
+    ambiguousDeliveries: 0,
+    importsRolledBack: [],
+  };
+
+  const db = new DatabaseSync(temporary);
+
+  try {
+    db.exec('PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL; BEGIN IMMEDIATE');
+    db.exec(storageSchemaSQL);
+    report.settings = importSettings(storage, db);
+    rollbackLegacyImports(storage, db, report);
+    importRiderFiles(storage, db, credentialsKey(storage), report);
+    canonicalizeFit(storage, db, report);
+    finishCompletions(db, report);
+    mapDeliveries(db, report);
+    db.exec('DELETE FROM version');
+    db.prepare('INSERT INTO version VALUES (?)').run(STORAGE_VERSION);
+    db.exec('COMMIT');
+    validate(database, db, report);
+    db.exec('PRAGMA journal_mode=DELETE');
+  } catch (error) {
+    if (db.isTransaction) db.exec('ROLLBACK');
+    throw error;
+  } finally {
+    db.close();
+  }
+
+  reached('imported');
+
+  if (existsSync(`${temporary}-wal`) || existsSync(`${temporary}-journal`))
+    throw new ConfigError('The migrated database still needs a journal file');
+  syncFile(temporary);
+  reached('flushed');
+  writeManifest(storage, { ...manifest, state: 'publishing', destination: sha256File(temporary), report });
+  reached('publishing');
+  renameSync(temporary, database);
+  reached('renamed');
+  syncDirectory(storage);
+  reached('directory-flushed');
+  writeManifest(storage, { ...manifest, state: 'published', destination: sha256File(database), report });
+  reached('published');
+
+  return report;
+}

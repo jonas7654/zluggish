@@ -78,10 +78,24 @@ export class FitnessRepository {
     return this.executor.run(query.deleteFrom('power_curve').where('player_id', '=', player));
   }
 
-  insertPowerCurve(player: number, time: string, power: number, powerPerKg: number, timestamp: number) {
+  insertPowerCurve(
+    player: number,
+    time: string,
+    power: number,
+    powerPerKg: number,
+    timestamp: number,
+    activity: number | null = null,
+  ) {
     this.executor.run(
-      query.insertInto('power_curve').values({ player_id: player, time, power, power_wkg: powerPerKg, timestamp }),
+      query
+        .insertInto('power_curve')
+        .values({ player_id: player, time, power, power_wkg: powerPerKg, timestamp, activity_id: activity }),
     );
+  }
+
+  /** A repeated power-curve job replaces its own rows. */
+  deleteActivityPowerCurve(activity: number) {
+    return this.executor.run(query.deleteFrom('power_curve').where('activity_id', '=', activity));
   }
 
   findPowerCurve(player: number, time: string, cutoff: number) {

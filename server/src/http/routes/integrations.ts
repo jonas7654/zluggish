@@ -6,7 +6,6 @@ import type { Rider } from '#src/repositories/accounts.repository';
 import type { Context, Hono } from 'hono';
 import { html } from 'hono/html';
 import { HTTPException } from 'hono/http-exception';
-import { resolve } from 'node:path';
 import { z } from 'zod';
 
 function admin(c: Env) {
@@ -33,14 +32,10 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     runtime.stop ?? (() => process.kill(process.pid, 'SIGINT')),
   );
 
-  const folder = (rider: Rider) => runtime.services.profiles.folder(rider.player_id);
+  const documents = runtime.services.documents;
 
   function cookieOf(rider: Rider) {
-    const file = resolve(folder(rider), 'strava4_session.txt');
-
-    return runtime.services.files.exists(file)
-      ? (runtime.services.files.read(file, 'utf8').split(/\r?\n/, 1)[0] ?? '')
-      : '';
+    return documents.text(rider.player_id, 'strava4_session.txt')?.split(/\r?\n/, 1)[0] ?? '';
   }
 
   function stravaPage(c: Env, rider: Rider, message = '') {
@@ -50,7 +45,7 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     ).uploads.strava.method;
 
     const client = connections.read(rider.player_id, 'strava');
-    const authorized = runtime.services.files.exists(resolve(folder(rider), 'strava_token.txt'));
+    const authorized = documents.has(rider.player_id, 'strava_token.txt');
 
     return c.html(
       page(
@@ -90,7 +85,7 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
           ${removable.options
             .filter((file) => file.startsWith('strava'))
             .map((file) =>
-              runtime.services.files.exists(resolve(folder(rider), file))
+              documents.has(rider.player_id, file)
                 ? html`<form method="post" action="/delete/${file}">${token(c)}<button>Remove ${file}</button></form>`
                 : '',
             )}`,
@@ -99,7 +94,7 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
   }
 
   function zwiftPage(c: Env, rider: Rider, message = '') {
-    const connected = runtime.services.files.exists(connections.file(rider.player_id, 'zwift'));
+    const connected = connections.has(rider.player_id, 'zwift');
 
     const settings = runtime.services.settings.resolveRiderSettings(
       runtime.config.riderDefaults,
@@ -164,7 +159,7 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
         connections.save(rider.player_id, 'zwift', [username, password]);
       }
 
-      if (!runtime.services.files.exists(connections.file(rider.player_id, 'zwift')) && (form.upload || form.click))
+      if (!connections.has(rider.player_id, 'zwift') && (form.upload || form.click))
         return zwiftPage(c, rider, 'Save credentials before enabling uploads or Click.');
       runtime.services.settings.save(rider.player_id, {
         ...runtime.services.settings.read(rider.player_id),
@@ -223,7 +218,7 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       const cookie = text.parse(form._strava4_session).trim();
 
       if (cookie) {
-        runtime.services.files.write(resolve(folder(rider), 'strava4_session.txt'), cookie, true);
+        documents.put(rider.player_id, 'strava4_session.txt', cookie);
         message = 'Session cookie saved.';
       } else message = "Session cookie can't be empty.";
     } else if ('method' in form) {
@@ -300,7 +295,7 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
   function garminPage(c: Env, rider: Rider, message = '') {
     const client = connections.read(rider.player_id, 'garmin');
 
-    const authorized = runtime.services.files.exists(resolve(folder(rider), 'garth/oauth1_token.json'));
+    const authorized = documents.has(rider.player_id, 'garth/oauth1_token.json');
 
     return c.html(
       page(
@@ -320,7 +315,7 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
           ${removable.options
             .filter((file) => file.startsWith('gar'))
             .map((file) =>
-              runtime.services.files.exists(resolve(folder(rider), file))
+              documents.has(rider.player_id, file)
                 ? html`<form method="post" action="/delete/${file}">${token(c)}<button>Remove ${file}</button></form>`
                 : '',
             )}`,
@@ -380,7 +375,7 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     const file = removable.safeParse(decodeURIComponent(c.req.path.slice('/delete/'.length)));
 
     if (!file.success) throw new HTTPException(403);
-    runtime.services.files.remove(resolve(folder(rider), file.data), { force: true });
+    runtime.services.uploads.disconnect(rider.player_id, file.data);
 
     if (file.data.startsWith('strava')) return c.redirect(`/strava/${rider.username}/`);
 
@@ -396,21 +391,8 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     if (c.req.method === 'POST') {
       const form = await csrf(c, runtime);
 
-      service.deletePowerCurve(rider.player_id);
-
-      if (!form.create) return c.redirect(`/settings/${rider.username}/`);
-      const fit = resolve(folder(rider), 'fit');
-
-      if (runtime.services.files.exists(fit))
-        for (const name of runtime.services.files.list(fit))
-          try {
-            runtime.services.activities.savePowerCurve(
-              rider.player_id,
-              runtime.services.files.read(resolve(fit, name)),
-            );
-          } catch {
-            runtime.world.lifecycle.log.warn('activity.power_curve_unavailable', 'Power curve unavailable');
-          }
+      if (form.create) runtime.services.activities.rebuildPowerCurves(rider.player_id);
+      else service.deletePowerCurve(rider.player_id);
 
       return c.redirect(`/settings/${rider.username}/`);
     }

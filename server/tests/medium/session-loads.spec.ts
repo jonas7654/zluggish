@@ -64,33 +64,38 @@ await test('a ghost load does not attach after logout', async (t) => {
   assert.equal(f.profiles.synthetic.has(id + 10_000_000n), false);
 });
 
-await test('an asynchronous profile load cannot replace a newer saved profile', async (t) => {
+function encode(firstName: string) {
+  return toBinary(PlayerProfileSchema, create(PlayerProfileSchema, { id: 1n, firstName }));
+}
+
+await test('the profile cache follows each committed save and each invalidation', async (t) => {
   const f = runtimeFixture(t);
   const rider = await f.accounts.create('Old Name', '', true);
+  const documents = f.accounts.repositories.riderDocuments;
 
-  new AssetFiles().writeDurable(
-    resolve(f.profiles.folder(rider.player_id), 'profile.bin'),
-    toBinary(PlayerProfileSchema, create(PlayerProfileSchema, { id: 1n, firstName: 'Old' })),
-  );
+  documents.put(rider.player_id, 'profile.bin', encode('Old'));
+  assert.equal(f.profiles.get(rider.player_id).firstName, 'Old');
 
-  const loading = f.profiles.load(rider.player_id);
   const saved = f.profiles.get(rider.player_id);
   saved.firstName = 'New';
   f.profiles.save(rider.player_id, saved);
-  const loaded = await loading;
+  const loaded = await f.profiles.load(rider.player_id);
   assert.equal(loaded.firstName, 'New');
-  assert.equal(f.profiles.get(rider.player_id).firstName, 'New');
+  assert.equal(f.accounts.get(rider.player_id)?.first_name, 'New');
 
-  // An external replacement invalidates the cache.
-  new AssetFiles().writeDurable(
-    resolve(f.profiles.folder(rider.player_id), 'profile.bin'),
-    toBinary(PlayerProfileSchema, create(PlayerProfileSchema, { id: 1n, firstName: 'Imported' })),
-    true,
-  );
+  // A change outside save() is visible only after invalidation.
+  documents.put(rider.player_id, 'profile.bin', encode('Imported'));
   assert.equal(f.profiles.get(rider.player_id).firstName, 'New');
   f.profiles.invalidate(rider.player_id);
-  const imported = await f.profiles.load(rider.player_id);
-  assert.equal(imported.firstName, 'Imported');
+  assert.equal(f.profiles.get(rider.player_id).firstName, 'Imported');
+
+  // A save inside a transaction that rolls back leaves no cached value behind.
+  f.accounts.db.exec('BEGIN');
+  const rolled = f.profiles.get(rider.player_id);
+  rolled.firstName = 'Rolled back';
+  f.profiles.save(rider.player_id, rolled);
+  f.accounts.db.exec('ROLLBACK');
+  assert.equal(f.profiles.get(rider.player_id).firstName, 'Imported');
 });
 
 await test('settings reads come from the cache and follow each committed change', async (t) => {

@@ -29,7 +29,7 @@ export class FitService extends BaseService {
     );
   }
 
-  insertPowerBests(playerId: number, curve: PowerBests) {
+  insertPowerBests(playerId: number, curve: PowerBests, activity: number | null = null) {
     const weight = this.profileRepository.get(playerId).weightInGrams / 1000;
 
     if (weight <= 0) return;
@@ -41,6 +41,7 @@ export class FitService extends BaseService {
         power,
         Number((power / weight).toFixed(2)),
         curve.timestamp,
+        activity,
       );
   }
 }

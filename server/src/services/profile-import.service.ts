@@ -7,6 +7,7 @@ import { AchievementsSchema, PlayerProfileSchema, StreaksSchema } from '#src/pro
 import { UserStorageSchema } from '#src/protocol/generated/user_storage_pb';
 import type { Rider } from '#src/repositories/accounts.repository';
 import type { AccountsService } from '#src/services/auth.service';
+import { immediate } from '#src/db/transaction';
 import { BaseService } from '#src/services/base.service';
 import type { World } from '#src/world/state';
 import { clearField, fromBinary, fromJsonString, toBinary } from '@bufbuild/protobuf';
@@ -134,6 +135,10 @@ export class ImportsService extends BaseService {
     return manifest;
   }
 
+  /** One transaction replaces the rider documents and account names and records the
+  stage, so a repeated publication after a crash changes nothing. Replaced documents
+  are kept as .bak files in the rider folder.
+  */
   publish(rider: Rider, stage: string, keepName: boolean) {
     if (this.world.active(rider.player_id)) throw new Error('Finish the active ride before importing');
 
@@ -141,56 +146,40 @@ export class ImportsService extends BaseService {
     const folder = this.folder(rider, stage);
     const manifest = this.inspect(rider, stage);
     const target = resolve(this.accounts.storage, String(rider.player_id));
-
-    if (manifest.files.includes('profile.bin')) {
-      const profile = fromBinary(
-        PlayerProfileSchema,
-        this.filesRepository.readFileSync(resolve(folder, 'profile.bin')),
-      );
-
-      profile.id = BigInt(rider.player_id);
-
-      if (profile.socialFacts) profile.socialFacts.profileId = BigInt(rider.player_id);
-      clearField(profile, PlayerProfileSchema.field.publicId);
-      profile.mixPanelDistinctId = this.cryptoRepository.randomUUID();
-
-      if (keepName) {
-        profile.firstName = rider.first_name;
-        profile.lastName = rider.last_name;
-      }
-
-      this.filesRepository.writeDurable(resolve(folder, 'profile.bin'), toBinary(PlayerProfileSchema, profile), true);
-    }
-
-    manifest.before = {
-      firstName: rider.first_name,
-      lastName: rider.last_name,
-      officialPlayerId: rider.official_player_id,
-    };
+    const documents = new Map<ImportFile, Uint8Array>();
 
     for (const name of manifest.files) {
-      const current = resolve(target, name);
+      let bytes: Uint8Array = this.filesRepository.readFileSync(resolve(folder, name));
 
-      if (!this.filesRepository.existsSync(current)) {
-        continue;
+      if (name === 'profile.bin') {
+        const profile = fromBinary(PlayerProfileSchema, bytes);
+        profile.id = BigInt(rider.player_id);
+
+        if (profile.socialFacts) profile.socialFacts.profileId = BigInt(rider.player_id);
+        clearField(profile, PlayerProfileSchema.field.publicId);
+        profile.mixPanelDistinctId = this.cryptoRepository.randomUUID();
+
+        if (keepName) {
+          profile.firstName = rider.first_name;
+          profile.lastName = rider.last_name;
+        }
+
+        bytes = toBinary(PlayerProfileSchema, profile);
       }
 
-      this.filesRepository.writeDurable(resolve(folder, `old-${name}`), this.filesRepository.readFileSync(current));
-      this.filesRepository.writeDurable(
-        resolve(target, `${name}.${stage.slice(11)}.bak`),
-        this.filesRepository.readFileSync(current),
-      );
+      documents.set(name, bytes);
     }
 
-    this.transition(folder, manifest, 'publish');
+    for (const name of manifest.files) {
+      const current = this.riderDocuments.get(rider.player_id, name);
 
-    try {
-      for (const name of manifest.files)
-        this.filesRepository.writeDurable(
-          resolve(target, name),
-          this.filesRepository.readFileSync(resolve(folder, name)),
-          true,
-        );
+      if (current) this.filesRepository.writeDurable(resolve(target, `${name}.${stage.slice(11)}.bak`), current, true);
+    }
+
+    immediate(this.accounts.db, () => {
+      if (this.riderDocuments.imported(stage)) return;
+
+      for (const [name, bytes] of documents) this.riderDocuments.put(rider.player_id, name, bytes);
 
       this.accounts.repository.updateImportedProfile(
         rider.player_id,
@@ -198,13 +187,10 @@ export class ImportsService extends BaseService {
         manifest.files.includes('profile.bin') && !keepName ? manifest.lastName : rider.last_name,
         manifest.sourceId ? BigInt(manifest.sourceId) : rider.official_player_id,
       );
-      this.profileRepository.invalidate(rider.player_id);
-      this.transition(folder, manifest, 'commit');
-    } catch (error) {
-      this.rollback(folder, manifest);
-      throw error;
-    }
+      this.riderDocuments.recordImport(stage, rider.player_id);
+    });
 
+    this.profileRepository.invalidate(rider.player_id);
     this.filesRepository.rmSync(folder, { recursive: true });
   }
 
@@ -213,37 +199,9 @@ export class ImportsService extends BaseService {
     this.filesRepository.rmSync(this.folder(rider, stage), { recursive: true });
   }
 
-  /** Persist a checkpoint before admitting its effects. A failed rollback retains the journal. */
-  private transition(folder: string, manifest: ImportManifest, event: 'publish' | 'commit') {
-    const expected = event === 'publish' ? 'staged' : 'publishing';
-
-    if (manifest.state !== expected) throw new Error('Invalid import transition');
-    const next = { ...manifest, state: event === 'publish' ? ('publishing' as const) : ('committed' as const) };
-    this.filesRepository.writeDurable(resolve(folder, 'manifest.json'), JSON.stringify(next), true);
-    manifest.state = next.state;
-  }
-
-  rollback(folder: string, manifest: ImportManifest) {
-    const target = resolve(this.accounts.storage, String(manifest.playerId));
-
-    for (const name of manifest.files) {
-      const old = resolve(folder, `old-${name}`);
-      const current = resolve(target, name);
-
-      if (this.filesRepository.existsSync(old))
-        this.filesRepository.writeDurable(current, this.filesRepository.readFileSync(old), true);
-      else if (this.filesRepository.existsSync(current)) this.filesRepository.unlinkSync(current);
-    }
-
-    this.accounts.repository.updateImportedProfile(
-      manifest.playerId,
-      manifest.before.firstName,
-      manifest.before.lastName,
-      manifest.before.officialPlayerId,
-    );
-    this.profileRepository.invalidate(manifest.playerId);
-  }
-
+  /** Remove stages that were published or abandoned before a crash. A staged import
+  waits for review; a published stage is never applied twice.
+  */
   recover() {
     for (const name of this.filesRepository.readdirSync(this.accounts.storage)) {
       if (!/^\d+$/.test(name)) continue;
@@ -258,7 +216,7 @@ export class ImportsService extends BaseService {
         if (!/^\.ts-import-[a-f0-9]{32}$/.test(entry.name)) continue;
         const folder = resolve(riderFolder, entry.name);
 
-        // No manifest can exist before preparation finishes; publishing always has one.
+        // No manifest can exist before preparation finishes.
         if (!this.filesRepository.existsSync(resolve(folder, 'manifest.json'))) {
           this.filesRepository.rmSync(folder, { recursive: true });
           continue;
@@ -270,22 +228,8 @@ export class ImportsService extends BaseService {
 
         if (String(manifest.playerId) !== name) throw new Error('Import journal rider mismatch');
 
-        switch (manifest.state) {
-          case 'staged': {
-            break; // Abandonment is not a commit or a cancellation.
-          }
-
-          case 'publishing': {
-            this.rollback(folder, manifest);
-            this.filesRepository.rmSync(folder, { recursive: true });
-            break;
-          }
-
-          case 'committed': {
-            this.filesRepository.rmSync(folder, { recursive: true });
-            break;
-          }
-        }
+        if (manifest.state !== 'staged' || this.riderDocuments.imported(entry.name))
+          this.filesRepository.rmSync(folder, { recursive: true });
       }
     }
   }

@@ -1,5 +1,4 @@
 import { query, SqliteExecutor } from '#src/db/query';
-import { immediate } from '#src/db/transaction';
 import type { DatabaseSync } from 'node:sqlite';
 import { z } from 'zod';
 
@@ -11,14 +10,10 @@ const completion = z.object({
   done: z.number(),
 });
 
-type Completion = z.infer<typeof completion>;
-
-export type CompletionState =
-  | { status: 'draft' }
-  | { status: 'prepared'; saved: Completion }
-  | { status: 'completed'; saved: Completion };
-
-/** Per activity: absent -> prepared -> completed. Prepared file effects are replayable. */
+/** One record per completed activity. The payload is the activity without FIT bytes:
+activity.fit holds the canonical payload. A record exists only after the completion
+transaction commits.
+*/
 export class Completions {
   private readonly executor: SqliteExecutor;
 
@@ -32,36 +27,9 @@ export class Completions {
     return row ? completion.parse(row) : null;
   }
 
-  state(id: bigint): CompletionState {
-    const saved = this.get(id);
-
-    return saved ? { status: saved.done ? 'completed' : 'prepared', saved } : { status: 'draft' };
-  }
-
-  prepare(id: bigint, player: number, payload: Uint8Array, streak: Uint8Array | null) {
+  insert(id: bigint, player: number, payload: Uint8Array, streak: Uint8Array | null) {
     this.executor.run(
-      query.insertInto('activity_completion').values({ activity_id: id, player_id: player, payload, streak }),
+      query.insertInto('activity_completion').values({ activity_id: id, player_id: player, payload, streak, done: 1 }),
     );
-  }
-
-  unfinished() {
-    return this.executor
-      .all(query.selectFrom('activity_completion').selectAll().where('done', '=', 0).orderBy('activity_id'))
-      .map((row) => completion.parse(row));
-  }
-
-  complete(id: bigint, providers: string[], save: () => void) {
-    immediate(this.db, () => {
-      save();
-
-      for (const provider of providers)
-        this.executor.run(
-          query
-            .insertInto('activity_upload')
-            .values({ activity_id: id, provider })
-            .onConflict((conflict) => conflict.doNothing()),
-        );
-      this.executor.run(query.updateTable('activity_completion').set({ done: 1 }).where('activity_id', '=', id));
-    });
   }
 }
