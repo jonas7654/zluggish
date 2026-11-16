@@ -80,10 +80,7 @@ const loadError = z
   })
   .catch({ name: 'Error', message: '', stack: '' });
 
-/** Loader exceptions can quote source lines, environment values or secrets, so only safe
-parts are reported: where the problem is, the parser's grammar message, a missing import's
-name, or an undefined identifier.
-*/
+/** Retain runtime messages and stack frames to locate failures in configuration and imports. */
 function describeLoadError({ name, code, message, stack }: z.infer<typeof loadError>, path: string) {
   const escaped = path.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
   const position = new RegExp(String.raw`${escaped}:(\d+):(\d+)`).exec(`${message}\n${stack}`);
@@ -99,7 +96,12 @@ function describeLoadError({ name, code, message, stack }: z.infer<typeof loadEr
 
   if (undefinedName) return `'${undefinedName}' is not defined${where}`;
 
-  return `${name}${where}; check module syntax and imports`;
+  const frames = stack
+    .split('\n')
+    .filter((line) => /^\s+at /.test(line))
+    .join('\n');
+
+  return `${name}${where}${message ? `: ${message}` : ''}${frames ? `\n${frames}` : ''}`;
 }
 
 export async function loadConfig(options: LoadOptions = {}): Promise<LoadedConfig> {

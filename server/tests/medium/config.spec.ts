@@ -95,7 +95,7 @@ await test('container respects explicit config and storage overrides', async (t)
   assert.equal(loaded.config.storageDir, customStorage);
 });
 
-await test('invalid operator values and loader errors do not reveal secrets or create state', async (t) => {
+await test('invalid values hide secrets and runtime errors retain diagnostics without creating state', async (t) => {
   const root = fixture(t);
   const path = resolve(root, 'zluggish.config.ts');
   writeFileSync(path, `export default { bots: { multiplier: 'secret-value' } }`);
@@ -106,9 +106,27 @@ await test('invalid operator values and loader errors do not reveal secrets or c
   writeFileSync(path, `throw new Error('operator-secret');`);
   await assert.rejects(
     loadConfig({ path }),
-    (error) => error instanceof Error && !error.message.includes('operator-secret'),
+    (error) => error instanceof Error && error.message.includes('operator-secret'),
   );
   assert.deepEqual(readdirSync(root), ['zluggish.config.ts']);
+});
+
+await test('runtime TypeErrors identify the config or imported file and original message', async (t) => {
+  const root = fixture(t);
+  const path = resolve(root, 'zluggish.config.ts');
+
+  for (const imported of [false, true]) {
+    const failingPath = imported ? resolve(root, 'values.ts') : path;
+    writeFileSync(failingPath, `const value = undefined;\nexport default value.trim();`);
+    if (imported) writeFileSync(path, `import value from './values.ts';\nexport default value;`);
+    await assert.rejects(loadConfig({ path }), (error) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /TypeError.*Cannot read properties of undefined/);
+      assert.ok(error.message.includes(`${failingPath}:2:`), error.message);
+
+      return true;
+    });
+  }
 });
 
 await test('invalid network settings and unknown config keys fail at file load', async (t) => {
