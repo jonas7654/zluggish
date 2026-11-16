@@ -105,7 +105,7 @@ function removeDatabase(path: string) {
   for (const suffix of ['', '-wal', '-shm', '-journal']) rmSync(`${path}${suffix}`, { force: true });
 }
 
-function readManifest(storage: string): Manifest | null {
+export function readManifest(storage: string): Manifest | null {
   const path = resolve(storage, StorageFile.Manifest);
 
   return existsSync(path) ? manifestSchema.parse(JSON.parse(readFileSync(path, 'utf8'))) : null;
@@ -401,7 +401,7 @@ function enqueue(db: DatabaseSync, type: string, payload: Record<string, number 
 /** One canonical FIT payload in activity.fit. Required copies (column and journal) must
 agree byte for byte; export files are replaceable copies and are created again.
 */
-function canonicalizeFit(storage: string, db: DatabaseSync, report: Report) {
+function canonicalizeFit(storage: string, db: DatabaseSync, report: Report, checksums: Map<number, string>) {
   const completions = new Map(
     db
       .prepare('SELECT * FROM activity_completion')
@@ -437,6 +437,8 @@ function canonicalizeFit(storage: string, db: DatabaseSync, report: Report) {
       report.exportMismatches.push(String(activity.id));
 
     if (canonical && !column) setFit.run(canonical, activity.id);
+
+    if (canonical) checksums.set(activity.id, crypto.sha256(canonical));
 
     if (canonical && activity.player_id !== null && (!file || report.exportMismatches.includes(String(activity.id))))
       enqueue(db, 'fit_export', { activityId: activity.id });
@@ -522,7 +524,7 @@ function count(db: DatabaseSync, sql: string) {
   return z.number().parse(db.prepare(sql).get()?.n);
 }
 
-function validate(source: string, destination: DatabaseSync, report: Report) {
+function validate(source: string, destination: DatabaseSync, report: Report, checksums: Map<number, string>) {
   const integrity = destination.prepare('PRAGMA integrity_check').get();
 
   if (integrity?.integrity_check !== 'ok') throw new ConfigError('Migrated database failed its integrity check');
@@ -564,6 +566,17 @@ function validate(source: string, destination: DatabaseSync, report: Report) {
   for (const [table, rows] of Object.entries(report.settings))
     if (count(destination, `SELECT count(*) AS n FROM ${table}`) !== rows)
       throw new ConfigError(`Migrated ${table} rows differ from settings.db`);
+
+  // Every canonical FIT payload is in activity.fit with the bytes chosen from the sources.
+  for (const row of destination.prepare('SELECT id, fit FROM activity WHERE fit IS NOT NULL').all()) {
+    const id = z.number().parse(row.id);
+
+    if (checksums.get(id) !== crypto.sha256(z.instanceof(Uint8Array).parse(row.fit)))
+      throw new ConfigError(`Migrated FIT payload of activity ${id} differs from its source`);
+    checksums.delete(id);
+  }
+
+  if (checksums.size > 0) throw new ConfigError('A migrated FIT payload is missing');
 
   // Completed activities keep exactly one FIT copy, outside their journal payloads.
   for (const row of destination.prepare('SELECT payload FROM activity_completion').all())
@@ -682,7 +695,9 @@ export function migrateStorage(storage: string, reached: (step: MigrationStep) =
     importsRolledBack: [],
   };
 
+  const checksums = new Map<number, string>();
   const db = new DatabaseSync(temporary);
+  let imported = false;
 
   try {
     db.exec('PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL; BEGIN IMMEDIATE');
@@ -690,19 +705,27 @@ export function migrateStorage(storage: string, reached: (step: MigrationStep) =
     report.settings = importSettings(storage, db);
     rollbackLegacyImports(storage, db, report);
     importRiderFiles(storage, db, credentialsKey(storage), report);
-    canonicalizeFit(storage, db, report);
+    canonicalizeFit(storage, db, report, checksums);
     finishCompletions(db, report);
     mapDeliveries(db, report);
     db.exec('DELETE FROM version');
     db.prepare('INSERT INTO version VALUES (?)').run(STORAGE_VERSION);
     db.exec('COMMIT');
-    validate(database, db, report);
+    validate(database, db, report, checksums);
     db.exec('PRAGMA journal_mode=DELETE');
+    imported = true;
   } catch (error) {
     if (db.isTransaction) db.exec('ROLLBACK');
     throw error;
   } finally {
     db.close();
+
+    // A failed import leaves the source as it was: no temporary copy, no manifest.
+    if (!imported) {
+      removeDatabase(temporary);
+      rmSync(resolve(storage, StorageFile.Manifest), { force: true });
+      syncDirectory(storage);
+    }
   }
 
   reached('imported');

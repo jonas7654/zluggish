@@ -3,10 +3,12 @@ import { GhostSchema, PlayerStateSchema } from '#src/protocol/generated/udp-node
 import { FitQueueFullError, FitRepository } from '#src/repositories/fit.repository';
 import { AssetFiles } from '#src/repositories/files.repository';
 import { FitService } from '#src/services/fit.service';
+import { metrics } from '#src/repositories/metrics.repository';
+import { ActivitySchema } from '#src/protocol/generated/activity_pb';
 import { worldTime } from '#src/world/state';
 import { Simulation } from '#src/world/simulation';
 import { runtimeFixture } from '#tests/support/runtime';
-import { create, toBinary } from '@bufbuild/protobuf';
+import { create, fromBinary, toBinary } from '@bufbuild/protobuf';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -133,4 +135,46 @@ await test('the FIT worker matches synchronous processing and bounds its queue',
   assert.equal(fit.length, 265, 'the caller keeps the canonical payload');
   await first;
   await pool.close();
+});
+
+await test('a profile and its account names commit together or not at all', async (t) => {
+  const f = runtimeFixture(t);
+  const rider = await f.accounts.create('Before Name', '', true);
+  const profile = f.profiles.get(rider.player_id);
+  profile.firstName = 'After';
+  f.accounts.db.exec(`CREATE TRIGGER fail_name BEFORE UPDATE OF first_name ON user
+    BEGIN SELECT RAISE(ABORT, 'injected crash'); END`);
+  assert.throws(() => f.profiles.save(rider.player_id, profile), /injected crash/);
+  assert.equal(f.services.documents.has(rider.player_id, 'profile.bin'), false);
+  assert.equal(f.profiles.get(rider.player_id).firstName, 'Before');
+  f.accounts.db.exec('DROP TRIGGER fail_name');
+  f.profiles.save(rider.player_id, profile);
+  assert.equal(f.accounts.get(rider.player_id)?.first_name, 'After');
+  const stored = f.services.documents.get(rider.player_id, 'profile.bin');
+  assert.equal(fromBinary(PlayerProfileSchema, stored ?? new Uint8Array()).firstName, 'After');
+});
+
+await test('the completion and FIT queues record depth, wait and rejections', async (t) => {
+  const f = runtimeFixture(t);
+  const rider = await f.accounts.create('Queued Rider', '', true);
+  metrics.reset();
+
+  const draft = create(ActivitySchema, {
+    playerId: BigInt(rider.player_id),
+    courseId: 6n,
+    name: 'Draft',
+    startDate: new Date().toISOString(),
+  });
+
+  await Promise.all([f.services.activities.saveInTurn(draft, false), f.services.activities.saveInTurn(draft, false)]);
+  const pool = new FitRepository(1);
+  const fit = readFileSync(new URL('../fixtures/ride.fit', import.meta.url));
+  const first = pool.chart(fit);
+  await assert.rejects(pool.chart(fit), FitQueueFullError);
+  await first;
+  await pool.close();
+  const summary = metrics.summary();
+  assert.equal(summary['persistence.queue_wait_ms']?.count, 2);
+  assert.equal(summary['persistence.queue_depth']?.max, 2);
+  assert.equal(summary['persistence.rejected']?.count, 1);
 });

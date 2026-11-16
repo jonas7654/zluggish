@@ -5,6 +5,7 @@ import { loadConfig, packageRoot, selectConfigPath } from '#src/config/load';
 import { migrateConfig } from '#src/config/migrate';
 import { openDatabase } from '#src/db/open';
 import { backupStorage, pauseUploads, restoreStorage } from '#src/migrations/backup';
+import { legacyPlan, removeLegacy } from '#src/migrations/legacy';
 import { migrateAccounts } from '#src/migrations/accounts';
 import { SystemFlag } from '#src/repositories/system-flag.repository';
 import { AssetFiles } from '#src/repositories/files.repository';
@@ -36,6 +37,7 @@ storage backup --output DIR                 Back up the stopped server's storage
 storage restore --input DIR                 Restore a backup while stopped; uploads stay paused
 storage usage                               Show storage use by category
 storage cleanup [--dry-run]                 Apply retention rules, or preview them
+storage clean-legacy [--confirm]            Preview, or remove, legacy files the migration imported
 uploads list                                Show deliveries that wait or need a decision
 uploads pause                               Stop automatic deliveries (after a manual restore)
 uploads resume --confirm                    Allow automatic deliveries again
@@ -396,6 +398,25 @@ async function storageCommand(
     } finally {
       accounts.close();
     }
+  }
+
+  if (action === 'clean-legacy') {
+    const plan = legacyPlan(storage);
+
+    for (const file of plan.removable) output(`remove: ${file.path} (${file.bytes} bytes)`);
+
+    for (const file of plan.kept) output(`keep: ${file.path} (${file.reason})`);
+
+    if (!values.confirm) {
+      output(`${plan.removable.length} legacy files can be removed; run again with --confirm to remove them`);
+
+      return 0;
+    }
+
+    removeLegacy(storage, plan);
+    output(`${plan.removable.length} legacy files removed`);
+
+    return 0;
   }
 
   if (action === 'backup') {

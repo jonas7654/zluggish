@@ -2,6 +2,7 @@ import { openDatabase } from '#src/db/open';
 import { ActivitySchema } from '#src/protocol/generated/activity_pb';
 import { PlayerProfileSchema, StreaksSchema } from '#src/protocol/generated/profile_pb';
 import { PlayerStateSchema } from '#src/protocol/generated/udp-node-msgs_pb';
+import { legacyPlan, removeLegacy } from '#src/migrations/legacy';
 import { migrateStorage, MigrationStep, StorageFile } from '#src/migrations/storage';
 import { CryptoRepository } from '#src/repositories/crypto.repository';
 import { RiderDocuments } from '#src/repositories/rider-document.repository';
@@ -21,7 +22,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { resolve } from 'node:path';
+import { relative, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { SQLOutputValue } from 'node:sqlite';
 import type { TestContext } from 'node:test';
@@ -47,6 +48,24 @@ const activity = (id: number, name: string, extra: { fit?: Uint8Array } = {}) =>
 
 const previous = create(StreaksSchema, { curStreak: 1, curStreakDistance: 1000, weekEnd: 1n });
 
+// A profile with a 64-bit identifier and a field this release does not know (field 900,
+// varint 7): the merge must keep the exact bytes.
+const profile = Buffer.concat([
+  toBinary(PlayerProfileSchema, create(PlayerProfileSchema, { id: 9_007_199_254_740_993n, firstName: 'One' })),
+  Buffer.from([0xa0, 0x38, 0x07]),
+]);
+
+/** Legacy rider files and their database documents. */
+const imported = [
+  'profile.bin',
+  'streaks.bin',
+  'strava_token.txt',
+  'runalyze_token.txt',
+  'zwift_credentials.bin',
+  'encryption_key.bin',
+  'garth/oauth1_token.json',
+] as const;
+
 function write(storage: string, path: string, data: string | Uint8Array) {
   mkdirSync(resolve(storage, path, '..'), { recursive: true });
   writeFileSync(resolve(storage, path), data);
@@ -57,8 +76,9 @@ function legacy(t: TestContext) {
   const storage = mkdtempSync(resolve(tmpdir(), 'zluggish-legacy-'));
   t.after(() => rmSync(storage, { recursive: true, force: true }));
   const db = legacyDatabase(storage);
-  db.exec(`INSERT INTO user (player_id, username, first_name, last_name, pass_hash, is_admin)
-    VALUES (1, 'one', 'One', 'Rider', NULL, 1), (2, 'two', 'Two', 'Rider', NULL, 0)`);
+  db.exec(`INSERT INTO user (player_id, username, first_name, last_name, pass_hash, auth_version, official_player_id, is_admin)
+    VALUES (1, 'one', 'One', 'Rider', '$argon2id$v=19$m=65536,t=3,p=1$c2FsdA$aGFzaA', 3, 9007199254740993, 1),
+    (2, 'two', 'Two', 'Rider', NULL, 1, NULL, 0)`);
   // A completed activity whose FIT lives in its journal and its export file.
   const done = activity(10, 'Done', { fit });
   db.prepare('INSERT INTO activity (id, player_id, name) VALUES (10, 1, ?)').run('Done');
@@ -66,7 +86,7 @@ function legacy(t: TestContext) {
   // A legacy activity from before the journal: only its export file has the FIT bytes.
   db.prepare("INSERT INTO activity (id, player_id, name, end_date) VALUES (11, 1, 'Old', '2026-01-01')").run();
   db.exec(`INSERT INTO activity_upload VALUES (10, 'runalyze', 'sending'), (10, 'intervals', 'pending'),
-    (10, 'garmin', 'failed')`);
+    (10, 'garmin', 'failed'), (10, 'strava', 'sent'), (10, 'zwift', 'cancelled')`);
   db.close();
 
   const settings = SettingsStore.legacy(storage);
@@ -75,12 +95,14 @@ function legacy(t: TestContext) {
   settings.close();
 
   writeFileSync(resolve(storage, StorageFile.CredentialsKey), key);
-  write(storage, '1/profile.bin', toBinary(PlayerProfileSchema, create(PlayerProfileSchema, { firstName: 'One' })));
+  write(storage, '1/profile.bin', profile);
   write(storage, '1/streaks.bin', toBinary(StreaksSchema, previous));
   write(storage, '1/strava_token.txt', '1\nsecret\naccess\nrefresh\n9\n');
   write(storage, '1/runalyze_token.txt', 'runalyze');
   write(storage, '1/zwift_credentials.bin', crypto.encryptCredentials(key, ['user', 'pass']));
   write(storage, '1/encryption_key.bin', crypto.randomBytes(16));
+  write(storage, '1/garth/oauth1_token.json', '{"oauth_token":"t","oauth_token_secret":"s"}');
+  write(storage, '1/last_activity.bin', 'obsolete');
   write(storage, '1/bookmarks/6/0/Home.bin', toBinary(PlayerStateSchema, create(PlayerStateSchema, { x: 5 })));
   write(storage, '1/fit/10 - ride.fit', fit);
   write(storage, '1/fit/11 - old.fit', fit);
@@ -128,6 +150,25 @@ await test('the storage merge imports every legacy store once and keeps the lega
     'pass',
   ]);
   assert.equal(db.prepare('SELECT name FROM bookmark WHERE player_id=1').get()?.name, 'Home');
+
+  // Every document holds the exact file bytes, unknown fields and identifiers included.
+  for (const name of imported)
+    assert.deepEqual(Buffer.from(documents.get(1, name) ?? []), readFileSync(resolve(storage, '1', name)), name);
+
+  assert.equal(
+    fromBinary(PlayerProfileSchema, documents.get(1, 'profile.bin') ?? new Uint8Array()).id,
+    9_007_199_254_740_993n,
+  );
+  assert.deepEqual(
+    {
+      ...db
+        .prepare(
+          'SELECT pass_hash, auth_version, CAST(official_player_id AS TEXT) AS official FROM user WHERE player_id=1',
+        )
+        .get(),
+    },
+    { pass_hash: '$argon2id$v=19$m=65536,t=3,p=1$c2FsdA$aGFzaA', auth_version: 3, official: '9007199254740993' },
+  );
   assert.equal(db.prepare('SELECT count(*) AS n FROM rider_document WHERE player_id=99').get()?.n, 0);
 
   // One canonical FIT copy: the column. Journal payloads hold none.
@@ -151,6 +192,8 @@ await test('the storage merge imports every legacy store once and keeps the lega
       ['garmin', 'failed'],
       ['intervals', 'pending'],
       ['runalyze', 'ambiguous'],
+      ['strava', 'sent'],
+      ['zwift', 'cancelled'],
     ],
   );
   assert.deepEqual(
@@ -186,7 +229,7 @@ await test('a repeated start does not migrate again', (t) => {
   const db = openDatabase(storage);
   t.after(() => db.close());
   assert.deepEqual(readdirSync(resolve(storage, 'backups')), before);
-  assert.equal(db.prepare('SELECT count(*) AS n FROM rider_document').get()?.n, 6);
+  assert.equal(db.prepare('SELECT count(*) AS n FROM rider_document').get()?.n, 7);
 });
 
 const snapshot = toBinary(StreaksSchema, StreakService.advancedStreak(previous, activity(20, 'Journal name', { fit })));
@@ -279,7 +322,7 @@ for (const step of Object.values(MigrationStep))
     const db = openDatabase(storage);
     t.after(() => db.close());
     assert.equal(db.prepare('SELECT version FROM version').get()?.version, 7);
-    assert.equal(db.prepare('SELECT count(*) AS n FROM rider_document').get()?.n, 6);
+    assert.equal(db.prepare('SELECT count(*) AS n FROM rider_document').get()?.n, 7);
     assert.equal(db.prepare("SELECT count(*) AS n FROM job WHERE type='delivery'").get()?.n, 1);
     assert.equal(existsSync(resolve(storage, StorageFile.Temporary)), false);
     assert.ok(existsSync(resolve(storage, '1/profile.bin')));
@@ -296,4 +339,95 @@ await test('an interrupted publication with an unknown database stops with a rec
   );
   writeFileSync(resolve(storage, 'zluggish.db'), 'damaged');
   assert.throws(() => openDatabase(storage), /matches neither the source nor the migrated copy.*Restore/);
+});
+
+for (const [problem, damage] of [
+  ['an unreadable profile', (storage: string) => write(storage, '1/profile.bin', new Uint8Array([0xff, 0xff]))],
+  [
+    'an unreadable completion journal',
+    (storage: string) => {
+      const db = openLegacy(storage);
+      db.prepare('UPDATE activity_completion SET payload=? WHERE activity_id=10').run(new Uint8Array([0xff, 0xff]));
+      db.close();
+    },
+  ],
+] as const)
+  await test(`${problem} stops the migration and keeps the source`, (t) => {
+    const storage = legacy(t);
+    damage(storage);
+    const before = readFileSync(resolve(storage, 'zluggish.db'));
+    assert.throws(() => openDatabase(storage));
+    assert.deepEqual(readFileSync(resolve(storage, 'zluggish.db')), before);
+    assert.equal(existsSync(resolve(storage, StorageFile.Temporary)), false);
+  });
+
+await test('a legacy cleanup preview removes nothing and lists only imported, backed-up files', (t) => {
+  const storage = legacy(t);
+  openDatabase(storage).close();
+  const plan = legacyPlan(storage);
+  const removable = plan.removable.map((file) => relative(storage, file.path)).toSorted();
+
+  assert.deepEqual(
+    removable,
+    [
+      ...imported.map((name) => `1/${name}`),
+      '1/bookmarks/6/0/Home.bin',
+      '1/last_activity.bin',
+      'settings.db',
+    ].toSorted(),
+  );
+  assert.deepEqual(
+    plan.kept.map((file) => [relative(storage, file.path), file.reason]),
+    [['99', 'no account for this rider folder']],
+  );
+
+  for (const file of plan.removable) assert.ok(existsSync(file.path));
+});
+
+await test('a legacy cleanup removes the imported files and keeps media, exports and keys', (t) => {
+  const storage = legacy(t);
+  openDatabase(storage).close();
+  removeLegacy(storage, legacyPlan(storage));
+
+  for (const name of [...imported, 'last_activity.bin', 'bookmarks', 'garth'])
+    assert.equal(existsSync(resolve(storage, '1', name)), false, name);
+
+  assert.equal(existsSync(resolve(storage, 'settings.db')), false);
+
+  for (const name of ['1/fit/10 - ride.fit', '1/medias/1.mp4', '99/profile.bin', StorageFile.CredentialsKey])
+    assert.ok(existsSync(resolve(storage, name)), name);
+
+  const db = openDatabase(storage);
+  t.after(() => db.close());
+  assert.equal(new RiderDocuments(db, storage).text(1, 'runalyze_token.txt'), 'runalyze');
+  assert.deepEqual(new SettingsStore(db).read(1), { 'ghosts.enabled': true });
+  assert.equal(legacyPlan(storage).removable.length, 0);
+});
+
+await test('a legacy file that changed after the migration is kept', (t) => {
+  const storage = legacy(t);
+  openDatabase(storage).close();
+  write(storage, '1/runalyze_token.txt', 'edited later');
+  const plan = legacyPlan(storage);
+  assert.deepEqual(
+    plan.kept.find((file) => file.path === resolve(storage, '1/runalyze_token.txt'))?.reason,
+    'not identical to the migration backup',
+  );
+  assert.equal(
+    plan.removable.some((file) => file.path === resolve(storage, '1/runalyze_token.txt')),
+    false,
+  );
+});
+
+await test('a legacy cleanup needs a published migration and its backup', (t) => {
+  const storage = legacy(t);
+  assert.throws(() => legacyPlan(storage), /No published storage migration/);
+  openDatabase(storage).close();
+
+  const backup = z
+    .object({ backup: z.string() })
+    .parse(JSON.parse(readFileSync(resolve(storage, StorageFile.Manifest), 'utf8'))).backup;
+
+  rmSync(backup, { recursive: true });
+  assert.throws(() => legacyPlan(storage), /backup .* is missing/);
 });

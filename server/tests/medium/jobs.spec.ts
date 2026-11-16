@@ -1,4 +1,5 @@
 import { immediate } from '#src/db/transaction';
+import { JobError } from '#src/errors';
 import { ActivitySchema } from '#src/protocol/generated/activity_pb';
 import { JobsRepository, RunningJob } from '#src/repositories/jobs.repository';
 import { JobsService } from '#src/services/jobs.service';
@@ -141,4 +142,81 @@ await test('a delivery lease expiry does not authorize a second send', async (t)
   assert.equal(f.services.uploads.status(f.rider.player_id)[0]?.state, 'sent');
   assert.equal(sends.mock.callCount(), 1);
   assert.equal(id > 0, true);
+});
+
+await test('a job that exceeds its time limit is stopped, retried, then failed after its attempts', async (t) => {
+  const f = await mediumFixture(t);
+  const jobs = new JobsService(f);
+  const repository = f.accounts.repositories.jobsRepository;
+  let runs = 0;
+
+  jobs.register('retention', {
+    concurrency: 1,
+    attempts: 2,
+    timeoutMs: 20,
+    run: (job) => {
+      runs++;
+
+      return new Promise((_resolve, reject) => {
+        job.signal.addEventListener('abort', () => reject(z.instanceof(Error).parse(job.signal.reason)));
+      });
+    },
+  });
+  repository.enqueue('retention', {});
+
+  const first = repository.claim('retention', 30_000);
+  assert.ok(first);
+  await jobs.run(first);
+  assert.deepEqual(
+    repository.list().map((job) => [job.state, job.last_error, job.attempts]),
+    [['queued', 'timeout', 1]],
+  );
+
+  f.accounts.db.exec('UPDATE job SET next_run_at=0');
+  const second = repository.claim('retention', 30_000);
+  assert.ok(second);
+  await jobs.run(second);
+  assert.deepEqual(
+    repository.list().map((job) => [job.state, job.last_error, job.attempts]),
+    [['failed', 'timeout', 2]],
+  );
+  assert.equal(runs, 2);
+});
+
+await test('a job that cannot succeed fails at once, and each type runs at most its concurrency', async (t) => {
+  const f = await mediumFixture(t);
+  const jobs = new JobsService(f);
+  const repository = f.accounts.repositories.jobsRepository;
+  let running = 0;
+  let peak = 0;
+
+  jobs.register('chart', {
+    concurrency: 2,
+    attempts: 5,
+    timeoutMs: 10_000,
+    run: async () => {
+      running++;
+      peak = Math.max(peak, running);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      running--;
+    },
+  });
+
+  for (let index = 0; index < 6; index++) repository.enqueue('chart', { index });
+  await jobs.drain();
+  assert.equal(peak, 2);
+  assert.ok(repository.list('chart').every((job) => job.state === 'done'));
+
+  jobs.register('power_curve', {
+    concurrency: 1,
+    attempts: 5,
+    timeoutMs: 10_000,
+    run: () => Promise.reject(new JobError('invalid_payload', false)),
+  });
+  repository.enqueue('power_curve', {});
+  await jobs.drain();
+  assert.deepEqual(
+    repository.list('power_curve').map((job) => [job.state, job.attempts]),
+    [['failed', 1]],
+  );
 });

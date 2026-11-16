@@ -76,6 +76,8 @@ async function storage(t: TestContext) {
   write(resolve(folder, 'medias', `${fresh}.mp4`));
   write(resolve(folder, 'profile.bin.abc.tmp'), 'data', 2 * day);
   write(resolve(folder, 'recent.tmp'));
+  // Unfinished ride recovery data is never a cleanup candidate, however old.
+  write(resolve(folder, 'ride-recovery.bin'), 'samples', 400 * day);
 
   for (const [name, age] of [
     ['a.bin', 3],
@@ -156,6 +158,7 @@ await test('a cleanup keeps unfinished work, owned artifacts and the canonical F
   assert.ok(existsSync(resolve(folder, 'fit', `${id} - ride.fit`)));
   assert.ok(existsSync(resolve(folder, 'medias', `${fresh}.mp4`)), 'a recent reservation stays');
   assert.ok(existsSync(resolve(folder, 'recent.tmp')));
+  assert.ok(existsSync(resolve(folder, 'ride-recovery.bin')));
   assert.ok(existsSync(resolve(folder, 'ghosts', '6', '1', 'b.bin')));
 
   const again = await service.plan();

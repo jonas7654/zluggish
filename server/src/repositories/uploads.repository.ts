@@ -146,6 +146,18 @@ export class UploadsRepository {
     return this.executor.run(this.finished(before)).changes;
   }
 
+  /** A rider's deliveries that wait for a send. */
+  pendingFor(player: number) {
+    return this.executor.all(
+      query
+        .selectFrom('activity_upload as u')
+        .innerJoin('activity as a', 'a.id', 'u.activity_id')
+        .select(['u.activity_id', 'u.provider'])
+        .where('a.player_id', '=', player)
+        .where('u.state', '=', 'pending'),
+    );
+  }
+
   cancel(activity: number, provider: string) {
     return this.update(activity, provider, ['pending', 'failed', 'ambiguous'], { state: 'cancelled' });
   }

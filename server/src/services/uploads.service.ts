@@ -1,7 +1,7 @@
 import { UploadProvider } from '#src/enum';
 import type { RemovableCredentialFile } from '#src/enum';
 import type { RepositoryContext as Runtime } from '#src/context';
-import { immediate } from '#src/db/transaction';
+import { atomic, immediate } from '#src/db/transaction';
 import { DeliveryRefusedError, refused } from '#src/errors';
 import type { Activity } from '#src/protocol/generated/activity_pb';
 import { ActivitySchema } from '#src/protocol/generated/activity_pb';
@@ -119,6 +119,20 @@ export class UploadsService extends BaseService {
       this.riderDocuments.remove(player, file);
 
       if (file === 'garth/oauth1_token.json') this.riderDocuments.remove(player, 'garth/oauth2_token.json');
+      this.revoke(player);
+    });
+  }
+
+  /** After a consent or credential change: cancel pending deliveries to providers that
+  are no longer configured. A delivery job checks consent again before it sends.
+  */
+  revoke(player: number) {
+    const allowed: string[] = this.configured(player);
+
+    atomic(this.repositories.db, () => {
+      for (const delivery of this.uploadsRepository.pendingFor(player))
+        if (!allowed.includes(delivery.provider))
+          this.uploadsRepository.cancel(delivery.activity_id, delivery.provider);
     });
   }
 

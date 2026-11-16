@@ -6,6 +6,7 @@ import { ActivityPrivacyType, Sport, StreaksSchema } from '#src/protocol/generat
 import { GhostSchema, WA_TYPE, WorldAttributeSchema } from '#src/protocol/generated/udp-node-msgs_pb';
 import { ActivitiesRepository } from '#src/repositories/activities.repository';
 import { immediate } from '#src/db/transaction';
+import { Metric, metrics } from '#src/repositories/metrics.repository';
 import { BaseService } from '#src/services/base.service';
 import type { RunningJob } from '#src/repositories/jobs.repository';
 import type { JobsService } from '#src/services/jobs.service';
@@ -119,13 +120,23 @@ export class ActivitiesService extends BaseService {
 
   private turn = Promise.resolve();
 
+  private queued = 0;
+
   /** Saves from requests run one per event-loop turn: a group of riders that finish
   together cannot hold the main thread for the whole group.
   */
   saveInTurn(activity: Activity, finish: boolean) {
+    const queued = performance.now();
+    metrics.record(Metric.QueueDepth, ++this.queued);
+
     const result = this.turn
       .then(() => new Promise<void>((resolve) => setImmediate(resolve)))
-      .then(() => this.save(activity, finish));
+      .then(() => {
+        this.queued--;
+        metrics.record(Metric.QueueWait, performance.now() - queued);
+
+        return this.save(activity, finish);
+      });
 
     this.turn = result.then(() => {}).catch(() => {});
 

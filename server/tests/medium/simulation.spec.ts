@@ -6,7 +6,8 @@ import { Simulation } from '#src/world/simulation';
 import { runtimeFixture } from '#tests/support/runtime';
 import { create, toBinary } from '@bufbuild/protobuf';
 import assert from 'node:assert/strict';
-import { rmSync } from 'node:fs';
+import fs, { rmSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
 
@@ -96,4 +97,87 @@ await test('ghost regroup before lazy loading preserves independent playback and
   f.world.logout(id);
   assert.equal(simulation.ghosts.has(id), false);
   assert.equal(f.world.personal.has(id), false);
+});
+
+await test('riding, ghost and bookmark loads, blobs, recovery and logout make no synchronous file calls', async (t) => {
+  const f = runtimeFixture(t);
+  const rider = await f.accounts.create('Async Rider', '', true);
+  f.settings.save(rider.player_id, { 'ghosts.enabled': true });
+  const id = BigInt(rider.player_id);
+
+  const state = (index: number) =>
+    create(PlayerStateSchema, {
+      id,
+      f19: (6 << 16) | 4,
+      aux3: 1 << 8,
+      roadTime: 1000 + index,
+      worldTime: worldTime() + BigInt(index) * 3000n,
+    });
+
+  new AssetFiles().writeDurable(
+    resolve(f.profiles.folder(rider.player_id), 'ghosts/6/1/old.bin'),
+    toBinary(GhostSchema, create(GhostSchema, { playerId: rider.player_id, states: [state(0), state(1)] })),
+  );
+  let now = 100;
+  const simulation = new Simulation(f, () => now);
+  t.after(() => simulation.close());
+  await simulation.ready;
+  f.services.recovery.start();
+  t.after(() => f.services.recovery.close());
+
+  // From here on every synchronous file call throws and is recorded.
+  const calls: string[] = [];
+
+  const names = [
+    'readFileSync',
+    'readdirSync',
+    'existsSync',
+    'statSync',
+    'lstatSync',
+    'openSync',
+    'writeFileSync',
+    'appendFileSync',
+    'fsyncSync',
+    'renameSync',
+    'mkdirSync',
+    'rmSync',
+    'unlinkSync',
+    'linkSync',
+    'copyFileSync',
+  ] as const;
+
+  const mocks = names.map((name) =>
+    t.mock.method(fs, name, () => {
+      calls.push(name);
+      throw new Error(`${name} on the riding path`);
+    }),
+  );
+
+  syncBuiltinESMExports();
+
+  try {
+    f.world.login(id, new Uint8Array(16));
+
+    for (let index = 0; index < 6; index++) {
+      now++;
+      f.world.receive(id, state(index));
+      simulation.tick();
+    }
+
+    assert.equal(simulation.command(id, 'blob 4'), 'Blob settings saved.');
+    simulation.command(id, 'bookmark Home');
+    await simulation.loadBookmarks(id);
+    await f.services.recovery.checkpoint();
+    await simulation.idle();
+    f.world.logout(id);
+    await simulation.idle();
+    await f.services.recovery.recordings.idle();
+  } finally {
+    for (const mock of mocks) mock.mock.restore();
+    syncBuiltinESMExports();
+  }
+
+  assert.deepEqual(calls, []);
+  assert.equal(simulation.ghosts.has(id), false);
+  assert.equal(simulation.bookmarks.get(id)?.size, 2, 'the command bookmark and the last ride bookmark');
 });

@@ -101,6 +101,25 @@ await test('a restore without the credentials key stops with a clear error', asy
   assert.equal(existsSync(resolve(f.config.storageDir, StorageFile.RestoreMarker)), false);
 });
 
+await test('a backup holds the configuration and a restore puts it back', async (t) => {
+  const { f } = await backedUp(t);
+  const config = resolve(f.config.storageDir, '..', 'zluggish-test.config.ts');
+  writeFileSync(config, 'export default { storageDir: "x" };');
+  t.after(() => rmSync(config, { force: true }));
+  const backup = mkdtempSync(resolve(tmpdir(), 'zluggish-backup-'));
+  t.after(() => rmSync(backup, { recursive: true, force: true }));
+  backupStorage(f.config.storageDir, backup, config);
+  assert.equal(
+    readFileSync(resolve(backup, 'config', 'zluggish-test.config.ts'), 'utf8'),
+    'export default { storageDir: "x" };',
+  );
+  assert.throws(() => backupStorage(f.config.storageDir, backup, config), /not empty/);
+  writeFileSync(config, 'changed');
+  f.accounts.close();
+  restoreStorage(f.config.storageDir, backup, config);
+  assert.equal(readFileSync(config, 'utf8'), 'export default { storageDir: "x" };');
+});
+
 await test('a changed backup file stops the restore before it changes storage', async (t) => {
   const { f, backup } = await backedUp(t);
   writeFileSync(resolve(backup, StorageFile.CredentialsKey), 'changed');

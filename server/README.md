@@ -2,7 +2,7 @@
 
 The CLI manages operator configuration, rider settings, legacy migrations, and local account recovery. It works directly with configuration files and storage; it does not connect to a running server or start one.
 
-Run the commands below from the **repository root**. Replace sample paths and rider ID `1` with your own values. Stop every server using the target storage before running `accounts migrate`, `accounts recover`, `config migrate` (except `--dry-run`), or `settings set/reset` (except `--dry-run`). These operations take an exclusive storage lock.
+Run the commands below from the **repository root**. Replace sample paths and rider ID `1` with your own values. Stop every server using the target storage before running `accounts migrate`, `accounts recover`, `config migrate` (except `--dry-run`), `settings set/reset` (except `--dry-run`), or any `storage` or `uploads` command. These operations take an exclusive storage lock.
 
 ## Run natively
 
@@ -191,6 +191,31 @@ node server/dist/src/cli/bin.js --storage-dir ./storage accounts recover --user 
 ```
 
 Choose exactly one of `--password-file PATH` and `--remove-password`. Recovery revokes existing tokens.
+
+## Storage and upload commands
+
+These commands run offline: stop the server first. They use the selected config's storage, or `--storage-dir`.
+
+| Command                                        | Effect                                                                                                                                               |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `storage backup --output DIR`                  | Back up the database (a consistent SQLite copy), media, FIT exports, charts, encryption keys and the selected config, with a checksum manifest.      |
+| `storage restore --input DIR`                  | Check the backup's checksums and keys, then restore it. Uploads stay paused until you resume them.                                                   |
+| `storage usage`                                | Show storage use by category.                                                                                                                        |
+| `storage cleanup [--dry-run]`                  | Apply the retention rules, or preview them. The server also runs them daily.                                                                         |
+| `storage clean-legacy [--confirm]`             | Preview, or remove, old files that the storage merge imported. Only files identical to the migration backup and present in the database are removed. |
+| `uploads list`                                 | Show deliveries that wait for a send or need a decision, and whether uploads are paused.                                                             |
+| `uploads pause`                                | Stop automatic deliveries. Run it before the first start after a manual directory copy.                                                              |
+| `uploads cancel --activity ID --provider NAME` | Cancel one pending, failed or ambiguous delivery.                                                                                                    |
+| `uploads resume --confirm`                     | Allow automatic deliveries again.                                                                                                                    |
+
+```sh
+node server/dist/src/cli/bin.js --storage-dir ./storage storage backup --output /backups/zluggish-2026-11-16
+node server/dist/src/cli/bin.js --storage-dir ./storage storage restore --input /backups/zluggish-2026-11-16
+node server/dist/src/cli/bin.js --storage-dir ./storage uploads list
+node server/dist/src/cli/bin.js --storage-dir ./storage uploads resume --confirm
+```
+
+A restored backup cannot know which deliveries the providers received after the backup was made, so a restore pauses uploads. Check the providers, cancel the deliveries they already have, then resume. See [activity completion and deliveries](../docs/activity-completion.md).
 
 ## Development tools
 

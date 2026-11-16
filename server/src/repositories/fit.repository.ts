@@ -63,7 +63,13 @@ export class FitRepository {
   }
 
   private run(task: Task, bytes: Uint8Array): Promise<Json> {
-    if (this.pending.size >= this.limit) return Promise.reject(new FitQueueFullError());
+    if (this.pending.size >= this.limit) {
+      metrics.record(Metric.QueueRejected, 1);
+
+      return Promise.reject(new FitQueueFullError());
+    }
+
+    metrics.record(Metric.QueueDepth, this.pending.size + 1);
     const worker = this.start();
     const id = this.next++;
 
