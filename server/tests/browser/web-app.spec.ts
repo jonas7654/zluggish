@@ -14,7 +14,7 @@ for (const existing of [false, true])
     async (t) => {
       const f = runtimeFixture(t);
 
-      if (existing) await f.accounts.create('First Rider', 'test-password', false, 'owner');
+      if (existing) await f.accounts.create('First Rider', 'test-password', 'owner');
       const key = f.services.management.issueSetupKey()!;
       const web = serve({ fetch: createWebApp(f).fetch, hostname: '127.0.0.1', port: 0 });
       const game = serve({ fetch: f.app.fetch, hostname: '127.0.0.1', port: 0 });
@@ -37,7 +37,7 @@ for (const existing of [false, true])
       await page.goto(origin + '/setup');
       await page.getByLabel('Setup key').fill(key);
 
-      if (existing) await page.getByLabel('Setup method').selectOption('existing');
+      if (existing) await page.getByLabel('Use an existing rider').check();
       else {
         await page.getByLabel('First name', { exact: true }).fill('First');
         await page.getByLabel('Last name', { exact: true }).fill('Rider');
@@ -47,23 +47,43 @@ for (const existing of [false, true])
       await page.getByLabel('Login name', { exact: true }).fill('owner');
       await page.getByLabel('Password', { exact: true }).fill('test-password');
       await page.getByRole('button', { name: 'Complete setup' }).click();
-      await page.getByRole('heading', { name: 'Create rider' }).waitFor();
+      // Setup lands in the management area, marked by the orange edge under the bar.
+      await page.getByText('No other riders yet.').waitFor();
+      assert.equal(await page.locator('.app.management').count(), 1);
+      await page.getByRole('button', { name: 'Create rider' }).click();
       const create = page.locator('form').filter({ has: page.getByRole('heading', { name: 'Create rider' }) });
       await create.getByLabel('First name').fill('Second');
       await create.getByLabel('Last name').fill('Rider');
       await create.getByLabel('Login name').fill('second');
       await create.getByLabel('Password', { exact: true }).fill('second-password');
+      await create.getByLabel('Confirm password', { exact: true }).fill('second-password');
       await create.getByRole('button', { name: 'Create rider' }).click();
-      await page.getByText('Rider created.', { exact: true }).waitFor();
+      await page.getByText('Second Rider can now sign in.', { exact: true }).waitFor();
+      assert.match(page.url(), /\/manage\/riders\/\d+$/);
+
+      // Destructive actions ask first, and the dialog names the rider.
+      await page.getByRole('button', { name: 'End sessions', exact: true }).click();
+      await page.getByRole('alertdialog', { name: 'End all sessions of Second Rider?' }).waitFor();
+      await page.keyboard.press('Escape');
+      assert.equal(await page.getByRole('alertdialog').count(), 0);
+
+      // My account never shows the marker.
+      await page.getByRole('link', { name: 'My account', exact: true }).click();
+      await page.getByRole('heading', { name: 'My account' }).waitFor();
+      assert.equal(await page.locator('.app.management').count(), 0);
       await page.getByRole('button', { name: 'Sign out', exact: true }).click();
       await page.getByLabel('Login name', { exact: true }).fill('owner');
       await page.getByLabel('Password', { exact: true }).fill('test-password');
       await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-      await page.getByRole('button', { name: 'Manage', exact: true }).click();
-      await page.getByRole('heading', { name: 'Confirm your password' }).waitFor();
+      await page.getByRole('link', { name: 'Manage', exact: true }).click();
+      await page.getByRole('heading', { name: 'Confirm your password to manage the server.' }).waitFor();
       await page.getByLabel('Password', { exact: true }).fill('test-password');
       await page.getByRole('button', { name: 'Confirm', exact: true }).click();
-      await page.getByRole('heading', { name: 'Create rider' }).waitFor();
+      await page.getByRole('button', { name: /Second Rider/ }).waitFor();
+
+      // A deep link loads the rider directly.
+      await page.goto(page.url().replace(/\/manage.*$/, '/manage/riders/2'));
+      await page.getByRole('heading', { name: 'Name and login' }).waitFor();
       const gamePage = await browser.newPage();
       await gamePage.goto(`http://127.0.0.1:${gameAddress.port}/login/`);
       await gamePage.getByRole('button', { name: /Second Rider/ }).click();

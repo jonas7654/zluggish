@@ -1,4 +1,4 @@
-import type { FormResult, LauncherSaved } from '#src/dtos/launcher.dto';
+import type { FormResult, GameSaved } from '#src/dtos/game-app.dto';
 import type { RuntimeEnv } from '#src/http/runtime';
 import type { Context } from 'hono';
 
@@ -28,12 +28,12 @@ export function navigationPath(path: string) {
   );
 }
 
-export function launcherRedirect(c: Context<RuntimeEnv>, path: string) {
-  if (!navigationPath(path)) throw new Error('Unsafe launcher redirect');
+export function gameRedirect(c: Context<RuntimeEnv>, path: string) {
+  if (!navigationPath(path)) throw new Error('Unsafe game app redirect');
   c.header('Cache-Control', 'no-store');
 
   if (!browserJson(c)) return c.redirect(path);
-  const result: FormResult<LauncherSaved> = { ok: true, data: {}, redirectTo: path };
+  const result: FormResult<GameSaved> = { ok: true, data: {}, redirectTo: path };
 
   return c.json(result);
 }

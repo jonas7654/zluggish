@@ -1,6 +1,7 @@
 import type { Hono } from 'hono';
 import type { HttpRuntime, RuntimeEnv } from '#src/http/runtime';
 import { ApplicationError } from '#src/errors';
+import { z } from 'zod';
 import { parseProtobuf } from '#src/http/protobuf';
 import { ActivitySchema } from '#src/protocol/generated/activity_pb';
 
@@ -10,8 +11,14 @@ export function rideCompletionRoutes(app: Hono<RuntimeEnv>, runtime: HttpRuntime
     const bearer = c.req.header('Authorization') ?? '';
 
     if (!bearer || runtime.services.sessions.bearer(bearer.replace(/^Bearer /i, ''))) return next();
-    const player = Number(c.req.param('id'));
-    const activityId = BigInt(c.req.param('activityId'));
+
+    const ids = z
+      .object({ id: z.string().regex(/^\d{1,10}$/), activityId: z.string().regex(/^\d{1,19}$/) })
+      .safeParse(c.req.param());
+
+    if (!ids.success) throw new ApplicationError(400, 'Invalid ride identity.');
+    const player = Number(ids.data.id);
+    const activityId = BigInt(ids.data.activityId);
     const bytes = new Uint8Array(await c.req.arrayBuffer());
     const completion = runtime.services.rideCompletion;
     const permitted = completion.authorize(player, activityId, bearer, bytes);

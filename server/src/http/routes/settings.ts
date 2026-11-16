@@ -1,5 +1,5 @@
-import { checkbox, field, form as makeForm, hidden, model } from '#src/http/launcher/models';
-import { launcherPage } from '#src/http/launcher/render';
+import { checkbox, field, form as makeForm, hidden, model } from '#src/http/game/models';
+import { gamePage } from '#src/http/game/render';
 import { DownloadFile, StravaMethod } from '#src/enum';
 import { authenticated, csrf } from '#src/http/routes/accounts';
 import type { HttpRuntime as Runtime, RuntimeEnv } from '#src/http/runtime';
@@ -41,7 +41,7 @@ export function settingsRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       runtime.services.settings.read(rider.player_id),
     );
 
-    return launcherPage(
+    return gamePage(
       c,
       runtime,
       model(

@@ -16,7 +16,7 @@ import { test } from 'node:test';
 
 async function ghostRider(t: Parameters<typeof runtimeFixture>[0]) {
   const f = runtimeFixture(t);
-  const rider = await f.accounts.create('Ghost Rider', 'test-password', true);
+  const rider = await f.accounts.create('Ghost Rider', 'test-password');
   f.settings.save(rider.player_id, { 'ghosts.enabled': true });
   const simulation = new Simulation(f, () => 100);
   t.after(() => simulation.close());
@@ -72,7 +72,7 @@ function encode(firstName: string) {
 
 await test('the profile cache follows each committed save and each invalidation', async (t) => {
   const f = runtimeFixture(t);
-  const rider = await f.accounts.create('Old Name', 'test-password', true);
+  const rider = await f.accounts.create('Old Name', 'test-password');
   const documents = f.accounts.repositories.riderDocuments;
 
   documents.put(rider.player_id, 'profile.bin', encode('Old'));
@@ -102,7 +102,7 @@ await test('the profile cache follows each committed save and each invalidation'
 
 await test('settings reads come from the cache and follow each committed change', async (t) => {
   const f = runtimeFixture(t);
-  const rider = await f.accounts.create('Cached Rider', 'test-password', true);
+  const rider = await f.accounts.create('Cached Rider', 'test-password');
   assert.deepEqual(f.settings.read(rider.player_id), {});
   f.settings.save(rider.player_id, { 'ghosts.enabled': true });
   assert.deepEqual(f.settings.read(rider.player_id), { 'ghosts.enabled': true });
@@ -139,7 +139,7 @@ await test('the FIT worker matches synchronous processing and bounds its queue',
 
 await test('a profile and its account names commit together or not at all', async (t) => {
   const f = runtimeFixture(t);
-  const rider = await f.accounts.create('Before Name', 'test-password', true);
+  const rider = await f.accounts.create('Before Name', 'test-password');
   const profile = f.profiles.get(rider.player_id);
   profile.firstName = 'After';
   f.accounts.db.exec(`CREATE TRIGGER fail_name BEFORE UPDATE OF first_name ON user
@@ -156,7 +156,7 @@ await test('a profile and its account names commit together or not at all', asyn
 
 await test('the completion and FIT queues record depth, wait and rejections', async (t) => {
   const f = runtimeFixture(t);
-  const rider = await f.accounts.create('Queued Rider', 'test-password', true);
+  const rider = await f.accounts.create('Queued Rider', 'test-password');
   metrics.reset();
 
   const draft = create(ActivitySchema, {

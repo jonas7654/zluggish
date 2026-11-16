@@ -1,20 +1,20 @@
 import 'vite/modulepreload-polyfill';
 import '../theme/theme.css';
 import { hydrate, mount } from 'svelte';
-import Launcher from './pages/Launcher.svelte';
-import type { LauncherPage } from '../lib/game-app.dto';
+import Game from './pages/Game.svelte';
+import type { GamePageModel } from '../lib/game-app.dto';
 
 const target = document.querySelector<HTMLElement>('#launcher-ui');
 const data = document.querySelector('#launcher-props');
 
 if (target && data?.textContent) {
   // SAFETY: props are serialized by the same-origin Svelte render adapter.
-  const page = JSON.parse(data.textContent) as LauncherPage;
+  const page = JSON.parse(data.textContent) as GamePageModel;
 
   if (['login', 'unlock', 'add', 'dashboard'].includes(page.kind)) {
-    hydrate(Launcher, { target, props: { page } });
+    hydrate(Game, { target, props: { page } });
   } else {
     target.replaceChildren();
-    mount(Launcher, { target, props: { page } });
+    mount(Game, { target, props: { page } });
   }
 }

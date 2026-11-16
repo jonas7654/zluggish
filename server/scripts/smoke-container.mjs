@@ -171,7 +171,7 @@ try {
     }),
   });
   assert.equal(setup.status, 200, await setup.text());
-  assert.equal((await uiRequest('/riders/add/')).status, 404);
+  assert.equal((await uiRequest('/riders/add/')).status, 403);
   for (const path of ['/setup', '/manage/riders/1', '/password']) {
     const page = await fetch(`http://127.0.0.1:8080${path}`);
     assert.equal(page.status, 200);

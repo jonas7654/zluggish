@@ -94,7 +94,8 @@ export const configSchema = z
       .readonly(),
     accounts: z
       .strictObject({
-        allowSelfRegistration: z.boolean().default(true),
+        /** Deprecated and ignored. Only an administrator creates riders, in the web app. */
+        allowSelfRegistration: z.boolean().optional(),
       })
       .prefault({})
       .readonly(),

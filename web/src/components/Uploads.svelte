@@ -34,7 +34,7 @@
       try {
         const response = await fetch('/ui/status/uploads', {
           credentials: 'same-origin',
-          headers: { Accept: 'application/json', 'X-Launcher-Context': csrf },
+          headers: { Accept: 'application/json', 'X-Game-Context': csrf },
           signal: controller.signal,
         });
 

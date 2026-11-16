@@ -94,7 +94,7 @@
       "development": "./tests/*.ts",
       "default": "./dist/tests/*.js"
     },
-    "#launcher": "@zluggish/web/render"
+    "#game": "@zluggish/web/render"
   },
   "bin": {
     "zluggish": "./dist/src/cli/bin.js"

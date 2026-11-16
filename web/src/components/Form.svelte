@@ -1,7 +1,8 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import type { FormResult, LauncherForm, LauncherPage, LauncherSaved } from '../lib/game-app.dto';
+  import type { FormResult, GameForm, GamePageModel, GameSaved } from '../lib/game-app.dto';
   import { safeNavigation, validation, values, visible } from '../lib/forms.js';
+  import RiderRow from './RiderRow.svelte';
 
   let {
     model,
@@ -12,13 +13,12 @@
     onexpire,
     onfail,
   }: {
-    model: LauncherForm;
+    model: GameForm;
     csrf: string;
     locked: boolean;
-    onpage: (page: LauncherPage) => void;
+    onpage: (page: GamePageModel) => void;
     onchange: (name: string, value: string) => void;
     onexpire: () => void;
-    /** Takes over showing failures, for forms too small to hold an error (the rider list). */
     onfail?: ((message: string) => void) | undefined;
   } = $props();
 
@@ -134,12 +134,12 @@
         body,
         credentials: 'same-origin',
         redirect: 'error',
-        headers: { Accept: 'application/json', 'X-Launcher-Context': csrf },
+        headers: { Accept: 'application/json', 'X-Game-Context': csrf },
         signal: controller.signal,
       });
 
       // SAFETY: this route's same-origin server wrapper owns the FormResult contract.
-      const result = (await response.json()) as FormResult<LauncherSaved>;
+      const result = (await response.json()) as FormResult<GameSaved>;
 
       if (!alive || controller.signal.aborted || locked) return;
 
@@ -293,13 +293,12 @@
         name={button.name}
         value={button.value}
         formnovalidate={button.skipValidation}
-        >{#if model.rider}<span class="avatar"
-            >{#if model.rider.photo}<img src={model.rider.photo} alt="" />{:else}{model.rider.initials}{/if}</span
-          ><span class="who"
-            ><span>{pending ? 'Submitting…' : button.label}</span>{#if model.rider.email}<small
-                title={model.rider.email}>{model.rider.email}</small
-              >{/if}</span
-          >{:else}{pending ? 'Submitting…' : button.label}{/if}</button
+        >{#if model.rider}<RiderRow
+            initials={model.rider.initials}
+            photo={model.rider.photo}
+            name={pending ? 'Submitting…' : button.label}
+            detail={model.rider.email}
+          />{:else}{pending ? 'Submitting…' : button.label}{/if}</button
       >
     {/each}
   </fieldset>

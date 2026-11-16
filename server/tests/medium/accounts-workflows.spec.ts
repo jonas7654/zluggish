@@ -1,5 +1,5 @@
 import { responseStatus, inputValue } from '#tests/support/html';
-import { createApp } from '#src/http/app';
+import { createGameApp } from '#src/http/app';
 import { migrateAccounts } from '#src/migrations/accounts';
 import { LoginRequestSchema, LoginResponseSchema } from '#src/protocol/generated/login_pb';
 import { TcpConfigSchema } from '#src/protocol/generated/per-session-info_pb';
@@ -18,7 +18,7 @@ import { resolve } from 'node:path';
 import { test } from 'node:test';
 import { z } from 'zod';
 
-function browser(app: ReturnType<typeof createApp>) {
+function browser(app: ReturnType<typeof createGameApp>) {
   // A small cookie jar: the session cookie and per-rider remember cookies live side by side.
   const jar = new Map<string, string>();
   let csrf = '';
@@ -64,10 +64,27 @@ await test('empty game app directs the operator to web setup and cannot register
   const client = browser(f.app);
   const picker = await client.request('/login/');
   assert.equal(picker.status, 200);
-  assert.match(await picker.text(), /complete setup in the web app/);
+  assert.match(
+    await picker.text(),
+    /No riders are available\. Ask the administrator to create a rider in the web app\./,
+  );
 
-  for (const path of ['/riders/add/', '/signup/', '/api/users'])
-    assert.equal(await responseStatus(client.request(path, { method: 'POST' })), 404);
+  const registration = [
+    '/riders/add/',
+    '/signup/',
+    '/launcher/realms/zwift/protocol/openid-connect/registrations',
+    '/auth/realms/zwift/protocol/openid-connect/registrations',
+    '/auth/realms/zwift/tokens/registrations',
+  ];
+
+  for (const path of registration)
+    for (const method of ['GET', 'POST']) {
+      const response = await client.request(path, { method });
+      assert.equal(response.status, 403, `${method} ${path}`);
+      assert.match(await response.text(), /Registration is not available/);
+    }
+
+  assert.equal(await responseStatus(client.request('/api/users', { method: 'POST' })), 403);
   const service = f.services.management;
   await service.setup({
     mode: 'new',
@@ -85,7 +102,7 @@ await test('empty game app directs the operator to web setup and cannot register
 
 await test('choosing a rider asks for the password unless this computer remembers it', async (t) => {
   const f = runtimeFixture(t);
-  const rider = await f.accounts.create('Alex Rider', 'first', true);
+  const rider = await f.accounts.create('Alex Rider', 'first');
   const remembered = `zluggish_remember_${rider.player_id}`;
   const warn = t.mock.method(f.world.lifecycle.log, 'warn', () => {});
   const client = browser(f.app);
@@ -164,7 +181,7 @@ await test('choosing a rider asks for the password unless this computer remember
 
 await test('choosing a rider without a password fails on the rider list', async (t) => {
   const f = runtimeFixture(t);
-  const rider = await f.accounts.create('Legacy Rider', 'test-password', true);
+  const rider = await f.accounts.create('Legacy Rider', 'test-password');
   // Account migration clears legacy password hashes.
   f.accounts.db.prepare('UPDATE user SET pass_hash=NULL WHERE player_id=?').run(rider.player_id);
   const warn = t.mock.method(f.world.lifecycle.log, 'warn', () => {});
@@ -188,8 +205,8 @@ await test('choosing a rider without a password fails on the rider list', async 
 
 await test('distinct riders launch and refresh independently; password change revokes existing tokens', async (t) => {
   const f = runtimeFixture(t);
-  const a = await f.accounts.create('Alex Rider', 'first', true);
-  const b = await f.accounts.create('Alex Rider', 'test-password', false);
+  const a = await f.accounts.create('Alex Rider', 'first');
+  const b = await f.accounts.create('Alex Rider', 'test-password');
   const one = browser(f.app);
   const two = browser(f.app);
 
@@ -239,10 +256,10 @@ await test('folder collisions, failed duplicate username and unsafe names preser
   const f = runtimeFixture(t);
   mkdirSync(resolve(f.accounts.storage, '7'));
 
-  const user = await f.accounts.create('<script>evil</script>', 'test-password', true, 'local@example.test');
+  const user = await f.accounts.create('<script>evil</script>', 'test-password', 'local@example.test');
 
   assert.equal(user.player_id, 8);
-  await assert.rejects(f.accounts.create('Duplicate', 'test-password', false, user.username));
+  await assert.rejects(f.accounts.create('Duplicate', 'test-password', user.username));
   assert.equal(existsSync(resolve(f.accounts.storage, '9')), false);
   const html = await browser(f.app).picker();
   assert.match(html, /&lt;script(?:&gt;|>)/);
@@ -251,7 +268,7 @@ await test('folder collisions, failed duplicate username and unsafe names preser
 
 await test('active riders cannot launch twice or replace their profile', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Active', 'test-password', true);
+  const user = await f.accounts.create('Active', 'test-password');
   f.world.receive(
     BigInt(user.player_id),
     create(PlayerStateSchema, {
@@ -277,7 +294,7 @@ await test('active riders cannot launch twice or replace their profile', async (
 
 await test('profile imports stage, preserve unknown fields, normalize IDs and keep passwords', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Local Rider', 'secret', true);
+  const user = await f.accounts.create('Local Rider', 'secret');
   const imports = new ImportsService(f.accounts, f.world);
 
   const bytes = Buffer.concat([
@@ -307,7 +324,7 @@ await test('profile imports stage, preserve unknown fields, normalize IDs and ke
 await test('native login and HTTP login share one relay owner with protobuf economy', async (t) => {
   const f = runtimeFixture(t);
 
-  const user = await f.accounts.create('Native', 'secret', true, 'native@example.test');
+  const user = await f.accounts.create('Native', 'secret', 'native@example.test');
 
   const tokenResponse = await f.app.request('/auth/realms/zwift/protocol/openid-connect/token', {
     method: 'POST',
@@ -338,7 +355,7 @@ await test('native login and HTTP login share one relay owner with protobuf econ
 
 await test('existing Zluggish database is renamed without losing riders', async (t) => {
   const f = runtimeFixture(t);
-  const rider = await f.accounts.create('Existing Rider', 'test-password', true);
+  const rider = await f.accounts.create('Existing Rider', 'test-password');
   f.accounts.close();
   const current = resolve(f.accounts.storage, 'zluggish.db');
   const legacy = resolve(f.accounts.storage, 'zwift-offline.db');
@@ -354,7 +371,7 @@ await test('existing Zluggish database is renamed without losing riders', async 
 
 await test('account migration publishes the renamed database and preserves riders', async (t) => {
   const f = runtimeFixture(t);
-  const rider = await f.accounts.create('Migrated Rider', 'test-password', true);
+  const rider = await f.accounts.create('Migrated Rider', 'test-password');
   const oldScrypt = await f.accounts.create('Scrypt Rider', 'test-password');
   const currentRider = await f.accounts.create('Current Rider', 'current-password');
   const currentHash = currentRider.pass_hash;
@@ -403,10 +420,10 @@ await test('account migration publishes the renamed database and preserves rider
 
 await test('login and both TCP config endpoints advertise configured ports', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Port Rider', 'test-password', true);
+  const user = await f.accounts.create('Port Rider', 'test-password');
 
   for (const port of [f.config.network.tcp.port, 4025]) {
-    const app = createApp(
+    const app = createGameApp(
       { gameInfo: '{}', gameInfoHash: '0', variants: '{}' },
       {
         ...f,

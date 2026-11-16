@@ -100,7 +100,7 @@ for (const javaScriptEnabled of [true, false]) {
 
 await test('preferences keep drafts on failures, block double submits and lock on session expiry', async (t) => {
   const f = await browserFixture(t);
-  const rider = await f.accounts.create('Preferences Rider', 'test-password', true);
+  const rider = await f.accounts.create('Preferences Rider', 'test-password');
   f.settings.save(rider.player_id, { 'uploads.strava.method': 'free' });
   const context = await f.browser.newContext();
   const page = await context.newPage();
@@ -155,7 +155,7 @@ await test('preferences keep drafts on failures, block double submits and lock o
 
 await test('connections preserve blank saved secrets and show conditional fields and Garmin MFA', async (t) => {
   const f = await browserFixture(t);
-  const rider = await f.accounts.create('Connected Rider', 'test-password', true);
+  const rider = await f.accounts.create('Connected Rider', 'test-password');
   const context = await f.browser.newContext();
   const page = await context.newPage();
   await signIn(page, f.origin, rider.player_id);
@@ -185,7 +185,7 @@ await test('connections preserve blank saved secrets and show conditional fields
 
 await test('import review requires source confirmation and cancel bypasses validation', async (t) => {
   const f = await browserFixture(t);
-  const rider = await f.accounts.create('Import Rider', 'test-password', true);
+  const rider = await f.accounts.create('Import Rider', 'test-password');
   f.accounts.repository.updateImportedProfile(rider.player_id, 'Import', 'Rider', 123);
   const context = await f.browser.newContext();
   const page = await context.newPage();
@@ -220,7 +220,7 @@ await test('import review requires source confirmation and cancel bypasses valid
 
 await test('upload polling pauses while hidden and stops when all jobs are terminal', async (t) => {
   const f = await browserFixture(t);
-  const rider = await f.accounts.create('Uploading Rider', 'test-password', true);
+  const rider = await f.accounts.create('Uploading Rider', 'test-password');
   let terminal = false;
 
   const status = t.mock.method(f.services.uploads, 'status', () => [
@@ -257,7 +257,7 @@ await test('upload polling pauses while hidden and stops when all jobs are termi
 
 await test('a rider switch discards drafts and ignores a late save response', async (t) => {
   const f = await browserFixture(t);
-  const rider = await f.accounts.create('First Rider', 'test-password', true);
+  const rider = await f.accounts.create('First Rider', 'test-password');
   const other = await f.accounts.create('Second Rider', 'test-password');
   const context = await f.browser.newContext();
   const page = await context.newPage();
@@ -288,7 +288,7 @@ await test('a rider switch discards drafts and ignores a late save response', as
 
 await test('plain forms save settings and connections, review imports and change passwords', async (t) => {
   const f = await browserFixture(t);
-  const rider = await f.accounts.create('Plain Rider', 'test-password', true);
+  const rider = await f.accounts.create('Plain Rider', 'test-password');
   t.mock.method(f.services.workouts, 'syncWorkoutsAutomatically', () => Promise.resolve());
   const context = await f.browser.newContext({ javaScriptEnabled: false });
   const page = await context.newPage();

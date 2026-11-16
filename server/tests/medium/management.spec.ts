@@ -7,7 +7,7 @@ import { createWebApp } from '#src/http/web-app';
 await test('setup is atomic, permanent, independent of legacy ownership, and does not leak credentials', async (t) => {
   const f = runtimeFixture(t);
   const service = f.services.management;
-  const legacy = await f.accounts.create('Legacy Owner', 'legacy-password', true, 'legacy');
+  const legacy = await f.accounts.create('Legacy Owner', 'legacy-password', 'legacy');
   assert.equal(legacy.role, 'rider');
   assert.equal(service.store.complete(), false);
   const key = service.issueSetupKey()!;
@@ -46,9 +46,7 @@ await test('last administrator, exact confirmation expiry, revisions, retries an
     password: 'test-password',
   });
 
-  const opened = service.sessions.open();
-  opened.session.identity = f.accounts.identityOf(administrator);
-  opened.session.confirmedUntil = Date.now() + 900_000;
+  const opened = service.sessions.create(f.accounts.identityOf(administrator), Date.now() + 900_000);
   const input = { revision: administrator.revision, operation: crypto.randomUUID() };
   await assert.rejects(service.mutate(opened.id, administrator.player_id, 'disable', input), /at least one/);
   await assert.rejects(
@@ -147,12 +145,12 @@ await test('web and game routes and credential stores are isolated; mutations ne
   );
 
   for (const path of ['/riders/add/', '/signup/', '/api/users'])
-    assert.equal(await responseStatus(f.app.request(path, { method: 'POST' })), 404);
+    assert.equal(await responseStatus(f.app.request(path, { method: 'POST' })), 403);
 });
 
 await test('stale asynchronous verification cannot sign in or complete setup', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Existing Rider', 'test-password', false, 'existing');
+  const user = await f.accounts.create('Existing Rider', 'test-password', 'existing');
   const service = f.services.management;
   const original = f.accounts.verify.bind(f.accounts);
   t.mock.method(f.accounts, 'verify', async (...args: Parameters<typeof original>) => {
@@ -187,9 +185,7 @@ await test('disabled native ride only saves its captured activity and final retr
     password: 'test-password',
   });
 
-  const opened = service.sessions.open();
-  opened.session.identity = f.accounts.identityOf(owner);
-  opened.session.confirmedUntil = Date.now() + 900_000;
+  const opened = service.sessions.create(f.accounts.identityOf(owner), Date.now() + 900_000);
   const rider = await f.accounts.create('Connected Rider', 'test-password');
   const token = `Bearer ${f.sessions.tokens(rider, f.tokens).access_token}`;
   const { create, toBinary } = await import('@bufbuild/protobuf');
@@ -324,9 +320,7 @@ await test('world settings and administrator event changes use revisions, audit 
     password: 'test-password',
   });
 
-  const opened = service.sessions.open();
-  opened.session.identity = f.accounts.identityOf(owner);
-  opened.session.confirmedUntil = Date.now() + 900_000;
+  const opened = service.sessions.create(f.accounts.identityOf(owner), Date.now() + 900_000);
   const world = { operation: crypto.randomUUID(), revision: 0, id: `blob:${owner.player_id}`, values: { riders: 3 } };
   const saved = service.saveWorld(opened.id, world);
   assert.equal(saved.revision, 1);
@@ -373,9 +367,7 @@ await test('backup and restore preserve complete setup, audit, operation results
     password: 'test|password',
   });
 
-  const opened = service.sessions.open();
-  opened.session.identity = f.accounts.identityOf(owner);
-  opened.session.confirmedUntil = Date.now() + 900_000;
+  const opened = service.sessions.create(f.accounts.identityOf(owner), Date.now() + 900_000);
   const operation = crypto.randomUUID();
 
   const result = await service.create(

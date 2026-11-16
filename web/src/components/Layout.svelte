@@ -6,12 +6,15 @@
     page,
     back,
     version,
+    actions,
     children,
   }: {
     title: string;
     page: string;
     back?: { href: string; label: string } | undefined;
     version: string;
+    /** Navigation at the end of the bar. The game app has none. */
+    actions?: Snippet | undefined;
     children: Snippet;
   } = $props();
 </script>
@@ -21,6 +24,7 @@
   <span class="logo" aria-hidden="true"></span>
   <span class="wordmark">zluggish</span>
   <span class="version">v{version}</span>
+  {#if actions}{@render actions()}{/if}
 </div>
 <main data-page={page}>
   <header>

@@ -266,8 +266,6 @@ Use Zluggish only on a network that you trust. Other devices on the network can 
 3. Open **Manage**. Create the other riders with passwords.
 4. Start Zwift. Select your rider in the game app and sign in.
 
-See [web app access and account management](docs/web-app.md), [upgrades](docs/upgrade.md), and [recovery](docs/recovery.md).
-
 | Port | Protocol | Use                             |
 | ---- | -------- | ------------------------------- |
 | 80   | HTTP     | Zwift CDN only                  |

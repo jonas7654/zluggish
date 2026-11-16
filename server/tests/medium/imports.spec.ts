@@ -1,4 +1,4 @@
-import { createApp } from '#src/http/app';
+import { createGameApp } from '#src/http/app';
 import { LoginResponseSchema } from '#src/protocol/generated/login_pb';
 import { AchievementsSchema, PlayerProfileSchema, StreaksSchema } from '#src/protocol/generated/profile_pb';
 import { UserStorageSchema } from '#src/protocol/generated/user_storage_pb';
@@ -164,7 +164,7 @@ await test('F12 app reconstruction removes a stage whose restore already committ
   f.services.documents.put(f.rider.player_id, 'streaks.bin', incoming);
   f.accounts.db.prepare('INSERT INTO rider_import (stage, player_id) VALUES (?, ?)').run(stage, f.rider.player_id);
   f.accounts.db.exec('COMMIT');
-  const restarted = createApp({ gameInfo: '{}', gameInfoHash: '0', variants: '{}' }, f);
+  const restarted = createGameApp({ gameInfo: '{}', gameInfoHash: '0', variants: '{}' }, f);
   const response = await restarted.request('/api/fitness/streaks', { headers: f.headers() });
   assert.equal(response.status, 200);
   assert.equal(fromBinary(StreaksSchema, new Uint8Array(await response.arrayBuffer())).curStreak, 99);

@@ -1,16 +1,16 @@
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import { z } from 'zod';
 import { ApplicationError } from '#src/errors';
 import { credentials, password, newRider } from '#src/dtos/management.dto';
 import type { HttpRuntime } from '#src/http/runtime';
-import type { WebSession } from '#src/services/web-session.service';
 import { peerAddress } from '#src/http/routes/accounts';
 import { resolve } from 'node:path';
-import { packageRoot } from '#src/config/load';
+import { packageRoot, packageVersion } from '#src/config/load';
 
-type WebEnv = { Variables: { sessionId: string; session: WebSession } };
+type WebEnv = { Variables: { sessionId: string; csrf: string } };
 
 export function createWebApp(runtime: HttpRuntime) {
   const app = new Hono<WebEnv>();
@@ -18,6 +18,23 @@ export function createWebApp(runtime: HttpRuntime) {
   const { sessions } = management;
   const attempts = new Map<string, { count: number; until: number }>();
   const cookie = 'zluggish_web_session';
+  const csrfCookie = 'zluggish_web_csrf';
+
+  const cookieOptions = (c: Context<WebEnv>) => ({
+    httpOnly: true,
+    sameSite: 'Lax' as const,
+    path: '/',
+    secure: new URL(c.req.url).protocol === 'https:',
+    maxAge: 86_400,
+  });
+
+  // A pre-authentication request fails if the caller's session changed while the password work ran.
+  const unchanged = (c: Context<WebEnv>) => {
+    const id = c.get('sessionId');
+    const before = id ? sessions.sessions.get(id) : undefined;
+
+    return () => !id || sessions.sessions.get(id) === before;
+  };
 
   app.use('*', bodyLimit({ maxSize: 64 * 1024 }));
   app.use('*', async (c, next) => {
@@ -34,19 +51,21 @@ export function createWebApp(runtime: HttpRuntime) {
   });
   app.use('/api/*', async (c, next) => {
     // This listener accepts only its own opaque session store. Bearer tokens are never used.
-    const opened = sessions.open(getCookie(c, cookie));
-    c.set('sessionId', opened.id);
-    c.set('session', opened.session);
-    setCookie(c, cookie, opened.id, {
-      httpOnly: true,
-      sameSite: 'Lax',
-      path: '/',
-      secure: new URL(c.req.url).protocol === 'https:',
-      maxAge: 86_400,
-    });
+    const id = getCookie(c, cookie);
+    const session = sessions.find(id);
+    let token = session?.csrf ?? getCookie(c, csrfCookie);
+
+    // Anonymous requests get a double-submit token and allocate nothing on the server.
+    if (!session && !/^[\w-]{43}$/.test(token ?? '')) {
+      token = sessions.token();
+      setCookie(c, csrfCookie, token, cookieOptions(c));
+    }
+
+    c.set('sessionId', session ? id! : '');
+    c.set('csrf', token!);
 
     if (!['GET', 'HEAD'].includes(c.req.method)) {
-      if (c.req.header('Origin') !== new URL(c.req.url).origin || c.req.header('X-CSRF-Token') !== opened.session.csrf)
+      if (c.req.header('Origin') !== new URL(c.req.url).origin || c.req.header('X-CSRF-Token') !== c.get('csrf'))
         throw new ApplicationError(403, 'Reload the page and retry.');
 
       if (!c.req.header('Content-Type')?.startsWith('application/json'))
@@ -68,41 +87,28 @@ export function createWebApp(runtime: HttpRuntime) {
     await next();
   });
 
-  function login(
-    c: import('hono').Context<WebEnv>,
-    rider: NonNullable<ReturnType<typeof accounts.get>>,
-    confirmed = false,
-  ) {
+  function login(c: Context<WebEnv>, rider: NonNullable<ReturnType<typeof accounts.get>>, confirmed = false) {
     sessions.end(c.get('sessionId'));
-    const fresh = sessions.open();
-    fresh.session.identity = accounts.identityOf(rider);
-    fresh.session.confirmedUntil = confirmed ? Date.now() + 900_000 : 0;
-    setCookie(c, cookie, fresh.id, {
-      httpOnly: true,
-      sameSite: 'Lax',
-      path: '/',
-      secure: new URL(c.req.url).protocol === 'https:',
-      maxAge: 86_400,
-    });
+    const fresh = sessions.create(accounts.identityOf(rider), confirmed ? Date.now() + 900_000 : 0);
+    setCookie(c, cookie, fresh.id, cookieOptions(c));
 
     return c.json({ rider: management.publicRider(rider), csrf: fresh.session.csrf });
   }
 
-  app.get('/api/setup', (c) => c.json({ complete: management.store.complete(), csrf: c.get('session').csrf }));
+  app.get('/api/setup', (c) =>
+    c.json({ complete: management.store.complete(), csrf: c.get('csrf'), version: packageVersion() }),
+  );
   app.post('/api/setup', async (c) => {
-    const id = c.get('sessionId');
-    const session = c.get('session');
-    const rider = await management.setup(await c.req.json(), () => sessions.sessions.get(id) === session);
+    const rider = await management.setup(await c.req.json(), unchanged(c));
 
     return login(c, rider, true);
   });
   app.post('/api/session', async (c) => {
     const input = credentials.parse(await c.req.json());
-    const id = c.get('sessionId');
-    const session = c.get('session');
+    const live = unchanged(c);
     const rider = await management.signIn(input.username, input.password);
 
-    if (sessions.sessions.get(id) !== session) throw new ApplicationError(401, 'Session changed.');
+    if (!live()) throw new ApplicationError(401, 'Session changed.');
 
     return login(c, rider);
   });
@@ -113,13 +119,13 @@ export function createWebApp(runtime: HttpRuntime) {
     return c.json({ ok: true });
   });
   app.get('/api/me', (c) =>
-    c.json({ rider: management.publicRider(sessions.require(c.get('sessionId'))), csrf: c.get('session').csrf }),
+    c.json({ rider: management.publicRider(sessions.require(c.get('sessionId'))), csrf: c.get('csrf') }),
   );
   app.post('/api/session/confirm', async (c) => {
     const input = z.strictObject({ password }).parse(await c.req.json());
     await management.confirm(c.get('sessionId'), input.password);
 
-    return c.json({ confirmedUntil: c.get('session').confirmedUntil });
+    return c.json({ confirmedUntil: sessions.find(c.get('sessionId'))!.confirmedUntil });
   });
   app.post('/api/me/password', async (c) => {
     const input = z.strictObject({ current_password: password, password }).parse(await c.req.json());
@@ -195,8 +201,10 @@ export function createWebApp(runtime: HttpRuntime) {
   );
   app.get('/api/manage/settings', (c) =>
     c.json({
-      network: runtime.config.network,
-      riderDefaults: runtime.config.riderDefaults,
+      configuration: management.configuration({
+        network: runtime.config.network,
+        riderDefaults: runtime.config.riderDefaults,
+      }),
       worldSettings: management.worldSettings(),
       readOnly: true,
       reason:
@@ -204,22 +212,18 @@ export function createWebApp(runtime: HttpRuntime) {
     }),
   );
 
-  for (const action of ['restart', 'cancel-restart', 'reload-bots'])
-    app.post(`/api/manage/server/${action}`, async (c) => {
-      const input = z.strictObject({ operation: z.string().uuid() }).parse(await c.req.json());
-
-      return c.json(
-        await management.serverOperation(
-          c.get('sessionId'),
-          action,
-          input.operation,
-          () => durability.flush(),
-          async () => {
+  for (const action of ['restart', 'cancel-restart', 'reload-bots', 'bots'])
+    app.post(`/api/manage/server/${action}`, async (c) =>
+      c.json(
+        await management.serverOperation(c.get('sessionId'), action, await c.req.json(), () => durability.flush(), {
+          reload: async () => {
             await runtime.world.simulation?.reload();
           },
-        ),
-      );
-    });
+          bots: (rider, command) =>
+            runtime.world.simulation?.command(BigInt(rider), command, true) ?? 'Bots are not running.',
+        }),
+      ),
+    );
 
   app.patch('/api/manage/settings', async (c) => c.json(management.saveWorld(c.get('sessionId'), await c.req.json())));
   app.get('/api/manage/events', (c) => c.json({ events: management.events() }));

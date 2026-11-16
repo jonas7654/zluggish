@@ -1,5 +1,5 @@
-import { field, form as makeForm, model, secret } from '#src/http/launcher/models';
-import { launcherPage } from '#src/http/launcher/render';
+import { field, form as makeForm, model, secret } from '#src/http/game/models';
+import { gamePage } from '#src/http/game/render';
 import { authenticated, csrf } from '#src/http/routes/accounts';
 import type { HttpRuntime as Runtime, RuntimeEnv } from '#src/http/runtime';
 import type { Hono } from 'hono';
@@ -89,7 +89,7 @@ export function workoutRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
     const credentials = connections.read(user.player_id, 'intervals');
 
-    return launcherPage(
+    return gamePage(
       c,
       runtime,
       model(
@@ -127,7 +127,7 @@ export function workoutRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       runtime.services.settings.read(user.player_id)['workouts.trainingpeaks.bridgeFolder'] ??
       runtime.config.riderDefaults.workouts.trainingpeaks.bridgeFolder;
 
-    return launcherPage(
+    return gamePage(
       c,
       runtime,
       model(
@@ -179,7 +179,7 @@ export function workoutRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     )
       throw new HTTPException(401);
 
-    return launcherPage(
+    return gamePage(
       c,
       runtime,
       model(c, 'message', 'Workout sync', [], {

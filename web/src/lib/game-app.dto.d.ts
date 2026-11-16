@@ -1,4 +1,4 @@
-export interface LauncherField {
+export interface GameField {
   name: string;
   label: string;
   type?: 'text' | 'password' | 'checkbox' | 'hidden' | 'file' | 'select';
@@ -14,11 +14,11 @@ export interface LauncherField {
   options?: { value: string; label: string }[];
 }
 
-export interface LauncherForm {
+export interface GameForm {
   id: string;
   action: string;
   title?: string;
-  fields: LauncherField[];
+  fields: GameField[];
   buttons: { label: string; name?: string; value?: string; skipValidation?: boolean }[];
   navigation?: boolean;
   multipart?: boolean;
@@ -38,7 +38,7 @@ export interface UploadJob {
   state: string;
 }
 
-export interface LauncherPage {
+export interface GamePageModel {
   kind:
     | 'login'
     | 'unlock'
@@ -56,7 +56,7 @@ export interface LauncherPage {
   csrf: string;
   /** The server's release version, shown in the top bar. */
   version: string;
-  forms: LauncherForm[];
+  forms: GameForm[];
   links?: { href: string; label: string }[];
   /** Shown as a back button beside the title; it navigates and never signs out. */
   back?: { href: string; label: string };
@@ -72,6 +72,6 @@ export type FormResult<T> =
   | { ok: true; data: T; message?: string; redirectTo?: string }
   | { ok: false; message: string; fieldErrors?: Record<string, string[]>; reload?: boolean };
 
-export interface LauncherSaved {
-  page?: LauncherPage;
+export interface GameSaved {
+  page?: GamePageModel;
 }

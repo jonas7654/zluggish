@@ -24,6 +24,11 @@ export const riderSchema = z.object({
 
 export type Rider = z.infer<typeof riderSchema>;
 
+/** Who changed a password, for the audit history. */
+export type PasswordActor = { kind: 'offline operator' } | { kind: 'rider'; playerId: number };
+
+const offlineOperator: PasswordActor = { kind: 'offline operator' };
+
 export class AccountsRepository {
   private readonly executor: SqliteExecutor;
 
@@ -65,30 +70,31 @@ export class AccountsRepository {
     return row ? riderSchema.parse(row) : null;
   }
 
+  /** SQLite lower() folds only ASCII, so imported names compare in JavaScript after
+  normalizeLoginName. Two imported names that normalize alike match only exactly.
+  */
   byUsername(username: string): Rider | null {
-    const row = this.executor.get(this.selection().where(sql`lower(username)`, '=', normalizeLoginName(username)));
+    const exact = this.executor.get(this.selection().where('username', '=', username));
 
-    return row ? riderSchema.parse(row) : null;
+    if (exact) return riderSchema.parse(exact);
+    const matches = this.sameLoginName(username);
+
+    return matches.length === 1 ? matches[0]! : null;
   }
 
-  setupComplete() {
-    const row = this.executor.get(query.selectFrom('account_state').select('setup_complete').where('id', '=', 1));
+  /** Every rider whose login name normalizes to the same value. */
+  sameLoginName(username: string) {
+    const wanted = normalizeLoginName(username);
 
-    if (!row) throw new Error('Missing account setup state');
-
-    return row.setup_complete !== 0;
+    return this.list().filter((rider) => normalizeLoginName(rider.username) === wanted);
   }
 
   insert(rider: Insertable<Database['user']>) {
     return this.executor.run(query.insertInto('user').values(rider));
   }
 
-  finishSetup() {
-    this.executor.run(query.updateTable('account_state').set({ setup_complete: 1 }).where('id', '=', 1));
-  }
-
   // Offline recovery preserves disabled state unless administrator access is requested.
-  setPassword(id: number, hash: string | null, admin: boolean) {
+  setPassword(id: number, hash: string | null, admin: boolean, actor: PasswordActor = offlineOperator) {
     if (!hash) throw new Error('A password is required');
     atomic(this.db, () => {
       this.executor.run(
@@ -112,11 +118,11 @@ export class AccountsRepository {
       if (admin) this.executor.run(query.updateTable('web_setup_state').set({ state: 'complete' }).where('id', '=', 1));
       this.executor.run(
         query.insertInto('management_audit').values({
-          actor_kind: 'offline operator',
-          actor_player_id: null,
+          actor_kind: actor.kind,
+          actor_player_id: actor.kind === 'rider' ? actor.playerId : null,
           target_kind: 'rider',
           target_id: String(id),
-          action: admin ? 'recover-administrator' : 'recover-password',
+          action: actor.kind === 'rider' ? 'change-own-password' : admin ? 'recover-administrator' : 'recover-password',
           timestamp: Date.now(),
           operation_id: null,
           reason: '',

@@ -9,6 +9,7 @@ import {
   newRider,
   setupRequest,
   mutationRequest,
+  serverRequest,
 } from '#src/dtos/management.dto';
 import { UploadsService } from '#src/services/uploads.service';
 import { SocialService } from '#src/services/social.service';
@@ -84,7 +85,8 @@ export class ManagementService extends BaseService {
   }
 
   private insert(input: z.infer<typeof newRider>, hash: string) {
-    if (this.context.accounts.byUsername(input.username)) throw new ApplicationError(409, 'Login name already exists.');
+    if (this.context.accounts.loginNameTaken(input.username))
+      throw new ApplicationError(409, 'Login name already exists.');
 
     const occupied = [
       ...this.context.accounts.list().map((r) => r.player_id),
@@ -347,9 +349,10 @@ export class ManagementService extends BaseService {
         throw new ApplicationError(409, 'Disconnect the rider before changing names.');
 
       if (target.revision !== input.revision) throw new ApplicationError(409, 'Rider changed. Review the new data.');
-      const duplicate = this.context.accounts.byUsername(input.username);
 
-      if (duplicate && duplicate.player_id !== player) throw new ApplicationError(409, 'Login name already exists.');
+      if (this.context.accounts.loginNameTaken(input.username, player))
+        throw new ApplicationError(409, 'Login name already exists.');
+
       const profile = this.context.profiles.get(player);
       profile.firstName = input.first_name;
       profile.lastName = input.last_name;
@@ -406,27 +409,50 @@ export class ManagementService extends BaseService {
   async serverOperation(
     id: string,
     action: string,
-    operation: string,
+    raw: z.input<typeof serverRequest>,
     flush: () => Promise<void>,
-    reload: () => Promise<void>,
+    dispatch: { reload: () => Promise<void>; bots: (rider: number, command: string) => string },
   ) {
-    const actor = this.sessions.require(id, true);
-    const prior = this.store.operation(actor.player_id, operation);
+    const input = serverRequest.parse(raw);
 
-    if (prior) {
-      if (prior.action !== action) throw new ApplicationError(409, 'Operation changed.');
+    if (action === 'bots' && (!input.rider || !input.command))
+      throw new ApplicationError(400, 'Choose a rider and a bot command.');
+    const fingerprint = this.fingerprint({ action, input });
 
-      return { status: prior.status, result: prior.result ? JSON.parse(prior.result) : null };
-    }
+    // The retry check and the intent share one transaction, so a duplicate request never dispatches twice.
+    const { actor, prior } = this.store.transaction(() => {
+      const actor = this.sessions.require(id, true);
+      const prior = this.store.operation(actor.player_id, input.operation);
 
-    this.store.transaction(() => {
-      this.sessions.require(id, true);
-      this.store.intent(actor.player_id, operation, action);
-      this.store.audit(actor.player_id, 'server', action + '-start', operation, null, null, 'rider', 'server');
+      if (prior) {
+        if (prior.action !== action || prior.fingerprint !== fingerprint)
+          throw new ApplicationError(409, 'Operation changed.');
+
+        return { actor, prior };
+      }
+
+      if (action === 'bots' && !this.context.world.active(input.rider!))
+        throw new ApplicationError(409, 'The rider must be riding now.');
+      this.store.intent(actor.player_id, input.operation, action, fingerprint);
+      this.store.audit(actor.player_id, 'server', action + '-start', input.operation, null, input, 'rider', 'server');
+
+      return { actor, prior: null };
     });
+
+    if (prior) return this.outcome(prior.status, prior.result ? JSON.parse(prior.result) : null);
     await flush();
-    this.sessions.require(id, true);
-    let result: boolean | { error: string };
+    let result: AuditValue;
+
+    try {
+      this.sessions.require(id, true);
+    } catch (error) {
+      // A known result: the operation did not run. A retry returns it and never dispatches.
+      this.finishServerOperation(actor.player_id, action, input.operation, {
+        error: 'The operation did not run. Confirm your password and start it again.',
+      });
+
+      throw error;
+    }
 
     try {
       switch (action) {
@@ -441,8 +467,13 @@ export class ManagementService extends BaseService {
         }
 
         case 'reload-bots': {
-          await reload();
+          await dispatch.reload();
           result = true;
+          break;
+        }
+
+        case 'bots': {
+          result = dispatch.bots(input.rider!, [input.command, input.argument].filter(Boolean).join(' '));
           break;
         }
 
@@ -454,12 +485,42 @@ export class ManagementService extends BaseService {
       result = { error: 'Operation failed.' };
     }
 
-    this.store.transaction(() => {
-      this.store.finishOperation(actor.player_id, operation, result);
-      this.store.audit(actor.player_id, 'server', action + '-result', operation, null, result, 'rider', 'server');
-    });
+    this.finishServerOperation(actor.player_id, action, input.operation, result);
 
-    return { status: 'complete', result };
+    return this.outcome('complete', result);
+  }
+
+  /** The browser gets a parsed outcome: a failure message, a bot reply, or plain success. */
+  private outcome(status: string, result: AuditValue) {
+    if (status !== 'complete')
+      return { status, ok: false, message: 'The result is unknown. Check the server log before you start it again.' };
+    const failure = z.object({ error: z.string() }).safeParse(result);
+
+    if (failure.success) return { status, ok: false, message: failure.data.error };
+    const reply = z.string().safeParse(result);
+
+    return { status, ok: true, message: reply.success ? reply.data : result === false ? 'Nothing to change.' : null };
+  }
+
+  /** Operator configuration as read-only rows. The browser never receives secrets: paths only. */
+  configuration(value: AuditValue, prefix = ''): [string, string][] {
+    const object = z.record(z.string(), z.json()).safeParse(value);
+
+    if (object.success && !Array.isArray(value))
+      return Object.entries(object.data).flatMap(([key, item]) =>
+        this.configuration(item, prefix ? `${prefix}.${key}` : key),
+      );
+
+    const list = z.array(z.json()).safeParse(value);
+
+    return [[prefix, list.success ? list.data.join(', ') : String(value ?? '')]];
+  }
+
+  private finishServerOperation(actor: number, action: string, operation: string, result: AuditValue) {
+    this.store.transaction(() => {
+      this.store.finishOperation(actor, operation, result);
+      this.store.audit(actor, 'server', action + '-result', operation, null, result, 'rider', 'server');
+    });
   }
 
   events() {

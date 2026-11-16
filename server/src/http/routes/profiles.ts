@@ -1,6 +1,6 @@
-import { checkbox, field, form as makeForm, hidden, model } from '#src/http/launcher/models';
-import { launcherPage } from '#src/http/launcher/render';
-import { launcherRedirect } from '#src/http/launcher/results';
+import { checkbox, field, form as makeForm, hidden, model } from '#src/http/game/models';
+import { gamePage } from '#src/http/game/render';
+import { gameRedirect } from '#src/http/game/results';
 import { profileUpdateSchema } from '#src/dtos/profiles.dto';
 import { importFilenameSchema } from '#src/dtos/profile-import.dto';
 import { parseProtobuf } from '#src/http/protobuf';
@@ -50,10 +50,10 @@ export function profileRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
       runtime.services.sessions.transition(browser, { type: 'stage-import', stage });
 
-      return launcherRedirect(c, `/profile/${rider.username}/confirm/`);
+      return gameRedirect(c, `/profile/${rider.username}/confirm/`);
     }
 
-    return launcherPage(
+    return gamePage(
       c,
       runtime,
       model(
@@ -84,7 +84,7 @@ export function profileRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     const rider = authenticated(c);
     const stage = c.get('browser').pendingImport;
 
-    if (!stage) return launcherRedirect(c, `/profile/${rider.username}/`);
+    if (!stage) return gameRedirect(c, `/profile/${rider.username}/`);
     const manifest = imports.inspect(rider, stage);
 
     const duplicate =
@@ -117,10 +117,10 @@ export function profileRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
       runtime.services.sessions.transition(c.get('browser'), { type: 'finish-import' });
 
-      return launcherRedirect(c, `/user/${rider.username}/`);
+      return gameRedirect(c, `/user/${rider.username}/`);
     }
 
-    return launcherPage(
+    return gamePage(
       c,
       runtime,
       model(

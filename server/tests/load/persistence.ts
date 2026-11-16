@@ -4,7 +4,7 @@
 import { createServices } from '#src/composition';
 import { validateConfig } from '#src/config/index';
 import { packageRoot } from '#src/config/load';
-import { createApp } from '#src/http/app';
+import { createGameApp } from '#src/http/app';
 import {
   ActivityMediaSaveRequestSchema,
   ActivityMediaSaveResultSchema,
@@ -157,7 +157,7 @@ const context = {
 };
 
 const runtime = Object.assign(context, { services: createServices(context) });
-const app = createApp({ gameInfo: '{}', gameInfoHash: '0', variants: '{}' }, runtime);
+const app = createGameApp({ gameInfo: '{}', gameInfoHash: '0', variants: '{}' }, runtime);
 const providerCalls = { started: 0, finished: 0 };
 
 mock.method(globalThis, 'fetch', async () => {
@@ -180,7 +180,7 @@ type LoadRider = { id: bigint; activity: number; auth: string; tick: number; rid
 const fleet: LoadRider[] = [];
 
 for (let index = 0; index < riders; index++) {
-  const rider = await accounts.create(`Load Rider ${index}`, '', index === 0);
+  const rider = await accounts.create(`Load Rider ${index}`, '');
   const id = BigInt(rider.player_id);
   runtime.services.settings.save(rider.player_id, { 'ghosts.enabled': true });
   runtime.services.connections.save(rider.player_id, 'intervals', ['1', 'key']);

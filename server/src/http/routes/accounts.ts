@@ -1,6 +1,6 @@
-import { checkbox, field, form as makeForm, hidden, model } from '#src/http/launcher/models';
-import { launcherPage } from '#src/http/launcher/render';
-import { browserJson, launcherRedirect } from '#src/http/launcher/results';
+import { checkbox, field, form as makeForm, hidden, model } from '#src/http/game/models';
+import { gamePage } from '#src/http/game/render';
+import { browserJson, gameRedirect } from '#src/http/game/results';
 import { climbSchema } from '#src/dtos/accounts.dto';
 import type { HttpRuntime as Runtime, RuntimeEnv } from '#src/http/runtime';
 import type { Rider } from '#src/repositories/accounts.repository';
@@ -137,7 +137,7 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     if (authorization && !c.get('rider')) throw new HTTPException(401);
 
     if (browserPage || browserJson(c)) c.header('Cache-Control', 'no-store');
-    const context = c.req.header('X-Launcher-Context');
+    const context = c.req.header('X-Game-Context');
 
     if (browserJson(c) && context && context !== c.get('browser').csrf)
       throw new HTTPException(c.get('rider') ? 409 : 401, {
@@ -146,8 +146,32 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     await next();
   });
 
-  app.get('/', (c) => launcherRedirect(c, '/login/'));
-  app.on(['GET', 'POST'], '/signup/', (c) => c.notFound());
+  app.get('/', (c) => gameRedirect(c, '/login/'));
+  // Only an administrator creates riders, in the web app. Every old registration path says so.
+  app.on(
+    ['GET', 'POST'],
+    [
+      '/signup/',
+      '/riders/add/',
+      '/launcher/realms/zwift/protocol/openid-connect/registrations',
+      '/auth/realms/zwift/protocol/openid-connect/registrations',
+      '/auth/realms/zwift/tokens/registrations',
+    ],
+    (c) => {
+      c.status(403);
+
+      return gamePage(
+        c,
+        runtime,
+        model(c, 'message', 'Registration is not available', [], {
+          message: 'Registration is not available. Ask the administrator to create a rider in the web app.',
+          failed: true,
+          errorStatus: 403,
+          back: { href: '/login/', label: 'Choose a rider' },
+        }),
+      );
+    },
+  );
 
   // The rider list; an error shows above it.
   function loginPage(c: Context<RuntimeEnv>, error = '') {
@@ -179,7 +203,11 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
           ),
         ),
       {
-        message: error || (accounts.list().length === 0 ? 'Ask the operator to complete setup in the web app.' : ''),
+        message:
+          error ||
+          (accounts.list().some((user) => user.enabled)
+            ? ''
+            : 'No riders are available. Ask the administrator to create a rider in the web app.'),
         failed: !!error,
       },
     );
@@ -214,14 +242,14 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
           { playerId: user.player_id },
         );
 
-        return launcherPage(c, runtime, loginPage(c, 'Login failed.'));
+        return gamePage(c, runtime, loginPage(c, 'Login failed.'));
       }
 
       if (user && !step) {
         // Choosing a rider signs in at once when this computer remembers them; otherwise it opens their password step.
         signedIn = sessions.remembered(getCookie(c, rememberCookie(user.player_id)) ?? '', user.player_id);
 
-        if (!signedIn) return launcherPage(c, runtime, unlockPage(c, user));
+        if (!signedIn) return gamePage(c, runtime, unlockPage(c, user));
       } else if (user && (await accounts.verify(user, password))) signedIn = user;
 
       if (signedIn) {
@@ -258,7 +286,7 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
           flow: 'browser',
         });
 
-        return launcherRedirect(c, `/user/${encodeURIComponent(user.username)}/`);
+        return gameRedirect(c, `/user/${encodeURIComponent(user.username)}/`);
       }
 
       if (user && step) {
@@ -268,24 +296,22 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
           { playerId: user.player_id, flow: 'browser' },
         );
 
-        return launcherPage(c, runtime, unlockPage(c, user, 'Wrong password. Try again.'));
+        return gamePage(c, runtime, unlockPage(c, user, 'Wrong password. Try again.'));
       }
 
       runtime.world.lifecycle.log.warn('auth.login_failed', 'Login failed: unknown rider', { flow: 'browser' });
       error = 'That rider no longer exists. Choose another rider.';
     }
 
-    return launcherPage(c, runtime, loginPage(c, error));
+    return gamePage(c, runtime, loginPage(c, error));
   });
-
-  app.on(['GET', 'POST'], '/riders/add/', (c) => c.notFound());
 
   app.post('/riders/switch/', async (c) => {
     await csrf(c, runtime);
     sessions.end(c.get('browserId'));
     deleteCookie(c, 'zluggish_session', { path: '/' });
 
-    return launcherRedirect(c, '/login/');
+    return gameRedirect(c, '/login/');
   });
 
   app.on(['GET', 'POST'], '/user/:username/', async (c) => {
@@ -298,7 +324,7 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
         throw new HTTPException(400, { message: 'Confirm retrying uploads with an unknown result first.' });
       void runtime.services.uploads.retry(user.player_id, form.ambiguous === '1');
 
-      return launcherPage(
+      return gamePage(
         c,
         runtime,
         model(c, 'message', 'Activity uploads', [], {
@@ -320,7 +346,7 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       runtime.services.settings.read(user.player_id),
     );
 
-    return launcherPage(
+    return gamePage(
       c,
       runtime,
       model(
@@ -422,13 +448,14 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
         () =>
           !!accounts.identity(accounts.identityOf(user)) &&
           (!c.get('browserId') || sessions.current(c.get('browserId'), c.get('browser'), accounts.identityOf(user))),
+        { kind: 'rider', playerId: user.player_id },
       );
       sessions.end(c.get('browserId'));
 
-      return launcherRedirect(c, '/login/');
+      return gameRedirect(c, '/login/');
     }
 
-    return launcherPage(
+    return gamePage(
       c,
       runtime,
       model(
@@ -493,13 +520,10 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     '/launcher',
     '/launcher/ride',
     '/launcher/realms/zwift/protocol/openid-connect/auth',
-    '/launcher/realms/zwift/protocol/openid-connect/registrations',
     '/auth/realms/zwift/protocol/openid-connect/auth',
     '/auth/realms/zwift/login-actions/request/login',
-    '/auth/realms/zwift/protocol/openid-connect/registrations',
     '/auth/realms/zwift/login-actions/startriding',
     '/auth/realms/zwift/tokens/login',
-    '/auth/realms/zwift/tokens/registrations',
     '/ride',
   ];
 
@@ -578,7 +602,7 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     return c.json(result);
   });
 
-  app.post('/api/users', (c) => c.notFound());
+  app.post('/api/users', (c) => c.text('Registration is not available', 403));
   app.post('/api/users/password-reset/', async (c) => {
     const user = authenticated(c);
 
@@ -597,6 +621,7 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       () =>
         !!accounts.identity(accounts.identityOf(user)) &&
         (!c.get('browserId') || sessions.current(c.get('browserId'), c.get('browser'), accounts.identityOf(user))),
+      { kind: 'rider', playerId: user.player_id },
     );
     sessions.end(c.get('browserId'));
 

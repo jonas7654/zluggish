@@ -1,6 +1,6 @@
 import { ConfigError } from '#src/config/index';
 import { Repositories } from '#src/repositories';
-import type { Rider } from '#src/repositories/accounts.repository';
+import type { PasswordActor, Rider } from '#src/repositories/accounts.repository';
 import { AccountsRepository } from '#src/repositories/accounts.repository';
 import { BaseService } from '#src/services/base.service';
 import { resolve } from 'node:path';
@@ -31,11 +31,12 @@ export class AccountsService extends BaseService {
     return this.repository.byUsername(username);
   }
 
-  // Setup is one-way: first owner creation commits its marker in the same account transaction.
-  setupComplete() {
-    return this.repository.setupComplete();
+  /** True when another rider already uses this login name after normalization. */
+  loginNameTaken(username: string, except?: number) {
+    return this.repository.sameLoginName(username).some((rider) => rider.player_id !== except);
   }
 
+  // Setup is one-way: first owner creation commits its marker in the same account transaction.
   identityOf(rider: Rider) {
     return `${rider.player_id}:${rider.auth_version}`;
   }
@@ -48,7 +49,8 @@ export class AccountsService extends BaseService {
     return rider && rider.enabled === 1 && rider.pass_hash && rider.auth_version === version ? rider : null;
   }
 
-  async create(name: string, password: string, owner = false, username?: string): Promise<Rider> {
+  /** Direct creation for tests and offline tools. Riders are otherwise created only in the management area. */
+  async create(name: string, password: string, username?: string): Promise<Rider> {
     const displayName = name.trim();
 
     if (!displayName || displayName.length > 100) throw new ConfigError('Enter a name between 1 and 100 characters');
@@ -60,8 +62,6 @@ export class AccountsService extends BaseService {
     this.db.exec('BEGIN IMMEDIATE');
 
     try {
-      if (owner && this.setupComplete()) throw new ConfigError('Setup already completed');
-
       const occupied = [
         ...this.list().map((user) => user.player_id),
         ...this.filesRepository
@@ -88,8 +88,6 @@ export class AccountsService extends BaseService {
         official_player_id: null,
       });
 
-      if (owner) this.repository.finishSetup();
-
       const user = this.get(id);
 
       if (!user) throw new Error('Created rider unavailable');
@@ -107,7 +105,13 @@ export class AccountsService extends BaseService {
   }
 
   async verify(rider: Rider, password: string) {
-    if (!rider.enabled || !rider.pass_hash) return false;
+    // Spend the same hashing work as a real check, so timing does not reveal the account state.
+    if (!rider.enabled || !rider.pass_hash) {
+      await this.cryptoRepository.hashPassword(password);
+
+      return false;
+    }
+
     const valid = await this.cryptoRepository.verifyPassword(rider.pass_hash, password);
     const current = this.get(rider.player_id);
 
@@ -120,7 +124,13 @@ export class AccountsService extends BaseService {
     );
   }
 
-  async changePassword(id: number, password: string, admin = false, live: () => boolean = () => true) {
+  async changePassword(
+    id: number,
+    password: string,
+    admin = false,
+    live: () => boolean = () => true,
+    actor?: PasswordActor,
+  ) {
     if (!password) throw new ConfigError('Password must not be empty');
     const before = this.get(id);
     const hash = await this.cryptoRepository.hashPassword(password);
@@ -134,7 +144,7 @@ export class AccountsService extends BaseService {
       current.pass_hash !== before.pass_hash
     )
       throw new ConfigError('Account changed. Retry.');
-    this.repository.setPassword(id, hash, admin);
+    this.repository.setPassword(id, hash, admin, actor);
     this.onRevoke?.(id);
   }
 

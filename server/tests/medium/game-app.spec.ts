@@ -110,7 +110,7 @@ await test('JSON mutations keep the session rider as owner, return canonical val
   const post = (fields: Record<string, string>, context = props.csrf) =>
     browser.request(path, {
       method: 'POST',
-      headers: { Accept: 'application/json', 'X-Launcher-Context': context },
+      headers: { Accept: 'application/json', 'X-Game-Context': context },
       body: new URLSearchParams({
         csrf_token: props.csrf,
         revision: String(f.settings.revision(f.rider.player_id)),

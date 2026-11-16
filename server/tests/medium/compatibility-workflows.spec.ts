@@ -13,7 +13,7 @@ import { test } from 'node:test';
 
 await test('all rider state files stage, cancel, publish and recover with durable backups', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Import Rider', 'test-password', true);
+  const user = await f.accounts.create('Import Rider', 'test-password');
   const imports = new ImportsService(f.accounts, f.world);
 
   const files = {
@@ -68,7 +68,7 @@ await test('all rider state files stage, cancel, publish and recover with durabl
 
 await test('browser restore accepts empty protobuf state and waits for review before publishing', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Restore Rider', 'test-password', true);
+  const user = await f.accounts.create('Restore Rider', 'test-password');
   const session = f.sessions.open();
   session.session.identity = f.accounts.identityOf(user);
   const headers = { Cookie: `zluggish_session=${session.id}` };
@@ -94,7 +94,7 @@ await test('browser restore accepts empty protobuf state and waits for review be
 
 await test('Zwift connection encrypts secrets and official downloads stage a rider-preserving import', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Local Rider', 'test-password', true);
+  const user = await f.accounts.create('Local Rider', 'test-password');
   const session = f.sessions.open();
   session.session.identity = f.accounts.identityOf(user);
   const headers = { Cookie: `zluggish_session=${session.id}` };
@@ -198,7 +198,7 @@ const xml =
 
 await test('automatic home and Android login sync coalesce, preserve UUIDs and expose cycling-only schedules', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Planned Rider', 'test-password', true);
+  const user = await f.accounts.create('Planned Rider', 'test-password');
   f.accounts.repositories.connectionsRepository.save(user.player_id, 'intervals', ['123', 'key']);
   const headers = { Authorization: `Bearer ${f.sessions.tokens(user, f.tokens).access_token}` };
   const now = new Date();
@@ -286,7 +286,7 @@ await test('automatic home and Android login sync coalesce, preserve UUIDs and e
 
 await test('automatic TrainingPeaks home refresh imports exported workouts without contacting a provider', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Bridge Rider', 'test-password', true);
+  const user = await f.accounts.create('Bridge Rider', 'test-password');
   const folder = resolve(f.config.storageDir, 'bridge');
   mkdirSync(folder);
   new AssetFiles().writeDurable(resolve(folder, 'tempo.zwo'), xml);
@@ -300,7 +300,7 @@ await test('automatic TrainingPeaks home refresh imports exported workouts witho
 
 await test('a failed TrainingPeaks refresh retains all previously published files and zfile metadata', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Bridge Rider', 'test-password', true);
+  const user = await f.accounts.create('Bridge Rider', 'test-password');
   const folder = resolve(f.config.storageDir, 'bridge');
   mkdirSync(folder);
   new AssetFiles().writeDurable(resolve(folder, 'first.zwo'), xml);
@@ -319,7 +319,7 @@ await test('a failed TrainingPeaks refresh retains all previously published file
 
 await test('automatic sync deadline aborts provider work and never publishes a late response', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Deadline Rider', 'test-password', true);
+  const user = await f.accounts.create('Deadline Rider', 'test-password');
   f.accounts.repositories.connectionsRepository.save(user.player_id, 'intervals', ['123', 'key']);
   const workouts = new WorkoutsService(f);
   const before = Buffer.from('{"provider":"intervals-icu","workouts":[]}');

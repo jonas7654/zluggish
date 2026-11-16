@@ -161,12 +161,10 @@ await test('failed account creation rolls back rows and folders and leaves the s
 
   for (const name of ['', ' '.repeat(3), 'x'.repeat(101)])
     await assert.rejects(f.accounts.create(name, 'test-password'), /Enter a name/);
-  await assert.rejects(f.accounts.create('Second owner', 'test-password', true), /Setup already completed/);
-  await assert.rejects(f.accounts.create('Duplicate', 'test-password', false, f.rider.username));
+  await assert.rejects(f.accounts.create('Duplicate', 'test-password', f.rider.username));
   assert.deepEqual(f.accounts.list(), before);
   assert.equal(f.accounts.db.isTransaction, false);
   assert.equal(existsSync(resolve(f.accounts.storage, String(nextId))), false);
-  assert.equal(f.accounts.setupComplete(), true);
 
   const created = await f.accounts.create('  New   Rider  ', 'test-password');
   assert.equal(created.player_id, nextId);

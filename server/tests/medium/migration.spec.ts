@@ -300,10 +300,10 @@ await test('account recovery uses config storage and honors an explicit storage 
   );
   const configured = resolve(f.root, 'configured');
   const intended = new AccountsService(configured);
-  const user = await intended.create('Configured Rider', 'old', true);
+  const user = await intended.create('Configured Rider', 'old');
   intended.close();
   const other = new AccountsService(f.storage);
-  const decoy = await other.create('Other Rider', 'unchanged', true);
+  const decoy = await other.create('Other Rider', 'unchanged');
   other.close();
   mkdirSync(resolve(f.root, 'external'));
   writeFileSync(f.output, `export default { storageDir: '../configured' };`);
@@ -350,7 +350,7 @@ await test('account migration uses the selected config storage', async (t) => {
   const f = fixture(t);
   const configured = resolve(f.root, 'configured');
   const accounts = new AccountsService(configured);
-  const user = await accounts.create('Legacy Rider', 'test-password', true);
+  const user = await accounts.create('Legacy Rider', 'test-password');
   accounts.close();
   renameSync(resolve(configured, 'zluggish.db'), resolve(configured, 'zwift-offline.db'));
   mkdirSync(resolve(f.root, 'external'));

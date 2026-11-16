@@ -1,6 +1,6 @@
-import { checkbox, field, form as makeForm, hidden, model, secret } from '#src/http/launcher/models';
-import { launcherPage } from '#src/http/launcher/render';
-import { launcherRedirect } from '#src/http/launcher/results';
+import { checkbox, field, form as makeForm, hidden, model, secret } from '#src/http/game/models';
+import { gamePage } from '#src/http/game/render';
+import { gameRedirect } from '#src/http/game/results';
 import { RemovableCredentialFile, StravaMethod } from '#src/enum';
 import { authenticated, csrf } from '#src/http/routes/accounts';
 import type { HttpRuntime as Runtime, RuntimeEnv } from '#src/http/runtime';
@@ -36,7 +36,7 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     const authorized = documents.has(rider.player_id, 'strava_token.txt');
     const cookie = !!cookieOf(rider);
 
-    return launcherPage(
+    return gamePage(
       c,
       runtime,
       model(
@@ -105,7 +105,7 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       runtime.services.settings.read(rider.player_id),
     );
 
-    return launcherPage(
+    return gamePage(
       c,
       runtime,
       model(
@@ -187,7 +187,7 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       return zwiftPage(c, rider, 'Save credentials and choose at least one download.', true);
 
     if (runtime.world.active(rider.player_id))
-      return launcherPage(
+      return gamePage(
         c,
         runtime,
         model(c, 'message', 'Zwift connection', [], {
@@ -220,7 +220,7 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       if (browser.pendingImport) imports.cancel(rider, browser.pendingImport);
       runtime.services.sessions.transition(browser, { type: 'stage-import', stage });
 
-      return launcherRedirect(c, `/profile/${rider.username}/confirm/`);
+      return gameRedirect(c, `/profile/${rider.username}/confirm/`);
     } catch {
       return zwiftPage(c, rider, 'Download failed. Existing rider data was retained.', true);
     }
@@ -326,7 +326,7 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     const client = connections.read(rider.player_id, 'garmin');
     const authorized = documents.has(rider.player_id, 'garth/oauth1_token.json');
 
-    return launcherPage(
+    return gamePage(
       c,
       runtime,
       model(
@@ -385,7 +385,7 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       );
 
       if (outcome === 'mfa')
-        return launcherPage(
+        return gamePage(
           c,
           runtime,
           model(
@@ -449,7 +449,7 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       if (form.create) runtime.services.activities.rebuildPowerCurves(rider.player_id);
       else service.deletePowerCurve(rider.player_id);
 
-      return launcherPage(
+      return gamePage(
         c,
         runtime,
         model(c, 'message', 'Power curves', [], {
@@ -459,7 +459,7 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       );
     }
 
-    return launcherPage(
+    return gamePage(
       c,
       runtime,
       model(c, 'maintenance', 'Power curves', [

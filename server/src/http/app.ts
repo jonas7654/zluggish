@@ -1,5 +1,5 @@
 import { packageVersion } from '#src/config/load';
-import { browserJson } from '#src/http/launcher/results';
+import { browserJson } from '#src/http/game/results';
 import { ApplicationError } from '#src/errors';
 import { parseProtobuf } from '#src/http/protobuf';
 import { rideCompletionRoutes } from '#src/http/routes/ride-completion';
@@ -186,7 +186,7 @@ export function createGameApp(metadata: PublicMetadata, runtime?: Runtime) {
         return c.json({ ok: false, message: error.message || 'The request was refused.', reload }, status);
       }
 
-      log.error('http.failed', 'Launcher request failed', { requestId: c.get('requestId'), error });
+      log.error('http.failed', 'Game app request failed', { requestId: c.get('requestId'), error });
 
       return c.json({ ok: false, message: 'Could not save. Try again.' }, 500);
     }
@@ -210,6 +210,3 @@ export function createGameApp(metadata: PublicMetadata, runtime?: Runtime) {
 
   return app;
 }
-
-// Compatibility export for embedders. Both names construct only the game route table.
-export const createApp = createGameApp;

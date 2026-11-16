@@ -1,3 +1,3 @@
-import type { LauncherPage } from '../lib/game-app.dto';
+import type { GamePageModel } from '../lib/game-app.dto';
 
-export declare function renderPage(page: LauncherPage): { head: string; body: string };
+export declare function renderGamePage(page: GamePageModel): { head: string; body: string };

@@ -68,6 +68,24 @@ export const eventRequest = z.strictObject({
   changes: meetupInput.partial().strict().optional(),
 });
 
+/** Chat commands that change bots for every rider. Only the management area may send them. */
+export const botCommand = z.enum([
+  'group',
+  'groupall',
+  'autogroup',
+  'autogroupall',
+  'stopautogroup',
+  'disperse',
+  'peloton',
+]);
+
+export const serverRequest = z.strictObject({
+  operation: z.string().uuid(),
+  rider: z.number().int().positive().optional(),
+  command: botCommand.optional(),
+  argument: z.string().trim().max(20).optional(),
+});
+
 export const worldRequest = z.strictObject({
   operation: z.string().uuid(),
   revision: z.number().int().nonnegative(),

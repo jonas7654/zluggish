@@ -95,6 +95,12 @@ async function start() {
 
     const log = owner.runtime.world.lifecycle.log;
 
+    if (config.accounts.allowSelfRegistration !== undefined)
+      log.warn(
+        'config.deprecated',
+        'accounts.allowSelfRegistration is deprecated and ignored. Only an administrator creates riders, in the web app. Remove it from the configuration.',
+      );
+
     function closeHttp(listener: ReturnType<typeof startHttp>) {
       return new Promise<void>((resolve, reject) =>
         listener.close((error) => {

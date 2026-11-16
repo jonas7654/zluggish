@@ -26,7 +26,7 @@ const isoDate = (value: string | null | undefined) =>
 
 const title = (value: string | null | undefined) => (value ?? '').trim().toLowerCase();
 
-/** Provider duplicate behavior (see docs/activity-completion.md). An ambiguous delivery
+/** Provider duplicate behavior. An ambiguous delivery
 retries automatically only for a provider that reliably rejects duplicates or accepts an
 idempotency key. No provider is verified yet, so every ambiguous delivery needs an
 operator decision.

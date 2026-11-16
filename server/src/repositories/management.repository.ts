@@ -114,14 +114,14 @@ export class ManagementRepository {
     );
   }
 
-  intent(actor: number, operation: string, action: string) {
+  intent(actor: number, operation: string, action: string, fingerprint: string) {
     this.executor.run(
       query.insertInto('management_operation').values({
         actor_player_id: actor,
         operation_id: operation,
         action,
         target: 'server',
-        fingerprint: action,
+        fingerprint,
         status: 'unknown',
         result: null,
         created_at: Date.now(),

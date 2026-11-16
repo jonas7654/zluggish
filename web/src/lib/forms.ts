@@ -1,16 +1,16 @@
-import type { LauncherField, LauncherForm } from '../lib/game-app.dto';
+import type { GameField, GameForm } from '../lib/game-app.dto';
 
-export function values(form: LauncherForm) {
+export function values(form: GameForm) {
   return Object.fromEntries(
     form.fields.map((field) => [field.name, field.value ?? (field.type === 'checkbox' ? false : '')]),
   );
 }
 
-export function visible(field: LauncherField, draft: Record<string, string | boolean>) {
+export function visible(field: GameField, draft: Record<string, string | boolean>) {
   return !field.when || draft[field.when.field] === field.when.value;
 }
 
-export function validation(form: LauncherForm, draft: Record<string, string | boolean>) {
+export function validation(form: GameForm, draft: Record<string, string | boolean>) {
   const errors: Record<string, string[]> = {};
 
   for (const field of form.fields) {

@@ -3,9 +3,9 @@
   import Layout from '../../components/Layout.svelte';
   import Form from '../../components/Form.svelte';
   import Uploads from '../../components/Uploads.svelte';
-  import type { LauncherPage } from '../../lib/game-app.dto';
+  import type { GamePageModel } from '../../lib/game-app.dto';
 
-  let { page }: { page: LauncherPage } = $props();
+  let { page }: { page: GamePageModel } = $props();
   let current = $state(untrack(() => page));
   let locked = $state(false);
   let selectedMethod = $state(untrack(() => page.stravaMethod ?? 'paid'));
@@ -31,7 +31,7 @@
       try {
         const response = await fetch('/ui/status/session', {
           credentials: 'same-origin',
-          headers: { Accept: 'application/json', 'X-Launcher-Context': current.csrf },
+          headers: { Accept: 'application/json', 'X-Game-Context': current.csrf },
           signal: controller.signal,
         });
 

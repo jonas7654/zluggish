@@ -209,7 +209,7 @@ node server/dist/src/cli/bin.js --storage-dir ./storage uploads list
 node server/dist/src/cli/bin.js --storage-dir ./storage uploads resume --confirm
 ```
 
-A restored backup cannot know which deliveries the providers received after the backup was made, so a restore pauses uploads. Check the providers, cancel the deliveries they already have, then resume. See [activity completion and deliveries](../docs/activity-completion.md).
+A restored backup cannot know which deliveries the providers received after the backup was made, so a restore pauses uploads. Check the providers, cancel the deliveries they already have, then resume.
 
 ## Development tools
 

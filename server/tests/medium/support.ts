@@ -12,7 +12,7 @@ export async function mediumFixture(t: TestContext) {
 
   t.after(() => assert.equal(network.mock.callCount(), 0, 'External providers must be explicitly mocked'));
   const f = runtimeFixture(t);
-  const rider = await f.accounts.create('Medium Rider', 'test-password', true);
+  const rider = await f.accounts.create('Medium Rider', 'test-password');
   const other = await f.accounts.create('Other Rider', 'test-password');
   const headers = (user = rider) => ({ Authorization: `Bearer ${f.sessions.tokens(user, f.tokens).access_token}` });
 
