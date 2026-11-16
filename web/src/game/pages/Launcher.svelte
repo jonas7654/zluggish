@@ -1,9 +1,9 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import Layout from '../components/Layout.svelte';
-  import Form from '../components/Form.svelte';
-  import Uploads from '../components/Uploads.svelte';
-  import type { LauncherPage } from '../../src/dtos/launcher.dto.js';
+  import Layout from '../../components/Layout.svelte';
+  import Form from '../../components/Form.svelte';
+  import Uploads from '../../components/Uploads.svelte';
+  import type { LauncherPage } from '../../lib/game-app.dto';
 
   let { page }: { page: LauncherPage } = $props();
   let current = $state(untrack(() => page));

@@ -272,12 +272,13 @@ export class EventsService extends BaseService {
     return event.id;
   }
 
-  deleteMeetup(event: Meetup) {
+  deleteMeetup(event: Meetup, commit: () => void = () => {}) {
     this.begin();
 
     try {
       this.eventsRepository.deletePrivateEvent(event.id);
       this.eventsRepository.deleteNotification(event.id);
+      commit();
       this.commit();
     } catch (error) {
       this.rollback();
@@ -285,7 +286,7 @@ export class EventsService extends BaseService {
     }
   }
 
-  updateMeetup(event: Meetup, update: MeetupInput) {
+  updateMeetup(event: Meetup, update: MeetupInput, commit: () => void = () => {}) {
     update.invitedProfileIds = [...new Set(update.invitedProfileIds)].filter((id) => id !== event.organizerProfileId);
 
     for (const id of update.invitedProfileIds) if (!this.context.accounts.get(id)) throw new ApplicationError(400);
@@ -328,6 +329,7 @@ export class EventsService extends BaseService {
       }
 
       for (const id of update.invitedProfileIds) if (!event.invitedProfileIds.includes(id)) this.notify(next, id);
+      commit();
       this.commit();
     } catch (error) {
       this.rollback();

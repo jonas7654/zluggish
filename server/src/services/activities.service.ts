@@ -125,7 +125,7 @@ export class ActivitiesService extends BaseService {
   /** Saves from requests run one per event-loop turn: a group of riders that finish
   together cannot hold the main thread for the whole group.
   */
-  saveInTurn(activity: Activity, finish: boolean) {
+  saveInTurn(activity: Activity, finish: boolean, validate: () => boolean | void = () => {}) {
     const queued = performance.now();
     metrics.record(Metric.QueueDepth, ++this.queued);
 
@@ -134,6 +134,8 @@ export class ActivitiesService extends BaseService {
       .then(() => {
         this.queued--;
         metrics.record(Metric.QueueWait, performance.now() - queued);
+
+        if (validate() === false) return 'unchanged';
 
         return this.save(activity, finish);
       });

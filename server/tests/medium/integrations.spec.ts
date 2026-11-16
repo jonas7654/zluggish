@@ -1,9 +1,8 @@
-import { inputValue } from '#tests/support/html';
+import { responseStatus, inputValue } from '#tests/support/html';
 import { createApp } from '#src/http/app';
 import { DeliveryRefusedError } from '#src/errors';
 import { UploadsService } from '#src/services/uploads.service';
 import { ActivitySchema } from '#src/protocol/generated/activity_pb';
-import { PlayerStateSchema } from '#src/protocol/generated/udp-node-msgs_pb';
 import { FeatureRequestSchema, FeatureResponseSchema } from '#src/protocol/generated/variants_pb';
 import { runtimeFixture } from '#tests/support/runtime';
 import { create, fromBinary, toBinary } from '@bufbuild/protobuf';
@@ -225,32 +224,14 @@ await test('an expired Strava token is saved before an upload whose result is un
   assert.ok(calls.some((url) => url.includes('runalyze.com')));
 });
 
-await test('only administrators can control restarts and bot reloads', async (t) => {
+await test('game app has no server operations even for the first legacy owner', async (t) => {
   const f = runtimeFixture(t);
-  const admin = await f.accounts.create('Owner', 'test-password', true);
-  const other = await f.accounts.create('Other', 'test-password', false);
-  f.world.online.set(77n, create(PlayerStateSchema, { id: 77n }));
-
-  const queued = () => f.world.updates.get(77n)?.length ?? 0;
-
-  for (const [user, expected] of [
-    [other, 0],
-    [admin, 1],
-  ] as const) {
-    const client = browser(f.app);
-    await client.signIn(user.player_id, user.username);
-    const response = await client.form('/restart', { confirm_action: 'on' });
-    assert.equal(response.status, user.is_admin ? 302 : 403);
-    assert.equal(response.headers.get('Location'), user.is_admin ? `/user/${user.username}/` : null);
-    assert.equal(queued(), expected);
-    const response7 = await client.form('/reloadbots', { confirm_action: 'on' });
-    assert.equal(response7.status, user.is_admin ? 302 : 403);
-  }
-
+  const owner = await f.accounts.create('Owner', 'test-password', true);
   const client = browser(f.app);
-  await client.signIn(admin.player_id, admin.username);
-  await client.form('/cancelrestart', {});
-  assert.equal(queued(), 2);
+  await client.signIn(owner.player_id, owner.username);
+
+  for (const path of ['/restart', '/cancelrestart', '/reloadbots'])
+    assert.equal(await responseStatus(client.form(path, { confirm_action: 'on' })), 404);
 });
 
 await test('per-rider variants override the base set and unknown names stay explicit', async (t) => {

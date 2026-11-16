@@ -257,6 +257,26 @@ Android uses native credential login, so set a local password for that rider and
 
 For a separate server, set `server.advertisedIp` and allow TCP 80, 443, 3025 and UDP 3024 on the local network. This enables private household riding, not access to Zwift’s public multiplayer world.
 
+## Web app quick start
+
+Use Zluggish only on a network that you trust. Other devices on the network can read the passwords that riders type.
+
+1. Start the server. Find the setup address and key in the terminal or `docker compose logs zluggish`.
+2. Open `http://<server-ip>:8080/setup`. Enter the key. Create your rider. This rider receives the administrator role.
+3. Open **Manage**. Create the other riders with passwords.
+4. Start Zwift. Select your rider in the game app and sign in.
+
+See [web app access and account management](docs/web-app.md), [upgrades](docs/upgrade.md), and [recovery](docs/recovery.md).
+
+| Port | Protocol | Use                             |
+| ---- | -------- | ------------------------------- |
+| 80   | HTTP     | Zwift CDN only                  |
+| 443  | HTTPS    | Game app and Zwift API only     |
+| 8080 | HTTP     | Web app, My account, and Manage |
+| 3025 | TCP      | Game connection                 |
+| 3024 | UDP      | Ride data                       |
+| 53   | UDP      | Optional DNS                    |
+
 ## Password recovery
 
 Stop the server before using the recovery CLI. Put the new password in a private file, then run from the repository root:
@@ -265,7 +285,7 @@ Stop the server before using the recovery CLI. Put the new password in a private
 pnpm --dir server cli --storage-dir /path/to/storage accounts recover --user 1 --password-file /private/path/new-password.txt --admin
 ```
 
-Remove the private password file after recovery. Omit `--admin` for password-only recovery. Riders cannot be left without a password. The CLI revokes existing sessions. It does not prompt interactively for a password. Gmail/SMTP reset links are no longer supported.
+Remove the private password file after recovery. The `--admin` option also enables the rider and grants the administrator role. Omit `--admin` to preserve the role and enabled state. Riders cannot be left without a password. The CLI revokes existing sessions. It does not prompt interactively for a password. Gmail/SMTP reset links are no longer supported.
 
 ## IPv6 (Optional)
 
@@ -275,7 +295,7 @@ Set `network.host: '::'` in `zluggish.config.ts`, or choose per-listener `host` 
 
 ### Old storage
 
-These instructions apply to legacy singleplayer and multiplayer installations. Fresh storage uses first-rider setup and does not need conversion.
+These instructions apply to legacy singleplayer and multiplayer installations. Fresh storage uses web app setup and does not need conversion.
 
 1. Stop every server using the storage. Back up the entire `storage/` directory, including `zluggish.db` (or legacy `zwift-offline.db`), profiles, activities, preferences, credentials and signing/encryption keys. Keep the previous release/image for rollback.
 2. Install and build the Node packages using the source instructions above. Start with a restored storage copy; do not run old and new servers against the same directory.
@@ -302,7 +322,7 @@ These instructions apply to legacy singleplayer and multiplayer installations. F
 
 6. Inspect storage, IP, listener, TLS and credential paths in the generated config. Set `ZLUGGISH_CONFIG` or pass `--config` at startup. Inside Docker, mount config and storage and use their container paths. Re-select riders after startup and exercise ride/save/restart before switching production.
 
-Config migration does not create accounts or modify the original activity database. Account migration is a separate offline operation with a database backup. Existing profile folders and numeric local IDs are retained. Ambiguous solo ownership and conflicting preference values are rejected instead of guessed. Existing usernames are retained. Legacy password hashes are removed and existing sessions for those riders are revoked. Migrated riders have no password: select the rider in the browser and optionally set a new password in Settings. New passwords use Argon2id. Native clients require a new local password. Rerunning account migration preserves Argon2id passwords.
+Config migration does not create accounts or modify the original activity database. Account migration is a separate offline operation with a database backup. Existing profile folders and numeric local IDs are retained. Ambiguous solo ownership and conflicting preference values are rejected instead of guessed. Existing usernames are retained. Legacy password hashes are removed and existing sessions for those riders are revoked. Migrated riders have no password and cannot sign in. Complete setup in the web app, then set their passwords in Manage. New passwords use Argon2id. Native clients require a new local password. Rerunning account migration preserves Argon2id passwords.
 
 A durable `.config-migration.json` journal makes config publication resumable. If interrupted, rerun the same command with the same destination; do not delete the journal or overwrite a subsequently edited config. Account database backups use `.accounts-<timestamp>.bak` suffixes. Preserve original marker/credential files until the migrated setup has been tested.
 

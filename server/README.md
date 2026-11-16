@@ -15,8 +15,8 @@ With the required Node version installed, enable the pinned pnpm version and bui
 ```sh
 corepack enable
 corepack prepare pnpm@12.18.0 --activate
-pnpm --dir server install --frozen-lockfile
-pnpm --dir server build
+pnpm install --frozen-lockfile
+pnpm build
 node server/dist/src/cli/bin.js --help
 ```
 
@@ -40,8 +40,8 @@ Native Windows execution is supported by the code, including Windows storage loc
 ```powershell
 corepack enable
 corepack prepare pnpm@12.18.0 --activate
-pnpm --dir server install --frozen-lockfile
-pnpm --dir server build
+pnpm install --frozen-lockfile
+pnpm build
 node .\server\dist\src\cli\bin.js --help
 node .\server\dist\src\cli\bin.js --config .\server\zluggish.config.ts config validate
 ```

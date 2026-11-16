@@ -1,4 +1,4 @@
-import type { LauncherField, LauncherForm } from '../../src/dtos/launcher.dto.js';
+import type { LauncherField, LauncherForm } from '../lib/game-app.dto';
 
 export function values(form: LauncherForm) {
   return Object.fromEntries(

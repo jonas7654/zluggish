@@ -1,0 +1,277 @@
+import { Hono } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
+import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
+import { z } from 'zod';
+import { ApplicationError } from '#src/errors';
+import { credentials, password, newRider } from '#src/dtos/management.dto';
+import type { HttpRuntime } from '#src/http/runtime';
+import type { WebSession } from '#src/services/web-session.service';
+import { peerAddress } from '#src/http/routes/accounts';
+import { resolve } from 'node:path';
+import { packageRoot } from '#src/config/load';
+
+type WebEnv = { Variables: { sessionId: string; session: WebSession } };
+
+export function createWebApp(runtime: HttpRuntime) {
+  const app = new Hono<WebEnv>();
+  const { management, accounts, durability, files } = runtime.services;
+  const { sessions } = management;
+  const attempts = new Map<string, { count: number; until: number }>();
+  const cookie = 'zluggish_web_session';
+
+  app.use('*', bodyLimit({ maxSize: 64 * 1024 }));
+  app.use('*', async (c, next) => {
+    c.header('Cache-Control', 'no-store');
+    c.header('X-Content-Type-Options', 'nosniff');
+    c.header(
+      'Content-Security-Policy',
+      "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'",
+    );
+    const before = durability.changes();
+    await next();
+
+    if (durability.changes() !== before) await durability.flush();
+  });
+  app.use('/api/*', async (c, next) => {
+    // This listener accepts only its own opaque session store. Bearer tokens are never used.
+    const opened = sessions.open(getCookie(c, cookie));
+    c.set('sessionId', opened.id);
+    c.set('session', opened.session);
+    setCookie(c, cookie, opened.id, {
+      httpOnly: true,
+      sameSite: 'Lax',
+      path: '/',
+      secure: new URL(c.req.url).protocol === 'https:',
+      maxAge: 86_400,
+    });
+
+    if (!['GET', 'HEAD'].includes(c.req.method)) {
+      if (c.req.header('Origin') !== new URL(c.req.url).origin || c.req.header('X-CSRF-Token') !== opened.session.csrf)
+        throw new ApplicationError(403, 'Reload the page and retry.');
+
+      if (!c.req.header('Content-Type')?.startsWith('application/json'))
+        throw new ApplicationError(400, 'JSON required.');
+    }
+
+    if (['/api/setup', '/api/session', '/api/session/confirm'].includes(c.req.path) && c.req.method === 'POST') {
+      const now = Date.now();
+
+      for (const [key, value] of attempts) if (value.until <= now) attempts.delete(key);
+      const key = peerAddress(c);
+      const limit = attempts.get(key) ?? { count: 0, until: now + 60_000 };
+
+      if (limit.count >= 10 || attempts.size >= 10_000) return c.json({ message: 'Try again shortly.' }, 429);
+      limit.count++;
+      attempts.set(key, limit);
+    }
+
+    await next();
+  });
+
+  function login(
+    c: import('hono').Context<WebEnv>,
+    rider: NonNullable<ReturnType<typeof accounts.get>>,
+    confirmed = false,
+  ) {
+    sessions.end(c.get('sessionId'));
+    const fresh = sessions.open();
+    fresh.session.identity = accounts.identityOf(rider);
+    fresh.session.confirmedUntil = confirmed ? Date.now() + 900_000 : 0;
+    setCookie(c, cookie, fresh.id, {
+      httpOnly: true,
+      sameSite: 'Lax',
+      path: '/',
+      secure: new URL(c.req.url).protocol === 'https:',
+      maxAge: 86_400,
+    });
+
+    return c.json({ rider: management.publicRider(rider), csrf: fresh.session.csrf });
+  }
+
+  app.get('/api/setup', (c) => c.json({ complete: management.store.complete(), csrf: c.get('session').csrf }));
+  app.post('/api/setup', async (c) => {
+    const id = c.get('sessionId');
+    const session = c.get('session');
+    const rider = await management.setup(await c.req.json(), () => sessions.sessions.get(id) === session);
+
+    return login(c, rider, true);
+  });
+  app.post('/api/session', async (c) => {
+    const input = credentials.parse(await c.req.json());
+    const id = c.get('sessionId');
+    const session = c.get('session');
+    const rider = await management.signIn(input.username, input.password);
+
+    if (sessions.sessions.get(id) !== session) throw new ApplicationError(401, 'Session changed.');
+
+    return login(c, rider);
+  });
+  app.delete('/api/session', (c) => {
+    sessions.end(c.get('sessionId'));
+    deleteCookie(c, cookie, { path: '/' });
+
+    return c.json({ ok: true });
+  });
+  app.get('/api/me', (c) =>
+    c.json({ rider: management.publicRider(sessions.require(c.get('sessionId'))), csrf: c.get('session').csrf }),
+  );
+  app.post('/api/session/confirm', async (c) => {
+    const input = z.strictObject({ password }).parse(await c.req.json());
+    await management.confirm(c.get('sessionId'), input.password);
+
+    return c.json({ confirmedUntil: c.get('session').confirmedUntil });
+  });
+  app.post('/api/me/password', async (c) => {
+    const input = z.strictObject({ current_password: password, password }).parse(await c.req.json());
+    await management.changeOwnPassword(c.get('sessionId'), input.current_password, input.password);
+    sessions.end(c.get('sessionId'));
+
+    return c.json({ ok: true });
+  });
+  app.get('/api/me/settings', (c) => c.json(management.settings(sessions.require(c.get('sessionId')).player_id)));
+  app.patch('/api/me/settings', async (c) => {
+    const player = sessions.require(c.get('sessionId')).player_id;
+
+    return c.json(management.saveSettings(c.get('sessionId'), player, await c.req.json()));
+  });
+  app.use('/api/manage/*', async (c, next) => {
+    sessions.require(c.get('sessionId'), true);
+    await next();
+  });
+  app.get('/api/manage/riders', (c) =>
+    c.json({ riders: accounts.list().map((rider) => management.publicRider(rider)) }),
+  );
+  app.post('/api/manage/riders', async (c) => {
+    const input = z
+      .strictObject({ operation: z.string().uuid(), rider: z.record(z.string(), z.json()) })
+      .parse(await c.req.json());
+
+    return c.json(await management.create(c.get('sessionId'), newRider.parse(input.rider), input.operation), 201);
+  });
+  app.get('/api/manage/riders/:id', (c) => {
+    const rider = accounts.get(z.coerce.number().int().positive().safe().parse(c.req.param('id')));
+
+    if (!rider) throw new ApplicationError(404, 'Rider not found.');
+
+    return c.json(management.publicRider(rider));
+  });
+  app.get('/api/manage/riders/:id/audit', (c) =>
+    c.json({ events: management.store.history(z.coerce.number().int().positive().safe().parse(c.req.param('id'))) }),
+  );
+
+  for (const action of ['password', 'disable', 'enable', 'revoke-sessions', 'role'])
+    app.on(action === 'role' ? 'PUT' : 'POST', `/api/manage/riders/:id/${action}`, async (c) =>
+      c.json(
+        await management.mutate(
+          c.get('sessionId'),
+          z.coerce.number().int().positive().safe().parse(c.req.param('id')),
+          action,
+          await c.req.json(),
+        ),
+      ),
+    );
+
+  app.patch('/api/manage/riders/:id', async (c) =>
+    c.json(
+      management.edit(
+        c.get('sessionId'),
+        z.coerce.number().int().positive().safe().parse(c.req.param('id')),
+        await c.req.json(),
+      ),
+    ),
+  );
+  app.get('/api/manage/riders/:id/settings', (c) =>
+    c.json(management.settings(z.coerce.number().int().positive().safe().parse(c.req.param('id')))),
+  );
+  app.patch('/api/manage/riders/:id/settings', async (c) =>
+    c.json(
+      management.saveSettings(
+        c.get('sessionId'),
+        z.coerce.number().int().positive().safe().parse(c.req.param('id')),
+        await c.req.json(),
+        true,
+      ),
+    ),
+  );
+  app.get('/api/manage/settings', (c) =>
+    c.json({
+      network: runtime.config.network,
+      riderDefaults: runtime.config.riderDefaults,
+      worldSettings: management.worldSettings(),
+      readOnly: true,
+      reason:
+        'These values are stored in the operator configuration file. Stop the server and edit that file to change them.',
+    }),
+  );
+
+  for (const action of ['restart', 'cancel-restart', 'reload-bots'])
+    app.post(`/api/manage/server/${action}`, async (c) => {
+      const input = z.strictObject({ operation: z.string().uuid() }).parse(await c.req.json());
+
+      return c.json(
+        await management.serverOperation(
+          c.get('sessionId'),
+          action,
+          input.operation,
+          () => durability.flush(),
+          async () => {
+            await runtime.world.simulation?.reload();
+          },
+        ),
+      );
+    });
+
+  app.patch('/api/manage/settings', async (c) => c.json(management.saveWorld(c.get('sessionId'), await c.req.json())));
+  app.get('/api/manage/events', (c) => c.json({ events: management.events() }));
+  app.on(['PATCH', 'DELETE'], '/api/manage/events/:id', async (c) =>
+    c.json(
+      management.editEvent(
+        c.get('sessionId'),
+        z.coerce.number().int().positive().parse(c.req.param('id')),
+        c.req.method === 'DELETE' ? 'delete-event' : 'edit-event',
+        await c.req.json(),
+      ),
+    ),
+  );
+  const clientRoot = resolve(packageRoot(), '../web/dist/app');
+  app.get('/assets/:file', (c) => {
+    const name = c.req.param('file');
+
+    if (!/^[\w.-]+\.(?:js|css|woff2|png|jpg|svg)$/.test(name)) return c.notFound();
+    const path = resolve(clientRoot, 'assets', name);
+
+    if (!files.exists(path)) return c.notFound();
+    const ext = name.split('.').at(-1)!;
+
+    const types = {
+      js: 'text/javascript',
+      css: 'text/css',
+      woff2: 'font/woff2',
+      png: 'image/png',
+      jpg: 'image/jpeg',
+      svg: 'image/svg+xml',
+    };
+
+    // SAFETY: the filename extension was restricted to these MIME types above.
+    return c.body(files.read(path), 200, { 'Content-Type': types[ext as keyof typeof types]! });
+  });
+
+  for (const path of ['/', '/setup', '/sign-in', '/settings', '/password', '/manage', '/manage/*'])
+    app.get(path, (c) => {
+      const index = resolve(clientRoot, 'index.html');
+
+      return files.exists(index)
+        ? c.html(files.read(index, 'utf8'))
+        : c.text('Build the web app before starting.', 503);
+    });
+  app.onError((error, c) => {
+    if (error instanceof z.ZodError)
+      return c.json({ message: 'Check the form fields.', fieldErrors: z.flattenError(error).fieldErrors }, 400);
+
+    if (error instanceof ApplicationError) return c.json({ message: error.message }, error.status);
+
+    return c.json({ message: 'Request failed.' }, 500);
+  });
+
+  return app;
+}

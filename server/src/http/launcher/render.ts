@@ -17,9 +17,9 @@ function document(
 ) {
   const manifest = z
     .record(z.string(), z.object({ file: z.string(), css: z.array(z.string()).optional() }))
-    .parse(JSON.parse(files.read(resolve(packageRoot(), 'dist/web/client/.vite/manifest.json'), 'utf8')));
+    .parse(JSON.parse(files.read(resolve(packageRoot(), '../web/dist/game/client/.vite/manifest.json'), 'utf8')));
 
-  const entry = manifest['web/client.ts'];
+  const entry = manifest['src/game/client.ts'];
 
   if (!entry) throw new Error('Build the launcher client with pnpm build:web first');
 

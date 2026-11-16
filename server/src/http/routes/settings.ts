@@ -24,12 +24,16 @@ export function settingsRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
         })
         .parse(form);
 
-      runtime.services.settings.save(rider.player_id, {
-        ...runtime.services.settings.read(rider.player_id),
-        'ghosts.enabled': form.enableghosts !== undefined,
-        'workouts.trainingpeaks.bridgeFolder': input.bridge_folder,
-        'uploads.strava.method': input.strava_method,
-      });
+      runtime.services.settings.save(
+        rider.player_id,
+        {
+          ...runtime.services.settings.read(rider.player_id),
+          'ghosts.enabled': form.enableghosts !== undefined,
+          'workouts.trainingpeaks.bridgeFolder': input.bridge_folder,
+          'uploads.strava.method': input.strava_method,
+        },
+        z.coerce.number().int().min(0).parse(form.revision),
+      );
     }
 
     const settings = runtime.services.settings.resolveRiderSettings(
@@ -49,6 +53,7 @@ export function settingsRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
             'preferences',
             `/settings/${rider.username}/`,
             [
+              hidden('revision', String(runtime.services.settings.revision(rider.player_id))),
               checkbox('enableghosts', 'Enable ghosts', settings.ghosts.enabled),
               field('bridge_folder', 'TrainingPeaks export folder', {
                 value: settings.workouts.trainingpeaks.bridgeFolder,

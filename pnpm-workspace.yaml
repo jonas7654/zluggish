@@ -1,3 +1,6 @@
+packages:
+  - server
+  - web
 # pnpm 12 replaces onlyBuiltDependencies with explicit build decisions.
 allowBuilds:
   '@bufbuild/buf': true

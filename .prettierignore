@@ -12,3 +12,8 @@ server/src/protocol/generated/
 server/node_modules/
 server/dist/
 server/pnpm-lock.yaml
+
+node_modules/
+web/node_modules/
+web/dist/
+pnpm-lock.yaml

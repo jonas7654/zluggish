@@ -191,6 +191,14 @@ export const configSchema = z
     network: z
       .strictObject({
         host: listenerHost.default('127.0.0.1'),
+        web: z
+          .strictObject({
+            enabled: z.boolean().default(true),
+            host: listenerHost.nullable().default(null),
+            port: z.number().int().min(1).max(65_535).default(8080),
+          })
+          .prefault({})
+          .readonly(),
         cdn: z
           .strictObject({
             host: listenerHost.nullable().default(null),

@@ -43,7 +43,7 @@ export function assetRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
   app.get('/static/launcher-ui/*', (c) => {
     const file = inside(
-      resolve(packageRoot(), 'dist/web/client/assets'),
+      resolve(packageRoot(), '../web/dist/game/client/assets'),
       c.req.path.slice('/static/launcher-ui/assets'.length),
     );
 

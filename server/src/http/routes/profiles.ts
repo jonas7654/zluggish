@@ -237,6 +237,10 @@ export function profileRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     if (update.useMetric !== undefined) profile.useMetric = update.useMetric;
 
     if (update.weight !== undefined) profile.weightInGrams = update.weight;
+    const current = runtime.services.accounts.get(user.player_id);
+
+    if (!current?.enabled || current.auth_version !== user.auth_version || current.revision !== user.revision)
+      throw new HTTPException(409, { message: 'Rider changed. Reload and retry.' });
     runtime.services.profiles.save(user.player_id, profile);
 
     return profileResponse(c, user.player_id);
@@ -250,6 +254,10 @@ export function profileRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
     const profile = parseProtobuf(PlayerProfileSchema, new Uint8Array(await c.req.arrayBuffer()));
 
+    const current = runtime.services.accounts.get(user.player_id);
+
+    if (!current?.enabled || current.auth_version !== user.auth_version || current.revision !== user.revision)
+      throw new HTTPException(409, { message: 'Rider changed. Reload and retry.' });
     runtime.services.profiles.save(user.player_id, profile);
 
     return c.body(null, 204);

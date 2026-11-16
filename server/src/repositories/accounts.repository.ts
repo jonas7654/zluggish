@@ -1,3 +1,5 @@
+import { normalizeLoginName } from '#src/dtos/management.dto';
+import { atomic } from '#src/db/transaction';
 import { integer } from '#src/db/values';
 import type { IntegerInput } from '#src/db/values';
 import { query, SqliteExecutor } from '#src/db/query';
@@ -15,7 +17,9 @@ export const riderSchema = z.object({
   pass_hash: z.string().nullable(),
   auth_version: z.number().int(),
   official_player_id: z.string().nullable(),
-  is_admin: z.number(),
+  role: z.enum(['rider', 'administrator']),
+  enabled: z.number().int().min(0).max(1),
+  revision: z.number().int().positive(),
 });
 
 export type Rider = z.infer<typeof riderSchema>;
@@ -23,7 +27,7 @@ export type Rider = z.infer<typeof riderSchema>;
 export class AccountsRepository {
   private readonly executor: SqliteExecutor;
 
-  constructor(db: DatabaseSync) {
+  constructor(private readonly db: DatabaseSync) {
     this.executor = new SqliteExecutor(db);
   }
 
@@ -37,7 +41,9 @@ export class AccountsRepository {
         'last_name',
         'pass_hash',
         'auth_version',
-        'is_admin',
+        'role',
+        'enabled',
+        'revision',
         sql<string | null>`cast(official_player_id as text)`.as('official_player_id'),
       ]);
   }
@@ -60,7 +66,7 @@ export class AccountsRepository {
   }
 
   byUsername(username: string): Rider | null {
-    const row = this.executor.get(this.selection().where('username', '=', username));
+    const row = this.executor.get(this.selection().where(sql`lower(username)`, '=', normalizeLoginName(username)));
 
     return row ? riderSchema.parse(row) : null;
   }
@@ -81,18 +87,44 @@ export class AccountsRepository {
     this.executor.run(query.updateTable('account_state').set({ setup_complete: 1 }).where('id', '=', 1));
   }
 
-  // Password change (including removing protection) revokes every older player:version identity.
+  // Offline recovery preserves disabled state unless administrator access is requested.
   setPassword(id: number, hash: string | null, admin: boolean) {
-    this.executor.run(
-      query
-        .updateTable('user')
-        .set({
-          pass_hash: hash,
-          auth_version: sql`auth_version + 1`,
-          ...(admin && { is_admin: 1 }),
-        })
-        .where('player_id', '=', id),
-    );
+    if (!hash) throw new Error('A password is required');
+    atomic(this.db, () => {
+      this.executor.run(
+        query
+          .updateTable('user')
+          .set({
+            pass_hash: hash,
+            auth_version: sql`auth_version + 1`,
+            revision: sql`revision + 1`,
+            ...(admin && { role: 'administrator' as const, enabled: 1 }),
+          })
+          .where('player_id', '=', id),
+      );
+      this.executor.run(
+        query
+          .deleteFrom('rider_document')
+          .where('player_id', '=', id)
+          .where('name', 'in', ['encryption_key.bin', 'relay-auth-version']),
+      );
+
+      if (admin) this.executor.run(query.updateTable('web_setup_state').set({ state: 'complete' }).where('id', '=', 1));
+      this.executor.run(
+        query.insertInto('management_audit').values({
+          actor_kind: 'offline operator',
+          actor_player_id: null,
+          target_kind: 'rider',
+          target_id: String(id),
+          action: admin ? 'recover-administrator' : 'recover-password',
+          timestamp: Date.now(),
+          operation_id: null,
+          reason: '',
+          before_value: null,
+          after_value: null,
+        }),
+      );
+    });
   }
 
   updateImportedProfile(id: number, firstName: string, lastName: string, officialId: IntegerInput | null) {
@@ -100,6 +132,7 @@ export class AccountsRepository {
       query
         .updateTable('user')
         .set({
+          revision: sql`revision + 1`,
           first_name: firstName,
           last_name: lastName,
           official_player_id: officialId === null ? null : integer(officialId),
@@ -110,7 +143,10 @@ export class AccountsRepository {
 
   updateName(id: number, firstName: string, lastName: string) {
     this.executor.run(
-      query.updateTable('user').set({ first_name: firstName, last_name: lastName }).where('player_id', '=', id),
+      query
+        .updateTable('user')
+        .set({ first_name: firstName, last_name: lastName, revision: sql`revision + 1` })
+        .where('player_id', '=', id),
     );
   }
 }

@@ -82,6 +82,7 @@ await test('Calendar clears pending map and climb selections for the launching c
       enableghosts: 'on',
       strava_method: 'free',
       bridge_folder: '/tmp/workouts',
+      revision: String(f.settings.revision(f.rider.player_id)),
     });
 
     assert.equal(response4.status, 302);

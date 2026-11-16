@@ -1,0 +1,30 @@
+{
+  "name": "@zluggish/web",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./types": "./src/lib/game-app.dto.d.ts",
+    "./render": {
+      "types": "./src/game/render.d.ts",
+      "development": "./src/game/server.ts",
+      "default": "./dist/game/server/entry.js"
+    }
+  },
+  "scripts": {
+    "build": "pnpm build:game && pnpm build:app",
+    "build:game": "vite build --mode game && vite build --ssr --mode game",
+    "build:app": "vite build --mode app",
+    "check": "svelte-check --tsconfig tsconfig.json"
+  },
+  "dependencies": {
+    "svelte": "5.57.3"
+  },
+  "devDependencies": {
+    "@fontsource/montserrat": "5.2.8",
+    "@sveltejs/vite-plugin-svelte": "7.3.1",
+    "vite": "8.3.8",
+    "svelte-check": "4.7.8",
+    "typescript-eslint": "^8.72.2",
+    "typescript": "^6.0.3"
+  }
+}

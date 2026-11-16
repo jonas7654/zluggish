@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { UploadJob } from '../../src/dtos/launcher.dto.js';
+  import type { UploadJob } from '../lib/game-app.dto';
 
   let {
     initial,

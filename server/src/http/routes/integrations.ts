@@ -4,19 +4,10 @@ import { launcherRedirect } from '#src/http/launcher/results';
 import { RemovableCredentialFile, StravaMethod } from '#src/enum';
 import { authenticated, csrf } from '#src/http/routes/accounts';
 import type { HttpRuntime as Runtime, RuntimeEnv } from '#src/http/runtime';
-import { RestartScheduler } from '#src/node/lifecycle/restart';
 import type { Rider } from '#src/repositories/accounts.repository';
 import type { Context, Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
-
-function admin(c: Env) {
-  const rider = authenticated(c);
-
-  if (!rider.is_admin) throw new HTTPException(403);
-
-  return { rider, allowed: true };
-}
 
 type Env = Context<RuntimeEnv>;
 
@@ -28,11 +19,6 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
   const service = runtime.services.integrations;
 
   const connections = runtime.services.connections;
-
-  const restart = new RestartScheduler(
-    (message) => runtime.services.social.sendMessage(message),
-    runtime.stop ?? (() => process.kill(process.pid, 'SIGINT')),
-  );
 
   const documents = runtime.services.documents;
 
@@ -525,53 +511,5 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     } catch {
       return c.body(null, 204);
     }
-  });
-
-  app.post('/restart', async (c) => {
-    const { rider, allowed } = admin(c);
-    const input = await csrf(c, runtime);
-
-    if (input.confirm_action !== 'on') throw new HTTPException(400, { message: 'Confirm the server command first.' });
-
-    if (allowed) restart.start();
-
-    return launcherPage(
-      c,
-      runtime,
-      model(c, 'message', 'Server', [], {
-        message: 'Restart scheduled. The server will disconnect riders when it restarts.',
-      }),
-      `/user/${rider.username}/`,
-    );
-  });
-
-  app.post('/cancelrestart', async (c) => {
-    const { rider, allowed } = admin(c);
-    await csrf(c, runtime);
-
-    if (allowed) restart.cancel();
-
-    return launcherPage(
-      c,
-      runtime,
-      model(c, 'message', 'Server', [], { message: 'Restart canceled.' }),
-      `/user/${rider.username}/`,
-    );
-  });
-
-  app.post('/reloadbots', async (c) => {
-    const { rider, allowed } = admin(c);
-    const input = await csrf(c, runtime);
-
-    if (input.confirm_action !== 'on') throw new HTTPException(400, { message: 'Confirm the server command first.' });
-
-    if (allowed) await runtime.world.simulation?.reload();
-
-    return launcherPage(
-      c,
-      runtime,
-      model(c, 'message', 'Server', [], { message: 'Bots reloaded.' }),
-      `/user/${rider.username}/`,
-    );
   });
 }

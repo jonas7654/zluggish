@@ -5,11 +5,15 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
-function sources(directory: string): string[] {
+function sources(directory: string, frontend = false): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const file = join(directory, entry.name);
 
-    return entry.isDirectory() ? sources(file) : file.endsWith('.ts') && !file.endsWith('.spec.ts') ? file : [];
+    return entry.isDirectory()
+      ? sources(file, frontend)
+      : (file.endsWith('.ts') || (frontend && file.endsWith('.svelte'))) && !file.endsWith('.spec.ts')
+        ? file
+        : [];
   });
 }
 
@@ -112,5 +116,21 @@ await test('DTOs do not depend on application implementation layers', () => {
         `${file} must not depend on ${statement.moduleSpecifier.text}`,
       );
     }
+  }
+});
+
+await test('web entries and shared code have separate dependency boundaries', () => {
+  const root = fileURLToPath(new URL('../../web/src/', import.meta.url));
+
+  for (const file of sources(root, true)) {
+    const text = readFileSync(file, 'utf8');
+    assert.ok(!/from ['"](?:[^'"]*server\/|#src\/)/.test(text), `${file} imports backend code`);
+
+    if (file.includes('/game/')) assert.ok(!/from ['"][^'"]*app\//.test(text), `${file} imports the web entry`);
+
+    if (file.includes('/app/')) assert.ok(!/from ['"][^'"]*game\//.test(text), `${file} imports the game entry`);
+
+    if (/\/(theme|components|lib)\//.test(file))
+      assert.ok(!/from ['"][^'"]*(game|app)\//.test(text), `${file} imports an entry`);
   }
 });

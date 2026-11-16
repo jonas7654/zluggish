@@ -7,6 +7,8 @@ import { resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 
 export class AccountsService extends BaseService {
+  onRevoke: ((id: number) => void) | undefined;
+
   readonly db: DatabaseSync;
 
   readonly repository: AccountsRepository;
@@ -43,7 +45,7 @@ export class AccountsService extends BaseService {
     const [id = 0, version] = identity.split(':').map(Number);
     const rider = this.get(id);
 
-    return rider && rider.auth_version === version ? rider : null;
+    return rider && rider.enabled === 1 && rider.pass_hash && rider.auth_version === version ? rider : null;
   }
 
   async create(name: string, password: string, owner = false, username?: string): Promise<Rider> {
@@ -84,7 +86,6 @@ export class AccountsService extends BaseService {
         pass_hash: passwordHash,
         auth_version: 1,
         official_player_id: null,
-        is_admin: owner ? 1 : 0,
       });
 
       if (owner) this.repository.finishSetup();
@@ -106,12 +107,35 @@ export class AccountsService extends BaseService {
   }
 
   async verify(rider: Rider, password: string) {
-    return this.cryptoRepository.verifyPassword(rider.pass_hash, password);
+    if (!rider.enabled || !rider.pass_hash) return false;
+    const valid = await this.cryptoRepository.verifyPassword(rider.pass_hash, password);
+    const current = this.get(rider.player_id);
+
+    return !!(
+      valid &&
+      current?.enabled &&
+      current.auth_version === rider.auth_version &&
+      current.pass_hash === rider.pass_hash &&
+      current.username === rider.username
+    );
   }
 
-  async changePassword(id: number, password: string, admin = false) {
+  async changePassword(id: number, password: string, admin = false, live: () => boolean = () => true) {
     if (!password) throw new ConfigError('Password must not be empty');
-    this.repository.setPassword(id, await this.cryptoRepository.hashPassword(password), admin);
+    const before = this.get(id);
+    const hash = await this.cryptoRepository.hashPassword(password);
+    const current = this.get(id);
+
+    if (
+      !live() ||
+      !before ||
+      !current ||
+      current.auth_version !== before.auth_version ||
+      current.pass_hash !== before.pass_hash
+    )
+      throw new ConfigError('Account changed. Retry.');
+    this.repository.setPassword(id, hash, admin);
+    this.onRevoke?.(id);
   }
 
   close() {

@@ -42,7 +42,7 @@ async function signIn(page: Page, origin: string, id: number, password = 'test-p
 }
 
 for (const javaScriptEnabled of [true, false]) {
-  await test(`first-run signup, protected login and native POST with JavaScript ${javaScriptEnabled}`, async (t) => {
+  await test(`web-created rider, protected login and native POST with JavaScript ${javaScriptEnabled}`, async (t) => {
     const f = await browserFixture(t);
 
     const context = await f.browser.newContext({
@@ -56,13 +56,15 @@ for (const javaScriptEnabled of [true, false]) {
     page.on('pageerror', (error) => {
       errors.push(error.message);
     });
+    await f.services.management.setup({
+      mode: 'new',
+      key: f.services.management.issueSetupKey()!,
+      username: 'browser',
+      first_name: 'New Browser',
+      last_name: 'Rider',
+      password: 'browser-password',
+    });
     await page.goto(`${f.origin}/login/`);
-    await page.waitForURL('**/riders/add/');
-    await page.getByLabel('Name', { exact: true }).fill('New Browser Rider');
-    await page.getByLabel('Password', { exact: true }).fill('browser-password');
-    await page.getByLabel('Confirm password').fill('browser-password');
-    await page.getByRole('button', { name: 'Create rider' }).click();
-    await page.waitForURL('**/login/');
     const rider = f.accounts.list()[0]!;
     await page.getByRole('button', { name: 'New Browser Rider' }).click();
     await page.getByLabel('Password', { exact: true }).fill('wrong');
@@ -284,7 +286,7 @@ await test('a rider switch discards drafts and ignores a late save response', as
   await context.close();
 });
 
-await test('plain forms save settings and connections, review imports, confirm maintenance and change passwords', async (t) => {
+await test('plain forms save settings and connections, review imports and change passwords', async (t) => {
   const f = await browserFixture(t);
   const rider = await f.accounts.create('Plain Rider', 'test-password', true);
   t.mock.method(f.services.workouts, 'syncWorkoutsAutomatically', () => Promise.resolve());
@@ -347,8 +349,7 @@ await test('plain forms save settings and connections, review imports, confirm m
   await page.getByLabel(/I confirm:/).check();
   await submit('Delete existing power curves');
   await page.goto(`${f.origin}/user/${rider.username}/`);
-  await page.getByLabel('I confirm: Reload server bots?').check();
-  await submit('Reload bots');
+  assert.equal(await page.getByRole('button', { name: 'Reload bots', exact: true }).count(), 0);
   await visit('reset');
   await page.getByLabel('Current password').fill('test-password');
   await page.getByLabel('New password').fill('new-local-password');

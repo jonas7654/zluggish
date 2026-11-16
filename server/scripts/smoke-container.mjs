@@ -116,6 +116,10 @@ const child = spawn(process.execPath, ['dist/src/main.js', '--config', file], {
 });
 
 let errors = '';
+let startupOutput = '';
+child.stdout.on('data', (bytes) => {
+  startupOutput += bytes;
+});
 
 child.stderr.on('data', (bytes) => (errors += bytes));
 
@@ -144,22 +148,35 @@ try {
     assert.ok(value);
     return value;
   }
-  const setup = await uiRequest('/riders/add/');
-  const setupToken = token(await setup.text());
-  assert.equal(
-    (
-      await uiRequest('/riders/add/', {
-        method: 'POST',
-        body: new URLSearchParams({
-          csrf_token: setupToken,
-          display_name: 'Container Rider',
-          password: 'container-password',
-          confirm_password: 'container-password',
-        }),
-      })
-    ).status,
-    302,
-  );
+  const state = await fetch('http://127.0.0.1:8080/api/setup');
+  const stateBody = await state.json();
+  const webCookie = state.headers.getSetCookie().at(-1)?.split(';', 1)[0];
+  const key = /Setup key: ([A-Z0-9-]+)/.exec(startupOutput)?.[1];
+  assert.ok(key);
+  const setup = await fetch('http://127.0.0.1:8080/api/setup', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Cookie: webCookie,
+      Origin: 'http://127.0.0.1:8080',
+      'X-CSRF-Token': stateBody.csrf,
+    },
+    body: JSON.stringify({
+      mode: 'new',
+      key,
+      username: 'container',
+      first_name: 'Container',
+      last_name: 'Rider',
+      password: 'container-password',
+    }),
+  });
+  assert.equal(setup.status, 200, await setup.text());
+  assert.equal((await uiRequest('/riders/add/')).status, 404);
+  for (const path of ['/setup', '/manage/riders/1', '/password']) {
+    const page = await fetch(`http://127.0.0.1:8080${path}`);
+    assert.equal(page.status, 200);
+    assert.match(await page.text(), /assets\/index-.*\.js/);
+  }
   const picker = await uiRequest('/login/');
   const pickerHtml = await picker.text();
   const playerId = /name="player_id"\s+value="(\d+)"/.exec(pickerHtml)?.[1];

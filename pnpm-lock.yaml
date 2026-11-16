@@ -164,7 +164,9 @@ settings:
 
 importers:
 
-  .:
+  .: {}
+
+  server:
     dependencies:
       '@bufbuild/protobuf':
         specifier: ^2.0.0
@@ -178,6 +180,9 @@ importers:
       '@types/node':
         specifier: ^24.0.0
         version: 24.19.2
+      '@zluggish/web':
+        specifier: workspace:*
+        version: link:../web
       argon2:
         specifier: ^0.45.2
         version: 0.45.2
@@ -287,6 +292,31 @@ importers:
       tsx:
         specifier: ^4.0.0
         version: 4.23.15
+      typescript-eslint:
+        specifier: ^8.72.2
+        version: 8.72.2(eslint@10.15.0(jiti@2.7.0))(typescript@6.0.3)
+      vite:
+        specifier: 8.3.8
+        version: 8.3.8(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)
+
+  web:
+    dependencies:
+      svelte:
+        specifier: 5.57.3
+        version: 5.57.3(@typescript-eslint/types@8.72.2)
+    devDependencies:
+      '@fontsource/montserrat':
+        specifier: 5.2.8
+        version: 5.2.8
+      '@sveltejs/vite-plugin-svelte':
+        specifier: 7.3.1
+        version: 7.3.1(svelte@5.57.3(@typescript-eslint/types@8.72.2))(vite@8.3.8(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
+      svelte-check:
+        specifier: 4.7.8
+        version: 4.7.8(picomatch@4.0.7)(svelte@5.57.3(@typescript-eslint/types@8.72.2))(typescript@6.0.3)
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
       typescript-eslint:
         specifier: ^8.72.2
         version: 8.72.2(eslint@10.15.0(jiti@2.7.0))(typescript@6.0.3)

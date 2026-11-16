@@ -1,8 +1,7 @@
-import type { LauncherPage } from '#src/dtos/launcher.dto';
 import { checkbox, field, form as makeForm, hidden, model } from '#src/http/launcher/models';
 import { launcherPage } from '#src/http/launcher/render';
 import { browserJson, launcherRedirect } from '#src/http/launcher/results';
-import { climbSchema, createUserSchema } from '#src/dtos/accounts.dto';
+import { climbSchema } from '#src/dtos/accounts.dto';
 import type { HttpRuntime as Runtime, RuntimeEnv } from '#src/http/runtime';
 import type { Rider } from '#src/repositories/accounts.repository';
 import { REMEMBER_SECONDS } from '#src/services/browser-session.service';
@@ -77,7 +76,7 @@ export async function csrf(c: Context<RuntimeEnv>, runtime: Runtime): Promise<Fo
     .parse(form);
 }
 
-export function peerAddress(c: Context<RuntimeEnv>) {
+export function peerAddress(c: Context) {
   try {
     return getConnInfo(c).remote.address ?? '';
   } catch {
@@ -148,7 +147,7 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
   });
 
   app.get('/', (c) => launcherRedirect(c, '/login/'));
-  app.on(['GET', 'POST'], '/signup/', (c) => launcherRedirect(c, '/riders/add/'));
+  app.on(['GET', 'POST'], '/signup/', (c) => c.notFound());
 
   // The rider list; an error shows above it.
   function loginPage(c: Context<RuntimeEnv>, error = '') {
@@ -156,21 +155,33 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       c,
       'login',
       'Who’s riding?',
-      accounts.list().map((user) =>
-        makeForm(`rider-${user.player_id}`, '/login/', [hidden('player_id', String(user.player_id))], riderName(user), {
-          rider: {
-            initials: `${user.first_name.charAt(0)}${user.last_name.charAt(0)}`.toUpperCase(),
-            photo: runtime.services.files.exists(
-              resolve(runtime.services.profiles.folder(user.player_id), 'avatarLarge.jpg'),
-            )
-              ? `/download/${user.player_id}/avatarLarge.jpg`
-              : null,
-            // Riders created without an email get a placeholder username that means nothing to people.
-            email: user.username.endsWith('@local.invalid') ? null : user.username,
-          },
-        }),
-      ),
-      { message: error, failed: !!error, links: [{ href: '/riders/add/', label: 'Add rider' }] },
+      accounts
+        .list()
+        .filter((user) => user.enabled)
+        .map((user) =>
+          makeForm(
+            `rider-${user.player_id}`,
+            '/login/',
+            [hidden('player_id', String(user.player_id))],
+            riderName(user),
+            {
+              rider: {
+                initials: `${user.first_name.charAt(0)}${user.last_name.charAt(0)}`.toUpperCase(),
+                photo: runtime.services.files.exists(
+                  resolve(runtime.services.profiles.folder(user.player_id), 'avatarLarge.jpg'),
+                )
+                  ? `/download/${user.player_id}/avatarLarge.jpg`
+                  : null,
+                // Riders created without an email get a placeholder username that means nothing to people.
+                email: user.username.endsWith('@local.invalid') ? null : user.username,
+              },
+            },
+          ),
+        ),
+      {
+        message: error || (accounts.list().length === 0 ? 'Ask the operator to complete setup in the web app.' : ''),
+        failed: !!error,
+      },
     );
   }
 
@@ -178,7 +189,6 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     const session = c.get('browser');
     sessions.transition(session, { type: 'clear-selection' });
 
-    if (!accounts.setupComplete()) return launcherRedirect(c, '/riders/add/');
     let error = '';
 
     if (c.req.method === 'POST') {
@@ -196,7 +206,7 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
         runtime.world.lifecycle.log.warn(
           'auth.login_no_password',
           `Login failed: rider ${user.player_id} (${riderName(user)}) has no password and cannot sign in until an administrator sets one. ` +
-            'Stop the server, write the new password to a file, then run: ' +
+            'Set the password in the web app management area. Or stop the server, write the new password to a file, then run: ' +
             `zluggish accounts recover --user ${user.player_id} --password-file PATH. ` +
             'With Docker Compose, put the file in the storage folder and run: ' +
             `docker compose run --rm zluggish zluggish accounts recover --user ${user.player_id} --password-file /usr/src/app/zluggish/storage/FILE. ` +
@@ -216,6 +226,8 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
       if (signedIn) {
         const user = signedIn;
+
+        if (!accounts.identity(accounts.identityOf(user))) throw new HTTPException(401);
 
         if (sessions.browsers.get(c.get('browserId')) !== session) throw new HTTPException(401);
         const secure = c.req.url.startsWith('https:');
@@ -266,58 +278,7 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     return launcherPage(c, runtime, loginPage(c, error));
   });
 
-  app.on(['GET', 'POST'], '/riders/add/', async (c) => {
-    const first = !accounts.setupComplete();
-    const current = c.get('rider');
-
-    if (!first && !runtime.config.accounts.allowSelfRegistration && !current?.is_admin) throw new HTTPException(403);
-    let error = '';
-
-    if (c.req.method === 'POST') {
-      const form = await csrf(c, runtime);
-      const password = z.string().catch('').parse(form.password);
-
-      if (!password) error = 'Choose a password for this rider.';
-      else if (password === z.string().catch('').parse(form.confirm_password)) {
-        await accounts.create(z.string().parse(form.display_name), password, first);
-
-        return launcherRedirect(c, '/login/');
-      } else error = 'Passwords did not match.';
-    }
-
-    const extra: Partial<LauncherPage> = { message: error, failed: !!error };
-
-    if (!first) extra.back = { href: '/login/', label: 'Back to riders' };
-
-    return launcherPage(
-      c,
-      runtime,
-      model(
-        c,
-        'add',
-        'Add rider',
-        [
-          makeForm(
-            'add-rider',
-            '/riders/add/',
-            [
-              field('display_name', 'Name', { value: first ? 'zluggish' : '', maxLength: 100, required: true }),
-              field('password', 'Password', { type: 'password', required: true, autocomplete: 'new-password' }),
-              field('confirm_password', 'Confirm password', {
-                type: 'password',
-                required: true,
-                matches: 'password',
-                autocomplete: 'new-password',
-              }),
-            ],
-            'Create rider',
-            { primary: true },
-          ),
-        ],
-        extra,
-      ),
-    );
-  });
+  app.on(['GET', 'POST'], '/riders/add/', (c) => c.notFound());
 
   app.post('/riders/switch/', async (c) => {
     await csrf(c, runtime);
@@ -415,16 +376,6 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
             { navigation: true, primary: true },
           ),
           makeForm('switch', '/riders/switch/', [], 'Switch rider'),
-          ...(user.is_admin
-            ? [
-                makeForm('restart', '/restart', [], 'Restart with countdown', {
-                  title: 'Server',
-                  confirmation: 'Schedule a server restart? Riders will be disconnected when the countdown ends.',
-                }),
-                makeForm('cancel-restart', '/cancelrestart', [], 'Cancel restart'),
-                makeForm('reload-bots', '/reloadbots', [], 'Reload bots', { confirmation: 'Reload server bots?' }),
-              ]
-            : []),
         ],
         {
           back: { href: '/login/', label: 'Choose another rider' },
@@ -464,7 +415,14 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
       if (password !== form.confirm_password) throw new HTTPException(400);
 
-      await accounts.changePassword(user.player_id, password);
+      await accounts.changePassword(
+        user.player_id,
+        password,
+        false,
+        () =>
+          !!accounts.identity(accounts.identityOf(user)) &&
+          (!c.get('browserId') || sessions.current(c.get('browserId'), c.get('browser'), accounts.identityOf(user))),
+      );
       sessions.end(c.get('browserId'));
 
       return launcherRedirect(c, '/login/');
@@ -620,19 +578,7 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     return c.json(result);
   });
 
-  app.post('/api/users', async (c) => {
-    if (!accounts.setupComplete() || !runtime.config.accounts.allowSelfRegistration) throw new HTTPException(403);
-
-    const input = createUserSchema.parse(await c.req.json());
-
-    try {
-      await accounts.create(`${input.profile.firstName} ${input.profile.lastName}`, input.password, false, input.email);
-    } catch {
-      throw new HTTPException(400);
-    }
-
-    return c.body(null, 200);
-  });
+  app.post('/api/users', (c) => c.notFound());
   app.post('/api/users/password-reset/', async (c) => {
     const user = authenticated(c);
 
@@ -644,7 +590,14 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
     if (password !== form['password-confirm']) throw new HTTPException(400);
 
-    await accounts.changePassword(user.player_id, password);
+    await accounts.changePassword(
+      user.player_id,
+      password,
+      false,
+      () =>
+        !!accounts.identity(accounts.identityOf(user)) &&
+        (!c.get('browserId') || sessions.current(c.get('browserId'), c.get('browser'), accounts.identityOf(user))),
+    );
     sessions.end(c.get('browserId'));
 
     return c.body(null, 204);

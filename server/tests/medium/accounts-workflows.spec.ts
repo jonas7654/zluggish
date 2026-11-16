@@ -1,4 +1,4 @@
-import { inputValue } from '#tests/support/html';
+import { responseStatus, inputValue } from '#tests/support/html';
 import { createApp } from '#src/http/app';
 import { migrateAccounts } from '#src/migrations/accounts';
 import { LoginRequestSchema, LoginResponseSchema } from '#src/protocol/generated/login_pb';
@@ -59,69 +59,28 @@ function browser(app: ReturnType<typeof createApp>) {
   return client;
 }
 
-await test('first-owner setup requires a password and sign-in is a real HTTP flow', async (t) => {
+await test('empty game app directs the operator to web setup and cannot register riders', async (t) => {
   const f = runtimeFixture(t);
   const client = browser(f.app);
+  const picker = await client.request('/login/');
+  assert.equal(picker.status, 200);
+  assert.match(await picker.text(), /complete setup in the web app/);
 
-  for (const path of ['/launcher', '/launcher/ride', '/ride']) {
-    const launch = await client.request(path);
-    assert.equal(launch.status, 302);
-    assert.equal(launch.headers.get('Location'), '/login/');
-  }
-
-  const redirect = await client.request('/login/');
-  assert.equal(redirect.status, 302);
-  assert.equal(redirect.headers.get('Location'), '/riders/add/');
-  const setup = await client.request(redirect.headers.get('Location')!);
-  const html = await setup.text();
-  assert.match(html, /<link rel="stylesheet" href="\/static\/launcher-ui\/assets\/client-[\w-]+\.css"/);
-  const csrf = inputValue(html, 'csrf_token') ?? '';
-
-  assert.match(html, /<title>Add rider<\/title>/);
-  assert.ok(!html.includes('setup_token'));
-
-  const rejected = await client.request('/riders/add/', {
-    method: 'POST',
-    body: new URLSearchParams({ display_name: 'Missing CSRF' }),
-  });
-
-  assert.equal(rejected.status, 400);
-
-  const passwordless = await client.request('/riders/add/', {
-    method: 'POST',
-    body: new URLSearchParams({ csrf_token: csrf, display_name: 'Alex Rider' }),
-  });
-
-  assert.equal(passwordless.status, 200);
-  assert.match(await passwordless.text(), /Choose a password for this rider\./);
-  assert.equal(f.accounts.get(1), null);
-
-  const response = await client.request('/riders/add/', {
-    method: 'POST',
-    body: new URLSearchParams({
-      csrf_token: csrf,
-      display_name: 'Alex Rider',
-      password: 'owner-password',
-      confirm_password: 'owner-password',
-    }),
-  });
-
-  assert.equal(response.status, 302);
-  assert.equal(f.accounts.get(1)?.first_name, 'Alex');
-  assert.equal(f.accounts.get(1)?.last_name, 'Rider');
-  assert.equal(f.accounts.get(1)?.is_admin, 1);
-  assert.equal(existsSync(resolve(f.accounts.storage, 'setup-token.txt')), false);
-  await client.picker();
-
-  const response3 = await client.form('/login/', {
-    player_id: '1',
-    step: 'password',
+  for (const path of ['/riders/add/', '/signup/', '/api/users'])
+    assert.equal(await responseStatus(client.request(path, { method: 'POST' })), 404);
+  const service = f.services.management;
+  await service.setup({
+    mode: 'new',
+    key: service.issueSetupKey()!,
+    username: 'alex',
+    first_name: 'Alex',
+    last_name: 'Rider',
     password: 'owner-password',
   });
-
-  assert.equal(response3.status, 302);
-  const response4 = await client.request('/api/profiles/me');
-  assert.equal(response4.status, 200);
+  await client.picker();
+  const login = await client.form('/login/', { player_id: '1', step: 'password', password: 'owner-password' });
+  assert.equal(login.status, 302);
+  assert.equal(await responseStatus(client.request('/api/profiles/me')), 200);
 });
 
 await test('choosing a rider asks for the password unless this computer remembers it', async (t) => {

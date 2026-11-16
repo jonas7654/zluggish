@@ -35,6 +35,21 @@ export async function migrateAccounts(storage: string, soloPlayer?: number) {
       if (found > SCHEMA_VERSION || found < 3)
         throw new ConfigError('Unsupported activity database version; migrate with the original release first');
 
+      // A current account schema is already migrated. Never recreate legacy permissions.
+      if (found >= 8) {
+        db.exec(
+          "BEGIN IMMEDIATE; DELETE FROM rider_document WHERE name IN ('encryption_key.bin','relay-auth-version') AND player_id IN (SELECT player_id FROM user WHERE pass_hash IS NOT NULL AND pass_hash NOT LIKE '$argon2id$%'); UPDATE user SET pass_hash=NULL,auth_version=auth_version+1,revision=revision+1 WHERE pass_hash IS NOT NULL AND pass_hash NOT LIKE '$argon2id$%'; COMMIT;",
+        );
+
+        if (path !== destination) {
+          db.exec('PRAGMA journal_mode=DELETE');
+          db.close();
+          renameSync(path, destination);
+        }
+
+        return;
+      }
+
       // A merged database keeps its version; the next start upgrades older ones.
       version = Math.max(found, 5);
     }

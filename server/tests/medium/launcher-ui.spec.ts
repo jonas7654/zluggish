@@ -38,6 +38,7 @@ await test('Svelte SSR settings keeps identity, CSRF, multipart and static asset
 
   const form = new FormData();
   form.set('csrf_token', props.csrf);
+  form.set('revision', String(f.settings.revision(f.rider.player_id)));
   form.set('bridge_folder', 'test-folder');
   form.set('strava_method', 'free');
 
@@ -112,6 +113,7 @@ await test('JSON mutations keep the session rider as owner, return canonical val
       headers: { Accept: 'application/json', 'X-Launcher-Context': context },
       body: new URLSearchParams({
         csrf_token: props.csrf,
+        revision: String(f.settings.revision(f.rider.player_id)),
         bridge_folder: 'new-folder',
         strava_method: 'free',
         ...fields,

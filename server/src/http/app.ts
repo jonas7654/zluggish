@@ -2,6 +2,7 @@ import { packageVersion } from '#src/config/load';
 import { browserJson } from '#src/http/launcher/results';
 import { ApplicationError } from '#src/errors';
 import { parseProtobuf } from '#src/http/protobuf';
+import { rideCompletionRoutes } from '#src/http/routes/ride-completion';
 import { accountRoutes, authenticated } from '#src/http/routes/accounts';
 import { activityRoutes } from '#src/http/routes/activities';
 import { assetRoutes } from '#src/http/routes/assets';
@@ -42,7 +43,7 @@ export interface PublicMetadata {
   variants: string;
 }
 
-export function createApp(metadata: PublicMetadata, runtime?: Runtime) {
+export function createGameApp(metadata: PublicMetadata, runtime?: Runtime) {
   const app = new Hono<RuntimeEnv>();
   const log = runtime?.world.lifecycle.log ?? new LoggingRepository();
   app.use('*', async (c, next) => {
@@ -75,6 +76,7 @@ export function createApp(metadata: PublicMetadata, runtime?: Runtime) {
     });
 
   if (runtime) {
+    rideCompletionRoutes(app, runtime);
     accountRoutes(app, runtime);
     profileRoutes(app, runtime);
     relayRoutes(app, runtime);
@@ -208,3 +210,6 @@ export function createApp(metadata: PublicMetadata, runtime?: Runtime) {
 
   return app;
 }
+
+// Compatibility export for embedders. Both names construct only the game route table.
+export const createApp = createGameApp;

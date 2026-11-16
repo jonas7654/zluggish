@@ -179,7 +179,7 @@ export function eventRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       );
     }
 
-    if (event.organizerProfileId !== user.player_id && !user.is_admin) throw new HTTPException(403);
+    if (event.organizerProfileId !== user.player_id) throw new HTTPException(403);
 
     if (c.req.method === 'DELETE') {
       service.deleteMeetup(event);

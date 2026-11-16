@@ -594,7 +594,11 @@ export class Simulation {
 
     const user = this.runtime.accounts.get(Number(id));
 
-    if (!user?.is_admin) return 'This command requires the server owner.';
+    if (
+      !user ||
+      ['group', 'groupall', 'autogroup', 'autogroupall', 'stopautogroup', 'disperse', 'peloton'].includes(name ?? '')
+    )
+      return 'Use the web app management area for server commands.';
 
     if (name === 'group' || name === 'groupall') {
       this.group(id, name === 'groupall');

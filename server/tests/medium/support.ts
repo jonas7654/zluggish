@@ -48,7 +48,14 @@ export async function mediumBrowser(f: Awaited<ReturnType<typeof mediumFixture>>
   };
 
   const form = (path: string, fields: Record<string, string> = {}) =>
-    request(path, { method: 'POST', body: new URLSearchParams({ csrf_token: csrf, ...fields }) });
+    request(path, {
+      method: 'POST',
+      body: new URLSearchParams({
+        csrf_token: csrf,
+        revision: String(f.settings.revision(rider.player_id)),
+        ...fields,
+      }),
+    });
 
   const upload = (path: string, files: FormData) => {
     files.set('csrf_token', csrf);

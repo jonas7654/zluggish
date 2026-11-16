@@ -15,7 +15,34 @@ export interface Database {
     pass_hash: Generated<string | null>;
     auth_version: Generated<Integer>;
     official_player_id: Generated<NullableInteger>;
-    is_admin: Generated<Integer>;
+    role: Generated<'rider' | 'administrator'>;
+    enabled: Generated<Integer>;
+    revision: Generated<Integer>;
+  };
+  web_setup_state: { id: number; state: 'unclaimed' | 'complete' };
+  management_audit: {
+    id: Generated<Integer>;
+    actor_kind: string;
+    actor_player_id: number | null;
+    target_kind: string;
+    target_id: string | null;
+    action: string;
+    timestamp: number;
+    operation_id: string | null;
+    reason: string;
+    before_value: string | null;
+    after_value: string | null;
+  };
+  management_operation: {
+    actor_player_id: number;
+    operation_id: string;
+    action: string;
+    target: string;
+    fingerprint: string;
+    status: string;
+    result: string | null;
+    created_at: number;
+    updated_at: number;
   };
   account_state: {
     id: Generated<Integer>;
@@ -222,9 +249,9 @@ export interface Database {
     last_error: Generated<string | null>;
     updated_at: Generated<NullableInteger>;
   };
-  rider_settings: { player_id: Integer; value: string };
+  rider_settings: { player_id: Integer; value: string; revision: Generated<Integer> };
   config_migration: { id: string };
-  world_settings: { id: string; value: string };
+  world_settings: { id: string; value: string; revision: Generated<Integer> };
   rider_document: { player_id: Integer; name: string; data: Uint8Array; encrypted: Generated<Integer> };
   bookmark: { player_id: Integer; course: Integer; sport: Integer; name: string; state: Uint8Array };
   rider_import: { stage: string; player_id: Integer };

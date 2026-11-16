@@ -1,8 +1,8 @@
 import 'vite/modulepreload-polyfill';
-import './theme.css';
+import '../theme/theme.css';
 import { hydrate, mount } from 'svelte';
 import Launcher from './pages/Launcher.svelte';
-import type { LauncherPage } from '../src/dtos/launcher.dto.js';
+import type { LauncherPage } from '../lib/game-app.dto';
 
 const target = document.querySelector<HTMLElement>('#launcher-ui');
 const data = document.querySelector('#launcher-props');

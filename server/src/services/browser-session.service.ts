@@ -189,6 +189,8 @@ export class SessionsService extends BaseService {
   ) {
     const identity = this.accounts.identityOf(rider);
 
+    if (!this.accounts.identity(identity)) throw new ApplicationError(401, 'Account changed. Sign in again.');
+
     return {
       access_token: this.token(identity, templates.access),
       expires_in: 1_000_021_600,

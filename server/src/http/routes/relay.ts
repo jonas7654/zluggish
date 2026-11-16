@@ -39,6 +39,8 @@ export function relayRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
     if (c.req.header('User-Agent')?.toLowerCase().includes('android'))
       await runtime.services.workouts.syncWorkoutsAutomatically(user.player_id, true);
+
+    if (!runtime.services.accounts.identity(runtime.services.accounts.identityOf(user))) throw new HTTPException(401);
     runtime.world.login(BigInt(user.player_id), request.key);
 
     const imported = runtime.services.documents.text(user.player_id, 'economy_config.txt');

@@ -13,3 +13,9 @@ export function inputValue(html: string, name: string) {
 
   return;
 }
+
+export async function responseStatus(response: Promise<Response> | Response) {
+  const result = await Promise.resolve(response);
+
+  return result.status;
+}

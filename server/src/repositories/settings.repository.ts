@@ -1,5 +1,7 @@
 import { overrideSchema, type Overrides, preferenceSchema, type Preference } from '#src/dtos/settings.dto';
 
+import { ApplicationError } from '#src/errors';
+import { sql } from 'kysely';
 import { ConfigError } from '#src/config/index';
 import { riderSettingsSchema } from '#src/config/schema';
 import { query, SqliteExecutor } from '#src/db/query';
@@ -13,6 +15,8 @@ const rowSchema = z.object({ value: z.string() });
 export class SettingsStore {
   private readonly executor: SqliteExecutor;
 
+  private readonly versioned: boolean;
+
   // Read-through caches. This store is the only writer while the server holds the
   // storage lock, so each committed change updates or invalidates its entry.
   private readonly riders = new Map<number, Overrides>();
@@ -25,6 +29,10 @@ export class SettingsStore {
     private readonly owned = false,
   ) {
     this.executor = new SqliteExecutor(db);
+    this.versioned = db
+      .prepare('PRAGMA table_info(rider_settings)')
+      .all()
+      .some((row) => row.name === 'revision');
   }
 
   /** settings.db from before version 6. Offline upgrades write it; the storage
@@ -109,19 +117,37 @@ export class SettingsStore {
     if (cached) return { ...cached };
     const row = this.executor.get(query.selectFrom('rider_settings').select('value').where('player_id', '=', playerId));
     const overrides = row ? overrideSchema.parse(JSON.parse(rowSchema.parse(row).value)) : {};
-    this.riders.set(playerId, overrides);
+
+    if (!this.db.isTransaction) this.riders.set(playerId, overrides);
 
     return { ...overrides };
   }
 
-  save(playerId: number, overrides: Overrides) {
+  revision(playerId: number) {
+    return (
+      this.executor.get(query.selectFrom('rider_settings').select('revision').where('player_id', '=', playerId))
+        ?.revision ?? 0
+    );
+  }
+
+  worldRevision(id: string) {
+    return this.executor.get(query.selectFrom('world_settings').select('revision').where('id', '=', id))?.revision ?? 0;
+  }
+
+  save(playerId: number, overrides: Overrides, expected = this.versioned ? this.revision(playerId) : undefined) {
+    if (expected !== undefined && this.revision(playerId) !== expected)
+      throw new ApplicationError(409, 'Settings changed. Review the new data.');
     const candidate = preferenceSchema.parse({ playerId, overrides });
     const value = JSON.stringify(candidate.overrides);
     this.executor.run(
       query
         .insertInto('rider_settings')
         .values({ player_id: candidate.playerId, value })
-        .onConflict((conflict) => conflict.column('player_id').doUpdateSet({ value })),
+        .onConflict((conflict) =>
+          conflict
+            .column('player_id')
+            .doUpdateSet({ value, ...(this.versioned && { revision: sql`rider_settings.revision + 1` }) }),
+        ),
     );
 
     if (this.db.isTransaction) this.riders.delete(candidate.playerId);
@@ -164,7 +190,8 @@ export class SettingsStore {
 
     const row = this.executor.get(query.selectFrom('world_settings').select('value').where('id', '=', id));
     const value = row ? z.record(z.string(), z.json()).parse(JSON.parse(rowSchema.parse(row).value)) : {};
-    this.worlds.set(id, value);
+
+    if (!this.db.isTransaction) this.worlds.set(id, value);
 
     return structuredClone(value);
   }
@@ -175,20 +202,32 @@ export class SettingsStore {
       .map((row) => z.string().parse(row.id));
   }
 
-  saveWorld(id: string, value: Record<string, z.infer<ReturnType<typeof z.json>>>) {
+  saveWorld(
+    id: string,
+    value: Record<string, z.infer<ReturnType<typeof z.json>>>,
+    expected = this.versioned ? this.worldRevision(id) : undefined,
+  ) {
+    if (expected !== undefined && this.worldRevision(id) !== expected)
+      throw new ApplicationError(409, 'Settings changed. Review the new data.');
     const checked = z.record(z.string(), z.json()).parse(value);
     const serialized = JSON.stringify(checked);
     this.executor.run(
       query
         .insertInto('world_settings')
         .values({ id, value: serialized })
-        .onConflict((conflict) => conflict.column('id').doUpdateSet({ value: serialized })),
+        .onConflict((conflict) =>
+          conflict
+            .column('id')
+            .doUpdateSet({ value: serialized, ...(this.versioned && { revision: sql`world_settings.revision + 1` }) }),
+        ),
     );
-    this.worlds.set(id, structuredClone(checked));
+
+    if (this.db.isTransaction) this.worlds.delete(id);
+    else this.worlds.set(id, structuredClone(checked));
   }
 
   resetWorld(id: string) {
-    this.executor.run(query.deleteFrom('world_settings').where('id', '=', id));
+    this.saveWorld(id, {});
     this.worlds.delete(id);
   }
 

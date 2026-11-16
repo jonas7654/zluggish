@@ -172,6 +172,6 @@ await test('failed account creation rolls back rows and folders and leaves the s
   assert.equal(created.player_id, nextId);
   assert.equal(created.first_name, 'New');
   assert.equal(created.last_name, 'Rider');
-  assert.equal(created.is_admin, 0);
+  assert.equal(created.role, 'rider');
   assert.equal(existsSync(resolve(f.accounts.storage, String(nextId))), true);
 });

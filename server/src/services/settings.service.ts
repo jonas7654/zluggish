@@ -11,6 +11,10 @@ export class SettingsService extends BaseService {
     super(context.accounts.repositories);
   }
 
+  revision(id: number) {
+    return this.settingsRepository.revision(id);
+  }
+
   read(...args: Parameters<SettingsStore['read']>) {
     return this.settingsRepository.read(...args);
   }

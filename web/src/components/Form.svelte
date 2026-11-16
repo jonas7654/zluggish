@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import type { FormResult, LauncherForm, LauncherPage, LauncherSaved } from '../../src/dtos/launcher.dto.js';
+  import type { FormResult, LauncherForm, LauncherPage, LauncherSaved } from '../lib/game-app.dto';
   import { safeNavigation, validation, values, visible } from '../lib/forms.js';
 
   let {

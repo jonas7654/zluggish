@@ -1,0 +1,10 @@
+{
+  "name": "zluggish-workspace",
+  "private": true,
+  "packageManager": "pnpm@12.18.0",
+  "scripts": {
+    "build": "pnpm --dir web build && pnpm --dir server exec tsc -p tsconfig.json",
+    "test": "pnpm --dir server test",
+    "check": "pnpm --dir web check && pnpm --dir server check"
+  }
+}

@@ -4,13 +4,13 @@
   font-family: 'Montserrat';
   font-weight: 600;
   font-display: swap;
-  src: url('../node_modules/@fontsource/montserrat/files/montserrat-latin-600-normal.woff2') format('woff2');
+  src: url('@fontsource/montserrat/files/montserrat-latin-600-normal.woff2') format('woff2');
 }
 @font-face {
   font-family: 'Montserrat';
   font-weight: 800;
   font-display: swap;
-  src: url('../node_modules/@fontsource/montserrat/files/montserrat-latin-800-normal.woff2') format('woff2');
+  src: url('@fontsource/montserrat/files/montserrat-latin-800-normal.woff2') format('woff2');
 }
 
 :root {
@@ -51,7 +51,7 @@ body::before {
   z-index: -1;
   background:
     linear-gradient(rgb(20 28 40 / 0.35), rgb(20 28 40 / 0.6)),
-    url('../../assets/cdn/style/background.jpg') center / cover no-repeat;
+    url('../../../assets/cdn/style/background.jpg') center / cover no-repeat;
   filter: blur(14px) saturate(1.1);
 }
 

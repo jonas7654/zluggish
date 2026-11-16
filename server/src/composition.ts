@@ -1,3 +1,5 @@
+import { RideCompletionService } from '#src/services/ride-completion.service';
+import { ManagementService } from '#src/services/management.service';
 import type { RepositoryContext } from '#src/context';
 import { ActivitiesService } from '#src/services/activities.service';
 import { ConnectionsService } from '#src/services/connections.service';
@@ -28,8 +30,13 @@ export function createServices(context: RepositoryContext) {
   context.world.lifecycle.log = logging.child({ component: 'server' });
   context.world.lifecycle.intervalSeconds = context.config.logging.rideProgressIntervalSeconds;
 
+  const rideCompletion = new RideCompletionService(context);
+  context.accounts.onRevoke = (id) => rideCompletion.cancel(id);
+
   const services = {
+    rideCompletion,
     accounts: context.accounts,
+    management: new ManagementService(context, rideCompletion),
     sessions: context.sessions,
     profiles: new ProfilesService(context),
     settings: new SettingsService(context),

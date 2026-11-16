@@ -62,6 +62,9 @@ export async function openRuntime(config: ResolvedConfig, assets: string) {
     resources.defer(runtime.services.metrics.start(config.logging.metricsIntervalSeconds));
     await simulation.ready;
     simulation.start();
+    const completionTimer = setInterval(() => runtime.services.rideCompletion.sweep(), 1000);
+    completionTimer.unref();
+    resources.defer(() => clearInterval(completionTimer));
     runtime.services.durability.start();
     runtime.services.recovery.start();
     runtime.services.uploads.start();

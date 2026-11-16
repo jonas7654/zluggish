@@ -111,7 +111,7 @@ for (const item of cases) {
     assert.equal(backups.length, 1);
     assert.deepEqual(readFileSync(resolve(folder, backups[0]!)), Buffer.from(item.before));
     assert.equal(f.accounts.get(f.rider.player_id)?.auth_version, account?.auth_version);
-    assert.equal(f.accounts.get(f.rider.player_id)?.is_admin, account?.is_admin);
+    assert.equal(f.accounts.get(f.rider.player_id)?.role, account?.role);
     assert.equal(f.services.documents.has(f.other.player_id, item.name), false);
     assert.equal(
       readdirSync(folder).some((name) => name.startsWith('.ts-import-')),
