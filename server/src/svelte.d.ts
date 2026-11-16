@@ -1,4 +1,4 @@
 declare module '*.svelte' {
-  const component: import('svelte').Component<import('#src/dtos/launcher.dto').PrototypePage>;
+  const component: import('svelte').Component<{ page: import('#src/dtos/launcher.dto').LauncherPage }>;
   export default component;
 }

@@ -1,3 +1,4 @@
+import { packageVersion } from '#src/config/load';
 import { createApp } from '#src/http/app';
 import { FeatureRequestSchema, FeatureResponseSchema } from '#src/protocol/generated/variants_pb';
 import { AssetFiles } from '#src/repositories/files.repository';
@@ -21,11 +22,7 @@ await test('public metadata routes preserve response values and content types', 
   assert.equal(info.headers.get('Content-Type'), 'application/json');
   assert.equal(await info.text(), metadata.gameInfo);
   const health = await app.request('/health');
-  assert.deepEqual(await health.json(), {
-    status: 'ok',
-    implementation: 'typescript',
-    rideReady: false,
-  });
+  assert.deepEqual(await health.json(), { name: 'zluggish', version: packageVersion(), status: 'ok' });
 });
 
 await test('machine variant endpoint consumes and returns protobuf, including unknown names', async () => {
@@ -62,7 +59,7 @@ await test('malformed binary input fails without a stack trace', async () => {
 
 await test('malformed protobuf and missing required fields return 400 without changing stored data', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Invalid Input', '', true);
+  const user = await f.accounts.create('Invalid Input', 'test-password', true);
   const headers = { Authorization: `Bearer ${f.sessions.tokens(user, f.tokens).access_token}` };
 
   for (const path of ['/api/segment-results', `/api/profiles/${user.player_id}/in-game-fields`, '/api/users/login']) {
@@ -84,7 +81,7 @@ await test('malformed protobuf and missing required fields return 400 without ch
 
 await test('unexpected failures are logged while responses omit error details', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Broken Profile', '', true);
+  const user = await f.accounts.create('Broken Profile', 'test-password', true);
   new AssetFiles().writeDurable(resolve(f.profiles.folder(user.player_id), 'profile.bin'), new Uint8Array([255]));
   const logged = t.mock.method(console, 'error', () => {});
 

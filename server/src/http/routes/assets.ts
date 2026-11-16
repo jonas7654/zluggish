@@ -10,6 +10,7 @@ const types = new Map([
   ['.jpg', 'image/jpeg'],
   ['.svg', 'image/svg+xml'],
   ['.js', 'text/javascript'],
+  ['.woff2', 'font/woff2'],
   ['.html', 'text/html; charset=utf-8'],
 ]);
 
@@ -41,7 +42,10 @@ export function assetRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     });
 
   app.get('/static/launcher-ui/*', (c) => {
-    const file = inside(resolve(packageRoot(), 'dist/web/client'), c.req.path.slice('/static/launcher-ui'.length));
+    const file = inside(
+      resolve(packageRoot(), 'dist/web/client/assets'),
+      c.req.path.slice('/static/launcher-ui/assets'.length),
+    );
 
     if (
       !file ||

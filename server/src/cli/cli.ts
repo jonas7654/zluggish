@@ -18,8 +18,7 @@ import { z } from 'zod';
 export const HELP = `Usage: zluggish [--config PATH] [--storage-dir DIR] config init|validate|show|typecheck|migrate
        zluggish [--config PATH] settings show|set|reset --user ID [KEY] [VALUE]
 
-accounts recover --user ID --password-file PATH  Change a rider password offline
-accounts recover --user ID --remove-password     Remove a rider password offline
+accounts recover --user ID --password-file PATH  Set a rider password offline
 accounts migrate [--solo-player ID]          Convert the legacy account database offline
 config migrate --dry-run                     Preview direct legacy -> zluggish.config.ts migration
 config migrate --output PATH [--solo-player ID]  Migrate offline, preserving original files
@@ -46,7 +45,6 @@ export async function run(argv: string[], output: (message: string) => void = co
       'solo-player': { type: 'string' },
       help: { type: 'boolean', short: 'h' },
       admin: { type: 'boolean' },
-      'remove-password': { type: 'boolean' },
       'password-file': { type: 'string' },
     },
   });
@@ -101,15 +99,14 @@ export async function run(argv: string[], output: (message: string) => void = co
       } else if (action === 'recover') {
         const playerId = z.coerce.number().int().positive().safe().parse(values.user);
 
-        if (!!values['remove-password'] === !!values['password-file'])
-          throw new ConfigError('Choose --remove-password or --password-file PATH');
+        const passwordFile = values['password-file'];
+
+        if (!passwordFile) throw new ConfigError('Choose --password-file PATH');
         const accounts = new AccountsService(storage);
 
         try {
           if (!accounts.get(playerId)) throw new ConfigError('Unknown rider');
-          const passwordFile = values['password-file'];
-
-          const password = passwordFile ? readFileSync(passwordFile, 'utf8').replace(/\r?\n$/, '') : null;
+          const password = readFileSync(passwordFile, 'utf8').replace(/\r?\n$/, '');
 
           if (password === '') throw new ConfigError('Password must not be empty');
 

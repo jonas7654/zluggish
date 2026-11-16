@@ -295,7 +295,7 @@ await test('settings persist rider overrides across reopen and reject newer sche
 await test('account recovery uses config storage and honors an explicit storage override', async (t) => {
   const f = fixture(t);
   await assert.rejects(
-    run(['--config', f.output, 'accounts', 'recover', '--user', '1', '--remove-password'], () => {}),
+    run(['--config', f.output, 'accounts', 'recover', '--user', '1', '--password-file', 'unused.txt'], () => {}),
     /Missing/,
   );
   const configured = resolve(f.root, 'configured');
@@ -334,12 +334,15 @@ await test('account recovery uses config storage and honors an explicit storage 
       'recover',
       '--user',
       String(decoy.player_id),
-      '--remove-password',
+      '--password-file',
+      passwordFile,
     ],
     () => {},
   );
   const overridden = new AccountsService(f.storage);
-  assert.equal(overridden.get(decoy.player_id)?.pass_hash, null);
+  const changed = overridden.get(decoy.player_id);
+  assert.ok(changed);
+  assert.equal(await overridden.verify(changed, 'new-password'), true);
   overridden.close();
 });
 
@@ -347,7 +350,7 @@ await test('account migration uses the selected config storage', async (t) => {
   const f = fixture(t);
   const configured = resolve(f.root, 'configured');
   const accounts = new AccountsService(configured);
-  const user = await accounts.create('Legacy Rider', '', true);
+  const user = await accounts.create('Legacy Rider', 'test-password', true);
   accounts.close();
   renameSync(resolve(configured, 'zluggish.db'), resolve(configured, 'zwift-offline.db'));
   mkdirSync(resolve(f.root, 'external'));

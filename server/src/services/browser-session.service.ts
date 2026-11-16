@@ -1,4 +1,5 @@
 import { ApplicationError } from '#src/errors';
+import type { Rider } from '#src/repositories/accounts.repository';
 import { AccountsService } from '#src/services/auth.service';
 import { BaseService } from '#src/services/base.service';
 import { resolve } from 'node:path';
@@ -19,6 +20,8 @@ type BrowserEvent =
   | { type: 'finish-import' };
 
 const identityPayload = z.object({ session_cookie: z.string() });
+
+export const REMEMBER_SECONDS = 90 * 86_400;
 
 export interface OpenedSession {
   id: string;
@@ -123,6 +126,22 @@ export class SessionsService extends BaseService {
     const supplied = Buffer.from(token);
 
     return supplied.length === expected.length && this.cryptoRepository.timingSafeEqual(expected, supplied);
+  }
+
+  /** A signed "remember password" token for one rider; a password change bumps auth_version and revokes it. */
+  remember(rider: Rider, now = Date.now()) {
+    const expires = Math.floor(now / 1000) + REMEMBER_SECONDS;
+
+    return this.cryptoRepository.signIdentity(`remember:${this.accounts.identityOf(rider)}:${expires}`, this.secret);
+  }
+
+  remembered(token: string, playerId: number, now = Date.now()) {
+    const match = /^remember:(\d+:\d+):(\d+)$/.exec(this.cryptoRepository.verifyIdentity(token, this.secret) ?? '');
+
+    if (!match?.[1] || Number(match[2]) * 1000 < now) return null;
+    const rider = this.accounts.identity(match[1]);
+
+    return rider?.player_id === playerId ? rider : null;
   }
 
   rider(session: BrowserSession) {

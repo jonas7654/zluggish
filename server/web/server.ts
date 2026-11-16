@@ -1,7 +1,7 @@
 import { render } from 'svelte/server';
-import Prototype from './pages/Prototype.svelte';
-import type { PrototypePage } from '../src/dtos/launcher.dto.js';
+import Launcher from './pages/Launcher.svelte';
+import type { LauncherPage } from '../src/dtos/launcher.dto.js';
 
-export function renderPrototype(props: PrototypePage) {
-  return render(Prototype, { props });
+export function renderPage(page: LauncherPage) {
+  return render(Launcher, { props: { page } });
 }

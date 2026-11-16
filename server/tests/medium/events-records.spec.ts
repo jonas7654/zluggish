@@ -28,8 +28,8 @@ const jsonRequest = (body: MeetupInput) => ({
 
 await test('meetup rescheduling reconciles expired, retained, removed and newly added invitations', async (t) => {
   const f = await mediumFixture(t);
-  const retained = await f.accounts.create('Retained Rider', '');
-  const added = await f.accounts.create('Added Rider', '');
+  const retained = await f.accounts.create('Retained Rider', 'test-password');
+  const added = await f.accounts.create('Added Rider', 'test-password');
 
   const input: MeetupInput = {
     description: '',
@@ -108,7 +108,7 @@ await test('meetup rescheduling reconciles expired, retained, removed and newly 
 {
   await test('F06/F09/F10 meetups persist invitations, reset notifications, broadcast signup and summarize race time', async (t) => {
     const f = await mediumFixture(t);
-    const outsider = await f.accounts.create('Outsider Rider', '');
+    const outsider = await f.accounts.create('Outsider Rider', 'test-password');
 
     const input = {
       culling: true,

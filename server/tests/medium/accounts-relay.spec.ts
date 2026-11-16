@@ -1,3 +1,4 @@
+import { inputValue } from '#tests/support/html';
 import {
   LoginRequestSchema,
   LoginResponseSchema,
@@ -56,7 +57,7 @@ await test('Calendar clears pending map and climb selections for the launching c
       const response = await f.app.request(path, { ...init, headers: { Cookie: cookie } });
       cookie = response.headers.getSetCookie().at(-1)?.split(';', 1)[0] ?? cookie;
       const text = await response.clone().text();
-      csrf = /name="csrf_token"\s+value="([^"]+)"/.exec(text)?.[1] ?? csrf;
+      csrf = inputValue(text, 'csrf_token') ?? csrf;
 
       return response;
     };
@@ -66,7 +67,13 @@ await test('Calendar clears pending map and climb selections for the launching c
 
     const response1 = await request('/login/');
     assert.equal(response1.status, 200);
-    const response2 = await form('/login/', { player_id: String(f.rider.player_id) });
+
+    const response2 = await form('/login/', {
+      player_id: String(f.rider.player_id),
+      step: 'password',
+      password: 'test-password',
+    });
+
     assert.equal(response2.status, 302);
     const response3 = await request(`/settings/${f.rider.username}/`);
     assert.equal(response3.status, 200);
