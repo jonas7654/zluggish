@@ -128,6 +128,7 @@ await test('choosing a rider asks for the password unless this computer remember
   const f = runtimeFixture(t);
   const rider = await f.accounts.create('Alex Rider', 'first', true);
   const remembered = `zluggish_remember_${rider.player_id}`;
+  const warn = t.mock.method(f.world.lifecycle.log, 'warn', () => {});
   const client = browser(f.app);
   const picker = await client.picker();
   assert.equal(inputValue(picker, 'password'), undefined);
@@ -150,6 +151,13 @@ await test('choosing a rider asks for the password unless this computer remember
   assert.equal(wrong.status, 200);
   assert.match(await wrong.text(), /Wrong password\. Try again\./);
   assert.equal(client.jar.has(remembered), false);
+
+  // Every failed attempt is a WARN naming the rider, even back to back.
+  await client.form('/login/', { player_id: String(rider.player_id), password: 'again', step: 'password' });
+  assert.deepEqual(
+    warn.mock.calls.map((call) => [call.arguments[0], call.arguments[1]]),
+    Array.from({ length: 2 }, () => ['auth.login_failed', 'Login failed: wrong password for rider 1 (Alex Rider)']),
+  );
   const profile = await client.request('/api/profiles/me');
   assert.equal(profile.status, 401);
 
@@ -200,17 +208,21 @@ await test('choosing a rider without a password fails on the rider list', async 
   const rider = await f.accounts.create('Legacy Rider', 'test-password', true);
   // Account migration clears legacy password hashes.
   f.accounts.db.prepare('UPDATE user SET pass_hash=NULL WHERE player_id=?').run(rider.player_id);
+  const warn = t.mock.method(f.world.lifecycle.log, 'warn', () => {});
   const client = browser(f.app);
   await client.picker();
 
+  // The rider only learns that login failed; the administrator gets the recovery steps in the log.
   const chosen = await client.form('/login/', { player_id: String(rider.player_id) });
   const html = await chosen.text();
   assert.match(html, /<title>Who’s riding\?<\/title>/);
-  assert.match(html, /Legacy Rider has no password\. Set one with: accounts recover --user 1 --password-file PATH/);
-  assert.doesNotMatch(html, /name="password"/);
+  assert.match(html, /Login failed\./);
+  assert.doesNotMatch(html, /accounts recover|name="password"/);
+  assert.equal(warn.mock.calls[0]?.arguments[0], 'auth.login_no_password');
+  assert.match(String(warn.mock.calls[0]?.arguments[1]), /accounts recover --user 1 --password-file/);
 
   const guessed = await client.form('/login/', { player_id: String(rider.player_id), step: 'password', password: 'x' });
-  assert.match(await guessed.text(), /has no password/);
+  assert.match(await guessed.text(), /Login failed\./);
   const profile = await client.request('/api/profiles/me');
   assert.equal(profile.status, 401);
 });

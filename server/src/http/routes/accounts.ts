@@ -191,16 +191,18 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
       // Only riders migrated from legacy password hashes lack a password; they cannot sign in until it is set.
       if (user && !user.pass_hash) {
-        runtime.world.lifecycle.diagnostic('auth.login_failed', 'Login rejected: rider has no password', true);
-
-        return launcherPage(
-          c,
-          runtime,
-          loginPage(
-            c,
-            `${riderName(user)} has no password. Set one with: accounts recover --user ${user.player_id} --password-file PATH`,
-          ),
+        runtime.world.lifecycle.log.warn(
+          'auth.login_no_password',
+          `Login failed: rider ${user.player_id} (${riderName(user)}) has no password and cannot sign in until an administrator sets one. ` +
+            'Stop the server, write the new password to a file, then run: ' +
+            `zluggish accounts recover --user ${user.player_id} --password-file PATH. ` +
+            'With Docker Compose, put the file in the storage folder and run: ' +
+            `docker compose run --rm zluggish zluggish accounts recover --user ${user.player_id} --password-file /usr/src/app/zluggish/storage/FILE. ` +
+            'Delete the file afterwards, then start the server again.',
+          { playerId: user.player_id },
         );
+
+        return launcherPage(c, runtime, loginPage(c, 'Login failed.'));
       }
 
       if (user && !step) {
@@ -245,9 +247,17 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
         return launcherRedirect(c, `/user/${encodeURIComponent(user.username)}/`);
       }
 
-      runtime.world.lifecycle.diagnostic('auth.login_failed', 'Login rejected', true);
+      if (user && step) {
+        runtime.world.lifecycle.log.warn(
+          'auth.login_failed',
+          `Login failed: wrong password for rider ${user.player_id} (${riderName(user)})`,
+          { playerId: user.player_id, flow: 'browser' },
+        );
 
-      if (user && step) return launcherPage(c, runtime, unlockPage(c, user, 'Wrong password. Try again.'));
+        return launcherPage(c, runtime, unlockPage(c, user, 'Wrong password. Try again.'));
+      }
+
+      runtime.world.lifecycle.log.warn('auth.login_failed', 'Login failed: unknown rider', { flow: 'browser' });
       error = 'That rider no longer exists. Choose another rider.';
     }
 
