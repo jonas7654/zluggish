@@ -195,6 +195,26 @@ await test('choosing a rider asks for the password unless this computer remember
   assert.match(await revoked.text(), /name="password"/);
 });
 
+await test('choosing a rider without a password fails on the rider list', async (t) => {
+  const f = runtimeFixture(t);
+  const rider = await f.accounts.create('Legacy Rider', 'test-password', true);
+  // Account migration clears legacy password hashes.
+  f.accounts.db.prepare('UPDATE user SET pass_hash=NULL WHERE player_id=?').run(rider.player_id);
+  const client = browser(f.app);
+  await client.picker();
+
+  const chosen = await client.form('/login/', { player_id: String(rider.player_id) });
+  const html = await chosen.text();
+  assert.match(html, /<title>Who’s riding\?<\/title>/);
+  assert.match(html, /Legacy Rider has no password\. Set one with: accounts recover --user 1 --password-file PATH/);
+  assert.doesNotMatch(html, /name="password"/);
+
+  const guessed = await client.form('/login/', { player_id: String(rider.player_id), step: 'password', password: 'x' });
+  assert.match(await guessed.text(), /has no password/);
+  const profile = await client.request('/api/profiles/me');
+  assert.equal(profile.status, 401);
+});
+
 await test('distinct riders launch and refresh independently; password change revokes existing tokens', async (t) => {
   const f = runtimeFixture(t);
   const a = await f.accounts.create('Alex Rider', 'first', true);

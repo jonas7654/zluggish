@@ -57,12 +57,6 @@ function unlockPage(c: Context<RuntimeEnv>, user: Rider, error = '') {
     {
       message: error,
       failed: !!error,
-      // Only riders migrated from legacy password hashes lack a password; the CLI sets one.
-      paragraphs: user.pass_hash
-        ? []
-        : [
-            `This rider has no password yet. Set one with: accounts recover --user ${user.player_id} --password-file PATH`,
-          ],
       back: { href: '/login/', label: 'Choose another rider' },
     },
   );
@@ -155,6 +149,29 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
   app.get('/', (c) => launcherRedirect(c, '/login/'));
   app.on(['GET', 'POST'], '/signup/', (c) => launcherRedirect(c, '/riders/add/'));
+
+  // The rider list; an error shows above it.
+  function loginPage(c: Context<RuntimeEnv>, error = '') {
+    return model(
+      c,
+      'login',
+      'Who’s riding?',
+      accounts.list().map((user) =>
+        makeForm(`rider-${user.player_id}`, '/login/', [hidden('player_id', String(user.player_id))], riderName(user), {
+          rider: {
+            initials: `${user.first_name.charAt(0)}${user.last_name.charAt(0)}`.toUpperCase(),
+            photo: runtime.services.files.exists(
+              resolve(runtime.services.profiles.folder(user.player_id), 'avatarLarge.jpg'),
+            )
+              ? `/download/${user.player_id}/avatarLarge.jpg`
+              : null,
+          },
+        }),
+      ),
+      { message: error, failed: !!error, links: [{ href: '/riders/add/', label: 'Add rider' }] },
+    );
+  }
+
   app.on(['GET', 'POST'], '/login/', async (c) => {
     const session = c.get('browser');
     sessions.transition(session, { type: 'clear-selection' });
@@ -171,6 +188,20 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       const password = z.string().catch('').parse(form.password);
       const step = form.step === 'password';
       let signedIn: Rider | null = null;
+
+      // Only riders migrated from legacy password hashes lack a password; they cannot sign in until it is set.
+      if (user && !user.pass_hash) {
+        runtime.world.lifecycle.diagnostic('auth.login_failed', 'Login rejected: rider has no password', true);
+
+        return launcherPage(
+          c,
+          runtime,
+          loginPage(
+            c,
+            `${riderName(user)} has no password. Set one with: accounts recover --user ${user.player_id} --password-file PATH`,
+          ),
+        );
+      }
 
       if (user && !step) {
         // Choosing a rider signs in at once when this computer remembers them; otherwise it opens their password step.
@@ -220,34 +251,7 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       error = 'That rider no longer exists. Choose another rider.';
     }
 
-    return launcherPage(
-      c,
-      runtime,
-      model(
-        c,
-        'login',
-        'Who’s riding?',
-        accounts.list().map((user) =>
-          makeForm(
-            `rider-${user.player_id}`,
-            '/login/',
-            [hidden('player_id', String(user.player_id))],
-            riderName(user),
-            {
-              rider: {
-                initials: `${user.first_name.charAt(0)}${user.last_name.charAt(0)}`.toUpperCase(),
-                photo: runtime.services.files.exists(
-                  resolve(runtime.services.profiles.folder(user.player_id), 'avatarLarge.jpg'),
-                )
-                  ? `/download/${user.player_id}/avatarLarge.jpg`
-                  : null,
-              },
-            },
-          ),
-        ),
-        { message: error, failed: !!error, links: [{ href: '/riders/add/', label: 'Add rider' }] },
-      ),
-    );
+    return launcherPage(c, runtime, loginPage(c, error));
   });
 
   app.on(['GET', 'POST'], '/riders/add/', async (c) => {
