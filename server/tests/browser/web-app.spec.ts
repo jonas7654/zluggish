@@ -14,7 +14,7 @@ for (const existing of [false, true])
     async (t) => {
       const f = runtimeFixture(t);
 
-      if (existing) await f.accounts.create('First Rider', 'test-password', 'owner');
+      const owner = existing ? await f.accounts.create('First Rider', 'test-password', 'owner') : null;
       const key = f.services.management.issueSetupKey()!;
       const web = serve({ fetch: createWebApp(f).fetch, hostname: '127.0.0.1', port: 0 });
       const game = serve({ fetch: f.app.fetch, hostname: '127.0.0.1', port: 0 });
@@ -42,15 +42,25 @@ for (const existing of [false, true])
       await page.getByRole('button', { name: 'Check key' }).click();
       await page.getByText('Setup key accepted').waitFor();
 
-      if (existing) await page.getByLabel('Use an existing rider').check();
-      else {
+      assert.equal(await page.getByRole('button', { name: 'Change key' }).count(), 0);
+      if (owner) {
+        await page.getByLabel('Use an existing rider').check();
+        await page.getByLabel('Rider', { exact: true }).selectOption(String(owner.player_id));
+        assert.equal(await page.getByLabel('Login name', { exact: true }).count(), 0);
+        await page.getByLabel('Rider’s password', { exact: true }).fill('wrong-password');
+        await page.getByRole('button', { name: 'Complete setup' }).click();
+        await page.getByRole('alert').waitFor();
+        await page.getByLabel('Rider', { exact: true }).waitFor();
+        await page.getByLabel('Rider’s password', { exact: true }).fill('test-password');
+      } else {
+        assert.equal(await page.getByLabel('Use an existing rider').count(), 0);
+        await page.getByLabel('Login name', { exact: true }).fill('owner');
+        await page.getByLabel('Password', { exact: true }).fill('test-password');
         await page.getByLabel('First name', { exact: true }).fill('First');
         await page.getByLabel('Last name', { exact: true }).fill('Rider');
         await page.getByLabel('Confirm password', { exact: true }).fill('test-password');
       }
 
-      await page.getByLabel('Login name', { exact: true }).fill('owner');
-      await page.getByLabel('Password', { exact: true }).fill('test-password');
       await page.getByRole('button', { name: 'Complete setup' }).click();
       // Setup lands in the management area, marked by the orange edge under the bar.
       await page.getByText('No other riders yet.').waitFor();

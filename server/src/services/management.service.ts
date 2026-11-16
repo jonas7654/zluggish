@@ -119,7 +119,12 @@ export class ManagementService extends BaseService {
     const input = setupRequest.parse(raw);
 
     if (this.store.complete() || !this.keyValid(input.key)) throw new ApplicationError(403, 'Setup refused.');
-    const existing = input.mode === 'existing' ? this.context.accounts.byUsername(input.username) : null;
+    const existing =
+      input.mode === 'existing'
+        ? 'player_id' in input
+          ? this.context.accounts.get(input.player_id)
+          : this.context.accounts.byUsername(input.username)
+        : null;
 
     if (input.mode === 'existing' && existing && !existing.pass_hash)
       throw new ApplicationError(

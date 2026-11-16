@@ -21,6 +21,8 @@
     completion_deadline?: number | null;
   };
 
+  type SetupRider = Pick<Rider, 'player_id' | 'username' | 'first_name' | 'last_name' | 'enabled' | 'has_password'>;
+
   type AuditEvent = {
     id: number;
     actor_kind: string;
@@ -92,6 +94,8 @@
   let mode = $state<'new' | 'existing'>('new');
   let key = $state('');
   let keyAccepted = $state(false);
+  let setupRiders = $state<SetupRider[]>([]);
+  let setupRiderId = $state<number | null>(null);
   let username = $state('');
   let password = $state('');
   let confirmPassword = $state('');
@@ -336,17 +340,15 @@
   /** Checks the setup key alone, so a wrong key costs one field instead of the whole form. */
   async function checkKey() {
     try {
-      await api('/api/setup/key', 'POST', { key });
+      const body = await api('/api/setup/key', 'POST', { key });
+      setupRiders = body.riders;
+      setupRiderId = null;
+      mode = setupRiders.length ? 'existing' : 'new';
       keyAccepted = true;
     } catch (error) {
       if (!(error instanceof Error) || error.message !== 'Setup refused.') throw error;
       fieldErrors = { key: ['This key does not match. Copy it again from the server console.'] };
     }
-  }
-
-  function changeKey() {
-    keyAccepted = false;
-    fieldErrors = {};
   }
 
   async function signIn() {
@@ -360,9 +362,8 @@
       : await api('/api/setup', 'POST', {
           mode,
           key,
-          username,
           password,
-          ...(mode === 'new' && { first_name: first, last_name: last }),
+          ...(mode === 'new' ? { username, first_name: first, last_name: last } : { player_id: setupRiderId }),
         }).catch((error) => {
           // The key stops working when the server restarts, so ask for the new one.
           if (error instanceof Error && error.message === 'Setup refused.' && mode === 'new') {
@@ -652,16 +653,25 @@
             {#if keyAccepted}
               <div class="accepted" role="status">
                 <span><span class="tick" aria-hidden="true">✓</span> Setup key accepted</span>
-                <button type="button" class="link" onclick={changeKey}>Change key</button>
               </div>
-              <div class="choice" role="radiogroup" aria-label="Setup method">
-                <label class:checked={mode === 'new'}
-                  ><input type="radio" bind:group={mode} value="new" /> Create a new rider</label
+              {#if setupRiders.length}
+                <div
+                  class="choice"
+                  role="radiogroup"
+                  aria-label="Setup method"
+                  onchange={() => {
+                    password = '';
+                    confirmPassword = '';
+                  }}
                 >
-                <label class:checked={mode === 'existing'}
-                  ><input type="radio" bind:group={mode} value="existing" /> Use an existing rider</label
-                >
-              </div>
+                  <label class:checked={mode === 'new'}
+                    ><input type="radio" bind:group={mode} value="new" /> Create a new rider</label
+                  >
+                  <label class:checked={mode === 'existing'}
+                    ><input type="radio" bind:group={mode} value="existing" /> Use an existing rider</label
+                  >
+                </div>
+              {/if}
             {:else}
               <TextField
                 id="setup-key"
@@ -692,39 +702,79 @@
               />
             {/if}
           {/if}
+          {#if !complete && keyAccepted && mode === 'existing'}
+            <div class="setup-picker">
+              <label for="setup-rider">Rider</label>
+              <p id="setup-rider-hint" class="muted">
+                Choose a rider already on this server to make them the first administrator.
+              </p>
+              <select
+                id="setup-rider"
+                bind:value={setupRiderId}
+                required
+                aria-describedby="setup-rider-hint"
+                onchange={() => {
+                  password = '';
+                }}
+              >
+                <option value={null} disabled>Choose a rider</option>
+                {#each setupRiders as r (r.player_id)}
+                  <option value={r.player_id} disabled={!r.enabled || !r.has_password}>
+                    {`${r.first_name} ${r.last_name}`.trim() || r.username} (#{r.player_id}, {r.username}){!r.enabled
+                      ? ' — Disabled'
+                      : !r.has_password
+                        ? ' — No password'
+                        : ''}
+                  </option>
+                {/each}
+              </select>
+              {#if setupRiders.some((r) => !r.has_password)}
+                <p class="muted">
+                  Riders without passwords need a password set with the server CLI before they can be used for setup.
+                </p>
+              {/if}
+              {#if !setupRiders.some((r) => r.enabled && r.has_password)}
+                <p class="muted">No riders are available for setup. Create a new rider to continue.</p>
+              {/if}
+            </div>
+          {/if}
           {#if complete || keyAccepted}
-          <TextField
-            id="sign-in-login"
-            label="Login name"
-            bind:value={username}
-            autocomplete="username"
-            required
-            maxlength={254}
-            errors={errors('sign-in', 'username')}
-          />
-          <TextField
-            id="sign-in-password"
-            label="Password"
-            password
-            bind:value={password}
-            autocomplete={complete || mode === 'existing' ? 'current-password' : 'new-password'}
-            required
-            maxlength={1024}
-            errors={errors('sign-in', 'password')}
-          />
-          {#if !complete && mode === 'new'}
+            {#if complete || mode === 'new'}
+              <TextField
+                id="sign-in-login"
+                label="Login name"
+                bind:value={username}
+                autocomplete="username"
+                required
+                maxlength={254}
+                errors={errors('sign-in', 'username')}
+              />
+            {/if}
             <TextField
-              id="setup-confirm"
-              label="Confirm password"
+              id="sign-in-password"
+              label={!complete && mode === 'existing' ? 'Rider’s password' : 'Password'}
               password
-              bind:value={confirmPassword}
-              autocomplete="new-password"
+              bind:value={password}
+              autocomplete={complete || mode === 'existing' ? 'current-password' : 'new-password'}
               required
-              errors={errors('sign-in', 'confirm')}
+              maxlength={1024}
+              errors={errors('sign-in', 'password')}
             />
+            {#if !complete && mode === 'new'}
+              <TextField
+                id="setup-confirm"
+                label="Confirm password"
+                password
+                bind:value={confirmPassword}
+                autocomplete="new-password"
+                required
+                errors={errors('sign-in', 'confirm')}
+              />
+            {/if}
           {/if}
-          {/if}
-          <button class="primary" disabled={busy}
+          <button
+            class="primary"
+            disabled={busy || (!complete && keyAccepted && mode === 'existing' && setupRiderId === null)}
             >{complete ? 'Sign in' : keyAccepted ? 'Complete setup' : 'Check key'}</button
           >
         </form>
@@ -1633,6 +1683,13 @@
     margin-bottom: 1rem;
     padding-bottom: 0.75rem;
     border-bottom: 1px solid var(--line);
+  }
+  .setup-picker {
+    margin: 1rem 0;
+  }
+  .setup-picker p {
+    margin: 0.35rem 0 0.75rem;
+    font-size: 0.875rem;
   }
   .tick {
     color: var(--orange);

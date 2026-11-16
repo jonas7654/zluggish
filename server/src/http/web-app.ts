@@ -12,8 +12,10 @@ import { packageRoot, packageVersion } from '#src/config/load';
 
 type WebEnv = { Variables: { sessionId: string; csrf: string } };
 
-/** Compares hosts only: a TLS-terminating proxy forwards https requests to this listener over http. */
-function sameHost(origin: string | undefined, url: string) {
+/** Matches the public URL exactly, or else the host only: a TLS proxy forwards https requests over http. */
+function sameOrigin(origin: string | undefined, url: string, publicUrl: string | null) {
+  if (publicUrl) return origin === publicUrl;
+
   try {
     return !!origin && new URL(origin).host === new URL(url).host;
   } catch {
@@ -28,12 +30,13 @@ export function createWebApp(runtime: HttpRuntime) {
   const attempts = new Map<string, { count: number; until: number }>();
   const cookie = 'zluggish_web_session';
   const csrfCookie = 'zluggish_web_csrf';
+  const { publicUrl } = runtime.config.network.web;
 
   const cookieOptions = (c: Context<WebEnv>) => ({
     httpOnly: true,
     sameSite: 'Lax' as const,
     path: '/',
-    secure: new URL(c.req.url).protocol === 'https:',
+    secure: new URL(publicUrl ?? c.req.url).protocol === 'https:',
     maxAge: 86_400,
   });
 
@@ -74,7 +77,7 @@ export function createWebApp(runtime: HttpRuntime) {
     c.set('csrf', token!);
 
     if (!['GET', 'HEAD'].includes(c.req.method)) {
-      if (!sameHost(c.req.header('Origin'), c.req.url) || c.req.header('X-CSRF-Token') !== c.get('csrf'))
+      if (!sameOrigin(c.req.header('Origin'), c.req.url, publicUrl) || c.req.header('X-CSRF-Token') !== c.get('csrf'))
         throw new ApplicationError(403, 'Reload the page and retry.');
 
       if (!c.req.header('Content-Type')?.startsWith('application/json'))
@@ -116,7 +119,16 @@ export function createWebApp(runtime: HttpRuntime) {
     const input = z.strictObject({ key: z.string().max(200) }).parse(await c.req.json());
     management.checkSetupKey(input.key);
 
-    return c.json({ ok: true });
+    return c.json({
+      riders: accounts.list().map(({ player_id, username, first_name, last_name, enabled, pass_hash }) => ({
+        player_id,
+        username,
+        first_name,
+        last_name,
+        enabled,
+        has_password: !!pass_hash,
+      })),
+    });
   });
   app.post('/api/session', async (c) => {
     const input = credentials.parse(await c.req.json());

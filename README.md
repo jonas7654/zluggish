@@ -263,6 +263,8 @@ Use Zluggish only on a network that you trust. Other devices on the network can 
 
 1. Start the server. Find the setup address and key in the terminal or `docker compose logs zluggish`.
 2. Open `http://<server-ip>:8080/setup`. Enter the key. Create your rider. This rider receives the administrator role.
+
+Behind a reverse proxy, set `network.web.publicUrl` to the address riders open, for example `https://zluggish.example.com`. The web app then accepts requests only from that address, and an `https` address marks sign-in cookies `Secure`.
 3. Open **Manage**. Create the other riders with passwords.
 4. Start Zwift. Select your rider in the game app and sign in.
 

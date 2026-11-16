@@ -30,6 +30,12 @@ export const newRider = z.strictObject({
 export const setupRequest = z.union([
   newRider.extend({ mode: z.literal('new'), key: z.string().max(200) }),
   credentials.extend({ mode: z.literal('existing'), key: z.string().max(200) }),
+  z.strictObject({
+    mode: z.literal('existing'),
+    key: z.string().max(200),
+    player_id: z.number().int().positive().safe(),
+    password,
+  }),
 ]);
 
 export const mutationRequest = z.strictObject({

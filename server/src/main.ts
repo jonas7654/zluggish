@@ -120,10 +120,14 @@ async function start() {
 
       if (web) {
         const bind = webConfig.host ?? config.network.host;
-        const address = `http://${bind === '0.0.0.0' || bind === '::' ? config.server.advertisedIp : bind.includes(':') ? `[${bind}]` : bind}:${webConfig.port}`;
+
+        const address =
+          webConfig.publicUrl ??
+          `http://${bind === '0.0.0.0' || bind === '::' ? config.server.advertisedIp : bind.includes(':') ? `[${bind}]` : bind}:${webConfig.port}`;
+
         console.log(`Web app: ${address}`);
 
-        if (!['127.0.0.1', '::1', 'localhost'].includes(bind))
+        if (!webConfig.publicUrl?.startsWith('https:') && !['127.0.0.1', '::1', 'localhost'].includes(bind))
           console.log('The web app sends passwords over the network without encryption.');
 
         if (setupKey)

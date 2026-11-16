@@ -401,3 +401,52 @@ await test('backup and restore preserve complete setup, audit, operation results
   assert.deepEqual(sessions.secret, secret);
   assert.equal(sessions.browsers.size, 0);
 });
+
+await test('setup lists only safe rider fields after checking the key and selects the exact rider by ID', async (t) => {
+  const f = runtimeFixture(t);
+  const upper = await f.accounts.create('Anna Upper', 'upper-password', 'ANNA');
+  const mixed = await f.accounts.create('Anna Mixed', 'mixed-password', 'Anna');
+  const service = f.services.management;
+  const key = service.issueSetupKey()!;
+  const web = createWebApp(f);
+  const state = await web.request('http://local:8080/api/setup');
+  const { csrf, ...publicState } = await state.json();
+  assert.equal('riders' in publicState, false);
+  const cookie = state.headers.getSetCookie()[0]!.split(';', 1)[0]!;
+  const check = (key: string) =>
+    web.request('http://local:8080/api/setup/key', {
+      method: 'POST',
+      headers: {
+        Origin: 'http://local:8080',
+        'Content-Type': 'application/json',
+        Cookie: cookie,
+        'X-CSRF-Token': csrf,
+      },
+      body: JSON.stringify({ key }),
+    });
+  const denied = await check('wrong-key');
+  assert.equal(denied.status, 403);
+  assert.equal('riders' in (await denied.json()), false);
+  const accepted = await check(key);
+  assert.equal(accepted.status, 200);
+  const body = await accepted.json();
+  assert.deepEqual(
+    body.riders,
+    [mixed, upper].map((r) => ({
+      player_id: r.player_id,
+      username: r.username,
+      first_name: r.first_name,
+      last_name: r.last_name,
+      enabled: r.enabled,
+      has_password: true,
+    })),
+  );
+  await assert.rejects(
+    service.setup({ mode: 'existing', key, player_id: mixed.player_id, password: 'upper-password' }),
+  );
+  const admin = await service.setup({ mode: 'existing', key, player_id: mixed.player_id, password: 'mixed-password' });
+  assert.equal(admin.player_id, mixed.player_id);
+  assert.equal(f.accounts.get(upper.player_id)!.role, 'rider');
+  const finished = await check(key);
+  assert.equal(finished.status, 403);
+});

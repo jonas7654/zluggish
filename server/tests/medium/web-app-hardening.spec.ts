@@ -3,6 +3,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
 import { create } from '@bufbuild/protobuf';
+import { validateConfig } from '#src/config/index';
 import { packageRoot } from '#src/config/load';
 import { createWebApp } from '#src/http/web-app';
 import { PlayerStateSchema } from '#src/protocol/generated/udp-node-msgs_pb';
@@ -244,4 +245,37 @@ await test('the game app bundle contains no web app code', () => {
     for (const marker of ['/api/manage', '/api/session', '/api/me', 'Confirm your password to manage'])
       assert.equal(text.includes(marker), false, `${file} contains ${marker}`);
   }
+});
+
+await test('a public URL pins the accepted origin and marks https cookies Secure', async (t) => {
+  const f = runtimeFixture(t);
+
+  const config = validateConfig({
+    storageDir: f.config.storageDir,
+    network: { web: { publicUrl: 'https://zluggish.example.com' } },
+  });
+
+  const web = createWebApp({ ...f, config });
+
+  const state = await web.request('http://local:8080/api/setup');
+  const { csrf } = await state.json();
+  const cookie = state.headers.getSetCookie()[0]!;
+  assert.match(cookie, /; Secure/);
+
+  const check = (origin: string) =>
+    web.request('http://local:8080/api/setup/key', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: origin,
+        Cookie: cookie.split(';', 1)[0]!,
+        'X-CSRF-Token': csrf,
+      },
+      body: JSON.stringify({ key: f.services.management.issueSetupKey() }),
+    });
+
+  // The request host no longer decides: only the configured address passes.
+  assert.equal(await responseStatus(check('https://local:8080')), 403);
+  assert.equal(await responseStatus(check('https://zluggish.example.com:8443')), 403);
+  assert.equal(await responseStatus(check('https://zluggish.example.com')), 200);
 });

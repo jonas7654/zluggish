@@ -197,6 +197,13 @@ export const configSchema = z
             enabled: z.boolean().default(true),
             host: listenerHost.nullable().default(null),
             port: z.number().int().min(1).max(65_535).default(8080),
+            /** The address riders open, when a reverse proxy sits in front. Https here marks cookies Secure. */
+            publicUrl: z
+              .url({ protocol: /^https?$/ })
+              .refine((value) => new URL(value).pathname === '/', 'Expected an origin without a path')
+              .transform((value) => new URL(value).origin)
+              .nullable()
+              .default(null),
           })
           .prefault({})
           .readonly(),

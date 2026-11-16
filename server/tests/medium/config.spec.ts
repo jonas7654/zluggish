@@ -280,3 +280,12 @@ await test('custom TLS files are resolved and validated without creating storage
   assert.equal(loaded.config.tls.keyFile, resolve(root, 'key.pem'));
   assert.equal(existsSync(loaded.config.storageDir), false);
 });
+
+await test('the web public URL is reduced to its origin, and paths or other schemes are refused', () => {
+  const web = (publicUrl: string) => validateConfig({ network: { web: { publicUrl } } }).network.web.publicUrl;
+  assert.equal(validateConfig({}).network.web.publicUrl, null);
+  assert.equal(web('https://Zluggish.example.com/'), 'https://zluggish.example.com');
+  assert.equal(web('http://192.0.2.1:8080'), 'http://192.0.2.1:8080');
+  assert.throws(() => web('https://zluggish.example.com/app'));
+  assert.throws(() => web('ftp://zluggish.example.com'));
+});
