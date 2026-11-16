@@ -42,8 +42,14 @@ await test('requests without cookies allocate no web sessions, and anonymous wri
   // The token alone, or a cookie for another token, is refused.
   assert.equal(await responseStatus(setup({ 'X-CSRF-Token': csrf })), 403);
   assert.equal(await responseStatus(setup({ Cookie: cookie, 'X-CSRF-Token': 'x'.repeat(43) })), 403);
+  // A page on another host is refused even with a valid token.
+  assert.equal(
+    await responseStatus(setup({ Cookie: cookie, 'X-CSRF-Token': csrf, Origin: 'https://evil.example' })),
+    403,
+  );
   assert.equal(sessions.sessions.size, 0);
-  const signedIn = await setup({ Cookie: cookie, 'X-CSRF-Token': csrf });
+  // A TLS-terminating proxy forwards the https page's requests over http.
+  const signedIn = await setup({ Cookie: cookie, 'X-CSRF-Token': csrf, Origin: 'https://local:8080' });
   assert.equal(signedIn.status, 200);
   assert.equal(sessions.sessions.size, 1);
 });

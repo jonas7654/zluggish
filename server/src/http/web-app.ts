@@ -12,6 +12,15 @@ import { packageRoot, packageVersion } from '#src/config/load';
 
 type WebEnv = { Variables: { sessionId: string; csrf: string } };
 
+/** Compares hosts only: a TLS-terminating proxy forwards https requests to this listener over http. */
+function sameHost(origin: string | undefined, url: string) {
+  try {
+    return !!origin && new URL(origin).host === new URL(url).host;
+  } catch {
+    return false;
+  }
+}
+
 export function createWebApp(runtime: HttpRuntime) {
   const app = new Hono<WebEnv>();
   const { management, accounts, durability, files } = runtime.services;
@@ -65,7 +74,7 @@ export function createWebApp(runtime: HttpRuntime) {
     c.set('csrf', token!);
 
     if (!['GET', 'HEAD'].includes(c.req.method)) {
-      if (c.req.header('Origin') !== new URL(c.req.url).origin || c.req.header('X-CSRF-Token') !== c.get('csrf'))
+      if (!sameHost(c.req.header('Origin'), c.req.url) || c.req.header('X-CSRF-Token') !== c.get('csrf'))
         throw new ApplicationError(403, 'Reload the page and retry.');
 
       if (!c.req.header('Content-Type')?.startsWith('application/json'))
