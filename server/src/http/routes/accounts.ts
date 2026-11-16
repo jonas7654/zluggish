@@ -165,6 +165,8 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
             )
               ? `/download/${user.player_id}/avatarLarge.jpg`
               : null,
+            // Riders created without an email get a placeholder username that means nothing to people.
+            email: user.username.endsWith('@local.invalid') ? null : user.username,
           },
         }),
       ),

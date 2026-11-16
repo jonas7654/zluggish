@@ -10,6 +10,9 @@
   let locked = $state(false);
   let selectedMethod = $state(untrack(() => page.stravaMethod ?? 'paid'));
 
+  // Counts failures handed up from the rider list, so the same message twice is shown and announced again.
+  let failures = $state(0);
+
   function expire() {
     locked = true;
   }
@@ -60,7 +63,9 @@
       {#each current.links as link (link.href)}<a href={link.href}>{link.label}</a>{/each}
     </nav>{/if}
   {#each current.paragraphs ?? [] as text, index (index)}<p>{text}</p>{/each}
-  {#if current.message}<p class="notice" role={current.failed ? 'alert' : 'status'}>{current.message}</p>{/if}
+  {#key failures}{#if current.message}<p class="notice" role={current.failed ? 'alert' : 'status'}>
+        {current.message}
+      </p>{/if}{/key}
   {#if locked}<p class="error" role="alert">
       Your session or rider changed. <a href="/login/">Sign in</a> or
       <button type="button" onclick={() => location.reload()}>Reload this page</button>.
@@ -77,6 +82,12 @@
           else if (value.uploads) current = { ...current, uploads: value.uploads };
         }}
         onexpire={expire}
+        onfail={model.rider
+          ? (message) => {
+              current = { ...current, message, failed: true };
+              failures++;
+            }
+          : undefined}
         onchange={(name, value) => {
           if (name === 'method') selectedMethod = value === 'free' ? 'free' : 'paid';
         }}

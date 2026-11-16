@@ -10,6 +10,7 @@
     onpage,
     onchange,
     onexpire,
+    onfail,
   }: {
     model: LauncherForm;
     csrf: string;
@@ -17,6 +18,8 @@
     onpage: (page: LauncherPage) => void;
     onchange: (name: string, value: string) => void;
     onexpire: () => void;
+    /** Takes over showing failures, for forms too small to hold an error (the rider list). */
+    onfail?: ((message: string) => void) | undefined;
   } = $props();
 
   let draft = $state(untrack(() => values(model)));
@@ -71,6 +74,12 @@
     for (const field of model.fields) if (field.type === 'password') draft[field.name] = '';
   }
 
+  function fail(text: string) {
+    failed = true;
+    message = text;
+    onfail?.(text);
+  }
+
   function focusError() {
     const first =
       form.querySelector<HTMLElement>('[aria-invalid="true"]') ??
@@ -100,8 +109,7 @@
     serverErrors = {};
 
     if (!skip && Object.keys(errors).length) {
-      failed = true;
-      message = 'Check the fields below.';
+      fail('Check the fields below.');
       queueMicrotask(focusError);
 
       return;
@@ -131,8 +139,7 @@
       if (!alive || controller.signal.aborted || locked) return;
 
       if (!result.ok) {
-        failed = true;
-        message = result.message;
+        fail(result.message);
         serverErrors = result.fieldErrors ?? {};
 
         if (result.reload || response.status === 401) {
@@ -176,8 +183,7 @@
       submitted = false;
     } catch {
       if (alive && !controller.signal.aborted) {
-        failed = true;
-        message = 'Could not submit. Your draft is kept. Try again.';
+        fail('Could not submit. Your draft is kept. Try again.');
       }
     } finally {
       if (alive) pending = false;
@@ -196,7 +202,7 @@
 >
   {#if model.title}<h2>{model.title}</h2>{/if}
   <input type="hidden" name="csrf_token" value={csrf} />
-  {#if failed}<p class="error" role="alert">{message}</p>{/if}
+  {#if failed && !onfail}<p class="error" role="alert">{message}</p>{/if}
   <fieldset disabled={(pending && !model.navigation) || locked}>
     {#each model.fields as field (field.name)}
       {@const id = `${model.id}-${field.name.replaceAll('.', '-')}`}
@@ -284,7 +290,11 @@
         formnovalidate={button.skipValidation}
         >{#if model.rider}<span class="avatar"
             >{#if model.rider.photo}<img src={model.rider.photo} alt="" />{:else}{model.rider.initials}{/if}</span
-          >{/if}{pending ? 'Submitting…' : button.label}</button
+          ><span class="who"
+            ><span>{pending ? 'Submitting…' : button.label}</span>{#if model.rider.email}<small
+                title={model.rider.email}>{model.rider.email}</small
+              >{/if}</span
+          >{:else}{pending ? 'Submitting…' : button.label}{/if}</button
       >
     {/each}
   </fieldset>

@@ -278,6 +278,59 @@ form > .error {
   border-color: var(--orange);
 }
 
+/* A failed sign-in is a footer bar across the window, mirroring the top bar, so it shows however far the list is
+   scrolled. Its text lines up with the list. */
+[data-page='login'] > .notice[role='alert'] {
+  position: fixed;
+  z-index: 1;
+  inset: auto 0 0;
+  max-width: none;
+  margin: 0;
+  padding: 0.85rem max(1.5rem, calc((100% - 54rem) / 2));
+  border-top: 3px solid #ff6b57;
+  border-radius: 0;
+  /* Opaque, so rows scrolling underneath do not show through the message. */
+  background: linear-gradient(rgb(255 90 70 / 0.2), rgb(255 90 70 / 0.2)), rgb(36 47 62);
+  box-shadow: 0 -6px 24px rgb(0 0 0 / 0.35);
+  color: var(--alarm);
+  animation: alert-in 180ms ease-out;
+}
+
+/* Room below the last row, so the error bar never covers it. */
+[data-page='login']:has(> .notice[role='alert']) {
+  padding-bottom: 5rem;
+}
+
+@keyframes alert-in {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+@media (max-width: 500px) {
+  [data-page='login'] > .notice[role='alert'] {
+    padding-inline: 1rem;
+  }
+}
+
+/* The name, with the sign-in email quieter beneath it. */
+.who {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+  line-height: 1.2;
+}
+
+.who small {
+  color: var(--muted);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  /* A long address stays on one line; the full one is in the tooltip. */
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 /* Zwift's avatar: white disc, dark initials, orange ring. */
 .avatar {
   flex: none;
