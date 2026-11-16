@@ -184,13 +184,7 @@ node .\server\dist\src\cli\bin.js --storage-dir .\storage accounts recover --use
 
 The CLI reads the password from the file, removes one trailing newline, and does not prompt interactively. Delete the file after successful recovery. Add `--admin` to grant administrator access during recovery; omit it for password-only recovery.
 
-To remove password protection instead:
-
-```sh
-node server/dist/src/cli/bin.js --storage-dir ./storage accounts recover --user 1 --remove-password
-```
-
-Choose exactly one of `--password-file PATH` and `--remove-password`. Recovery revokes existing tokens.
+Every rider has a password, so recovery always sets a new one. Riders migrated from legacy password hashes start without a password and must be recovered this way before they can sign in. Recovery revokes existing tokens and every remembered launcher login.
 
 ## Storage and upload commands
 

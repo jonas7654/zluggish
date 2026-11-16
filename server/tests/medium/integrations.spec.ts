@@ -1,3 +1,4 @@
+import { inputValue } from '#tests/support/html';
 import { createApp } from '#src/http/app';
 import { DeliveryRefusedError } from '#src/errors';
 import { UploadsService } from '#src/services/uploads.service';
@@ -40,13 +41,13 @@ function browser(app: ReturnType<typeof createApp>) {
     async signIn(player: number, username: string) {
       const response1 = await client.request('/login/');
       const picker = await response1.text();
-      csrf = /name="csrf_token"\s+value="([^"]+)"/.exec(picker)?.[1] ?? '';
-      await client.form('/login/', { player_id: String(player) });
+      csrf = inputValue(picker, 'csrf_token') ?? '';
+      await client.form('/login/', { player_id: String(player), step: 'password', password: 'test-password' });
 
       // Signing in starts a fresh browser session with its own CSRF token.
       const response2 = await client.request(`/user/${username}/`);
       const home = await response2.text();
-      csrf = /name="csrf_token"\s+value="([^"]+)"/.exec(home)?.[1] ?? '';
+      csrf = inputValue(home, 'csrf_token') ?? '';
     },
   };
 
@@ -55,7 +56,7 @@ function browser(app: ReturnType<typeof createApp>) {
 
 await test('Strava credentials are stored encrypted, never echoed, and removal is allow-listed', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Strava Rider', '', true);
+  const user = await f.accounts.create('Strava Rider', 'test-password', true);
   const client = browser(f.app);
   await client.signIn(user.player_id, user.username);
 
@@ -97,7 +98,7 @@ await test('Strava credentials are stored encrypted, never echoed, and removal i
   const response5 = await client.form('/delete/..%2Fprofile.bin', {});
   assert.equal(response5.status, 403);
 
-  const removed = await client.form('/delete/strava4_session.txt', {});
+  const removed = await client.form('/delete/strava4_session.txt', { confirm_action: 'on' });
   assert.equal(removed.status, 302);
   assert.equal(f.services.documents.has(user.player_id, 'strava4_session.txt'), false);
   const response6 = await f.app.request('/delete/strava_token.txt');
@@ -139,7 +140,7 @@ function stubFetch(t: TestContext) {
 
 await test('Intervals.icu upload pairs the planned workout and removes only that workout', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Interval Rider', '', true);
+  const user = await f.accounts.create('Interval Rider', 'test-password', true);
   f.accounts.repositories.connectionsRepository.save(user.player_id, 'intervals', ['42', 'key']);
   const folder = f.profiles.folder(user.player_id);
   const cached = resolve(f.config.storageDir, 'tp-workouts/intervalsicu');
@@ -195,7 +196,7 @@ await test('Intervals.icu upload pairs the planned workout and removes only that
 
 await test('an expired Strava token is saved before an upload whose result is unknown', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Upload Rider', '', true);
+  const user = await f.accounts.create('Upload Rider', 'test-password', true);
   f.services.documents.put(user.player_id, 'strava_token.txt', '1\nsecret\nold\nrefresh\n1\n');
   f.services.documents.put(user.player_id, 'runalyze_token.txt', 'runalyze-token\n');
   const calls: string[] = [];
@@ -226,8 +227,8 @@ await test('an expired Strava token is saved before an upload whose result is un
 
 await test('only administrators can control restarts and bot reloads', async (t) => {
   const f = runtimeFixture(t);
-  const admin = await f.accounts.create('Owner', '', true);
-  const other = await f.accounts.create('Other', '', false);
+  const admin = await f.accounts.create('Owner', 'test-password', true);
+  const other = await f.accounts.create('Other', 'test-password', false);
   f.world.online.set(77n, create(PlayerStateSchema, { id: 77n }));
 
   const queued = () => f.world.updates.get(77n)?.length ?? 0;
@@ -238,12 +239,12 @@ await test('only administrators can control restarts and bot reloads', async (t)
   ] as const) {
     const client = browser(f.app);
     await client.signIn(user.player_id, user.username);
-    const response = await client.form('/restart', {});
-    assert.equal(response.status, 302);
-    assert.equal(response.headers.get('Location'), `/user/${user.username}/`);
+    const response = await client.form('/restart', { confirm_action: 'on' });
+    assert.equal(response.status, user.is_admin ? 302 : 403);
+    assert.equal(response.headers.get('Location'), user.is_admin ? `/user/${user.username}/` : null);
     assert.equal(queued(), expected);
-    const response7 = await client.form('/reloadbots', {});
-    assert.equal(response7.status, 302);
+    const response7 = await client.form('/reloadbots', { confirm_action: 'on' });
+    assert.equal(response7.status, user.is_admin ? 302 : 403);
   }
 
   const client = browser(f.app);
@@ -254,7 +255,7 @@ await test('only administrators can control restarts and bot reloads', async (t)
 
 await test('per-rider variants override the base set and unknown names stay explicit', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Variant Rider', '', true);
+  const user = await f.accounts.create('Variant Rider', 'test-password', true);
 
   writeFileSync(
     resolve(f.profiles.folder(user.player_id), 'variants.txt'),
@@ -315,7 +316,7 @@ await test('launcher assets are served safely and game assets redirect to the CD
 
 await test('the mobile aggregate composes goals, activities, events and invitations', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Mobile Rider', '', true);
+  const user = await f.accounts.create('Mobile Rider', 'test-password', true);
 
   const response = await f.app.request(
     '/relay/worlds/1/aggregate/mobile?goalCount=2&activityCount=2&eventCount=1&eventSport=CYCLING&pendingEventInviteCount=1&acceptedEventInviteCount=1',
@@ -346,7 +347,7 @@ await test('the mobile aggregate composes goals, activities, events and invitati
 
 await test('Strava authorization only completes for the browser that started it', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('OAuth Rider', '', true);
+  const user = await f.accounts.create('OAuth Rider', 'test-password', true);
   const client = browser(f.app);
   await client.signIn(user.player_id, user.username);
   f.accounts.repositories.connectionsRepository.save(user.player_id, 'strava', ['55', 'secret']);

@@ -150,7 +150,12 @@ try {
     (
       await uiRequest('/riders/add/', {
         method: 'POST',
-        body: new URLSearchParams({ csrf_token: setupToken, display_name: 'Container Rider' }),
+        body: new URLSearchParams({
+          csrf_token: setupToken,
+          display_name: 'Container Rider',
+          password: 'container-password',
+          confirm_password: 'container-password',
+        }),
       })
     ).status,
     302,
@@ -159,16 +164,20 @@ try {
   const pickerHtml = await picker.text();
   const playerId = /name="player_id"\s+value="(\d+)"/.exec(pickerHtml)?.[1];
   assert.ok(playerId);
-  assert.equal(
-    (
-      await uiRequest('/login/', {
-        method: 'POST',
-        body: new URLSearchParams({ csrf_token: token(pickerHtml), player_id: playerId }),
-      })
-    ).status,
-    302,
-  );
-  const prototype = await uiRequest('/ui/prototype/settings');
+  const selected = await uiRequest('/login/', {
+    method: 'POST',
+    body: new URLSearchParams({
+      csrf_token: token(pickerHtml),
+      player_id: playerId,
+      step: 'password',
+      password: 'container-password',
+    }),
+  });
+  assert.equal(selected.status, 302);
+  const dashboard = await uiRequest(selected.headers.get('Location'));
+  const settingsPath = /href="(\/settings\/[^"]+)"/.exec(await dashboard.text())?.[1];
+  assert.ok(settingsPath);
+  const prototype = await uiRequest(settingsPath);
   assert.equal(prototype.status, 200);
   assert.match(prototype.headers.get('content-type'), /text\/html/);
   const prototypeHtml = await prototype.text();
@@ -181,6 +190,15 @@ try {
     const asset = await uiRequest(path);
     assert.equal(asset.status, 200);
     assert.match(asset.headers.get('content-type'), mime);
+
+    // Every file the stylesheet references (fonts, logo, background) must be bundled and served.
+    if (path.endsWith('.css'))
+      for (const [, reference] of (await asset.text()).matchAll(/url\(["']?([^"')]+)["']?\)/g)) {
+        if (reference.startsWith('data:')) continue;
+        const url = new URL(reference, `http://127.0.0.1:24443${path}`);
+        const bundled = await uiRequest(url.pathname);
+        assert.equal(bundled.status, 200, `${reference} from ${path}`);
+      }
   }
 
   child.kill('SIGTERM');

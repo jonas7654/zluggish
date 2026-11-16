@@ -6,7 +6,7 @@ import { test } from 'node:test';
 
 await test('Garmin imports FIT using garth-format tokens stored as encrypted documents', async (t) => {
   const f = runtimeFixture(t);
-  const rider = await f.accounts.create('Garmin Rider', '', true);
+  const rider = await f.accounts.create('Garmin Rider', 'test-password', true);
   const documents = f.accounts.repositories.riderDocuments;
   documents.put(
     rider.player_id,

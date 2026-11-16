@@ -1,0 +1,434 @@
+/* Launcher theme modelled on the Zwift app: blurred world, slate glass panels, white type, orange only for highlights.
+   Sized for the ~800x460 launcher window. */
+@font-face {
+  font-family: 'Montserrat';
+  font-weight: 600;
+  font-display: swap;
+  src: url('../node_modules/@fontsource/montserrat/files/montserrat-latin-600-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Montserrat';
+  font-weight: 800;
+  font-display: swap;
+  src: url('../node_modules/@fontsource/montserrat/files/montserrat-latin-800-normal.woff2') format('woff2');
+}
+
+:root {
+  --world: #1b2533;
+  --glass: rgb(36 47 62 / 0.86);
+  --glass-raised: rgb(62 78 98 / 0.92);
+  --well: rgb(12 18 26 / 0.55);
+  --line: rgb(255 255 255 / 0.16);
+  --text: #ffffff;
+  --muted: #c2cbd6;
+  --orange: #e2560c;
+  --orange-deep: #a83c05;
+  --alarm: #ffb3a6;
+  --font: 'Montserrat', system-ui, sans-serif;
+  color-scheme: dark;
+}
+
+html {
+  background: var(--world);
+}
+
+body {
+  position: relative;
+  isolation: isolate;
+  margin: 0;
+  min-height: 100vh;
+  background: var(--world);
+  color: var(--text);
+  font: 600 0.9375rem/1.45 var(--font);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* The game world, out of focus behind everything, as in the Zwift home screen. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: -2rem;
+  z-index: -1;
+  background:
+    linear-gradient(rgb(20 28 40 / 0.35), rgb(20 28 40 / 0.6)),
+    url('../../assets/cdn/style/background.jpg') center / cover no-repeat;
+  filter: blur(14px) saturate(1.1);
+}
+
+h1,
+h2 {
+  font-weight: 800;
+  line-height: 1.1;
+  margin: 0;
+}
+
+h1 {
+  font-size: clamp(1.75rem, 5vw, 2.25rem);
+  margin-bottom: 1rem;
+}
+
+h2 {
+  font-size: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  margin-bottom: 0.75rem;
+}
+
+p {
+  max-width: 65ch;
+}
+
+a {
+  color: var(--text);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
+nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  margin-bottom: 1.25rem;
+}
+
+nav a {
+  font-weight: 800;
+  font-size: 0.8125rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  text-decoration: none;
+}
+
+nav a:hover {
+  text-decoration: underline;
+  text-decoration-color: var(--orange);
+}
+
+form {
+  background: var(--glass);
+  border-radius: 12px;
+  padding: 1.25rem;
+  margin-block: 0 1rem;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+
+label {
+  display: block;
+  color: var(--muted);
+  margin: 0.75rem 0 0.3rem;
+}
+
+input,
+select,
+button {
+  font: inherit;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+input:not([type='checkbox']),
+select {
+  width: 100%;
+  max-width: 28rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--well);
+  color: var(--text);
+}
+
+input:not([type='checkbox']):focus,
+select:focus {
+  border-color: var(--orange);
+}
+
+input[type='checkbox'] {
+  width: 1.15rem;
+  height: 1.15rem;
+  accent-color: var(--orange);
+  vertical-align: middle;
+}
+
+/* Secondary actions are outlined, like Zwift's tab pills. */
+button {
+  margin: 1rem 0.5rem 0 0;
+  padding: 0.55rem 1.1rem;
+  border: 2px solid rgb(255 255 255 / 0.7);
+  border-radius: 10px;
+  background: none;
+  color: var(--text);
+  font-weight: 800;
+  font-size: 0.875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+
+button:hover {
+  background: rgb(255 255 255 / 0.12);
+}
+
+/* The one main action on a page is Zwift orange. */
+button.primary {
+  border: 0;
+  padding: 0.65rem 1.4rem;
+  background: var(--orange);
+  box-shadow: 0 3px 0 var(--orange-deep);
+}
+
+button.primary:hover {
+  background: #f06a1e;
+}
+
+button.primary:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 var(--orange-deep);
+}
+
+fieldset > button:first-child {
+  margin-top: 0;
+}
+
+form > p[aria-live]:empty {
+  margin: 0;
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 3px;
+}
+
+.error {
+  border-left: 3px solid #ff6b57;
+  background: rgb(255 90 70 / 0.14);
+  color: var(--alarm);
+  padding: 0.5rem 0.75rem;
+  border-radius: 0 6px 6px 0;
+}
+
+form > .error {
+  margin-top: 0;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.notice {
+  background: var(--glass);
+  border-radius: 10px;
+  padding: 0.6rem 0.9rem;
+}
+
+/* Login: one compact row per rider; the row is the button. Two columns fit the 800px launcher. */
+[data-page='login'] {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+  gap: 0.6rem 0.9rem;
+  align-items: start;
+}
+
+[data-page='login'] > :not(div, nav) {
+  grid-column: 1 / -1;
+  margin: 0 0 0.4rem;
+}
+
+[data-page='login'] > div,
+[data-page='login'] form {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  background: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+[data-page='login'] button,
+[data-page='login'] nav a {
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  width: 100%;
+  min-height: 3.5rem;
+  margin: 0;
+  padding: 0.5rem 2.75rem 0.5rem 0.6rem;
+  border: 2px solid transparent;
+  border-radius: 12px;
+  background: var(--glass);
+  color: var(--text);
+  font-size: 1rem;
+  text-transform: none;
+  letter-spacing: 0;
+  text-align: left;
+  overflow-wrap: anywhere;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+
+[data-page='login'] button:hover {
+  background: var(--glass-raised);
+  border-color: var(--orange);
+}
+
+/* A failed sign-in is a footer bar across the window, mirroring the top bar, so it shows however far the list is
+   scrolled. Its text lines up with the list. */
+[data-page='login'] > .notice[role='alert'] {
+  position: fixed;
+  z-index: 1;
+  inset: auto 0 0;
+  max-width: none;
+  margin: 0;
+  padding: 0.85rem max(1.5rem, calc((100% - 54rem) / 2));
+  border-top: 3px solid #ff6b57;
+  border-radius: 0;
+  /* Opaque, so rows scrolling underneath do not show through the message. */
+  background: linear-gradient(rgb(255 90 70 / 0.2), rgb(255 90 70 / 0.2)), rgb(36 47 62);
+  box-shadow: 0 -6px 24px rgb(0 0 0 / 0.35);
+  color: var(--alarm);
+  animation: alert-in 180ms ease-out;
+}
+
+/* Room below the last row, so the error bar never covers it. */
+[data-page='login']:has(> .notice[role='alert']) {
+  padding-bottom: 5rem;
+}
+
+@keyframes alert-in {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+@media (max-width: 500px) {
+  [data-page='login'] > .notice[role='alert'] {
+    padding-inline: 1rem;
+  }
+}
+
+/* The name, with the sign-in email quieter beneath it. */
+.who {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+  line-height: 1.2;
+}
+
+.who small {
+  color: var(--muted);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  /* A long address stays on one line; the full one is in the tooltip. */
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Zwift's avatar: white disc, dark initials, orange ring. */
+.avatar {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--text);
+  color: var(--world);
+  box-shadow: 0 0 0 3px var(--orange);
+  font-size: 0.875rem;
+  font-weight: 800;
+}
+
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+[data-page='login'] form > p[aria-live] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+/* The add-rider link is the last row. */
+[data-page='login'] nav {
+  display: contents;
+}
+
+[data-page='login'] nav a {
+  order: 1;
+  border: 2px dashed rgb(255 255 255 / 0.45);
+  background: rgb(36 47 62 / 0.45);
+}
+
+[data-page='login'] nav a::before {
+  content: '+';
+  display: grid;
+  place-items: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  font-size: 1.5rem;
+}
+
+[data-page='login'] nav a:hover {
+  border-color: var(--text);
+}
+
+/* Password step for one rider: password and Sign in on one line, the remember checkbox below. */
+[data-page='unlock'] form {
+  max-width: 26rem;
+}
+
+[data-page='unlock'] fieldset {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 0.75rem 0.6rem;
+}
+
+[data-page='unlock'] fieldset > div:first-of-type {
+  grid-area: 1 / 1;
+}
+
+[data-page='unlock'] fieldset > button {
+  grid-area: 1 / 2;
+  margin: 0;
+}
+
+[data-page='unlock'] fieldset > div:last-of-type {
+  grid-area: 2 / 1 / 3 / -1;
+  display: flex;
+  flex-direction: row-reverse;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+[data-page='unlock'] label {
+  margin-top: 0;
+}
+
+[data-page='unlock'] fieldset > div:last-of-type label {
+  margin: 0;
+  color: var(--text);
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    scroll-behavior: auto !important;
+    animation: none !important;
+    transition: none !important;
+  }
+}

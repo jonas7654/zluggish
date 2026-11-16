@@ -1,8 +1,9 @@
+import { checkbox, field, form as makeForm, hidden, model } from '#src/http/launcher/models';
+import { launcherPage } from '#src/http/launcher/render';
 import { DownloadFile, StravaMethod } from '#src/enum';
-import { authenticated, csrf, page } from '#src/http/routes/accounts';
+import { authenticated, csrf } from '#src/http/routes/accounts';
 import type { HttpRuntime as Runtime, RuntimeEnv } from '#src/http/runtime';
 import type { Hono } from 'hono';
-import { html } from 'hono/html';
 import { HTTPException } from 'hono/http-exception';
 import { resolve } from 'node:path';
 import { z } from 'zod';
@@ -15,14 +16,20 @@ export function settingsRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
     if (c.req.method === 'POST') {
       const form = await csrf(c, runtime);
+
+      const input = z
+        .object({
+          bridge_folder: z.string().max(500).default(''),
+          strava_method: z.enum(StravaMethod).default(StravaMethod.Paid),
+        })
+        .parse(form);
+
       runtime.services.settings.save(rider.player_id, {
         ...runtime.services.settings.read(rider.player_id),
         'ghosts.enabled': form.enableghosts !== undefined,
-        'workouts.trainingpeaks.bridgeFolder': z.string().catch('').parse(form.bridge_folder),
-        'uploads.strava.method': z.enum(StravaMethod).parse(form.strava_method ?? 'paid'),
+        'workouts.trainingpeaks.bridgeFolder': input.bridge_folder,
+        'uploads.strava.method': input.strava_method,
       });
-
-      return c.redirect(`/settings/${rider.username}/`);
     }
 
     const settings = runtime.services.settings.resolveRiderSettings(
@@ -30,45 +37,45 @@ export function settingsRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       runtime.services.settings.read(rider.player_id),
     );
 
-    return c.html(
-      page(
+    return launcherPage(
+      c,
+      runtime,
+      model(
+        c,
+        'settings',
         'Rider settings',
-        html`<form method="post">
-            <input type="hidden" name="csrf_token" value="${c.get('browser').csrf}" /><label
-              ><input type="checkbox" name="enableghosts" ${settings.ghosts.enabled ? html`checked` : ''} />Enable
-              ghosts</label
-            ><label
-              >TrainingPeaks export folder<input
-                name="bridge_folder"
-                value="${settings.workouts.trainingpeaks.bridgeFolder}" /></label
-            ><label
-              >Strava method<select name="strava_method">
-                <option value="paid" ${settings.uploads.strava.method === StravaMethod.Paid ? html`selected` : ''}>
-                  API
-                </option>
-                <option value="free" ${settings.uploads.strava.method === StravaMethod.Free ? html`selected` : ''}>
-                  Session cookie
-                </option>
-              </select></label
-            ><button>Save preferences</button>
-          </form>
-          <h2>Rider data</h2>
-          ${downloadable.options
+        [
+          makeForm(
+            'preferences',
+            `/settings/${rider.username}/`,
+            [
+              checkbox('enableghosts', 'Enable ghosts', settings.ghosts.enabled),
+              field('bridge_folder', 'TrainingPeaks export folder', {
+                value: settings.workouts.trainingpeaks.bridgeFolder,
+                maxLength: 500,
+              }),
+              field('strava_method', 'Strava method', {
+                type: 'select',
+                value: settings.uploads.strava.method,
+                options: [
+                  { value: 'paid', label: 'API' },
+                  { value: 'free', label: 'Session cookie' },
+                ],
+              }),
+            ],
+            'Save preferences',
+          ),
+          ...downloadable.options
             .filter((name) => runtime.services.documents.has(rider.player_id, name))
-            .map(
-              (name) =>
-                html`<form method="post" action="/download">
-                  <input type="hidden" name="csrf_token" value="${c.get('browser').csrf}" /><input
-                    type="hidden"
-                    name="filename"
-                    value="${name}"
-                  /><button>Download ${name}</button>
-                </form>`,
-            )}
-          <p>
-            <a href="/profile/${rider.username}/">Restore rider data or import a profile</a>
-          </p>`,
+            .map((name) =>
+              makeForm(`download-${name}`, '/download', [hidden('filename', name)], `Download ${name}`, {
+                navigation: true,
+              }),
+            ),
+        ],
+        { links: [{ href: `/profile/${rider.username}/`, label: 'Restore rider data or import a profile' }] },
       ),
+      c.req.method === 'POST' ? `/settings/${rider.username}/` : undefined,
     );
   });
   app.post('/download', async (c) => {

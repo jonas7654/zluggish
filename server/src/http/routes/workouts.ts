@@ -1,7 +1,8 @@
-import { authenticated, csrf, page } from '#src/http/routes/accounts';
+import { field, form as makeForm, model, secret } from '#src/http/launcher/models';
+import { launcherPage } from '#src/http/launcher/render';
+import { authenticated, csrf } from '#src/http/routes/accounts';
 import type { HttpRuntime as Runtime, RuntimeEnv } from '#src/http/runtime';
 import type { Hono } from 'hono';
-import { html } from 'hono/html';
 import { HTTPException } from 'hono/http-exception';
 import { resolve } from 'node:path';
 import { z } from 'zod';
@@ -75,27 +76,41 @@ export function workoutRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     if (c.req.method === 'POST') {
       const form = await csrf(c, runtime);
       const athlete = z.string().regex(/^\d+$/).parse(form.athlete_id);
-      const key = z.string().min(1).parse(form.api_key);
-      connections.save(user.player_id, 'intervals', [athlete, key]);
 
-      return c.redirect(`/settings/${user.username}/`);
+      const key = z
+        .string()
+        .min(1)
+        .parse(form.api_key || connections.read(user.player_id, 'intervals')?.[1]);
+
+      connections.save(user.player_id, 'intervals', [athlete, key]);
     }
 
     const connected = connections.has(user.player_id, 'intervals');
 
-    return c.html(
-      page(
+    const credentials = connections.read(user.player_id, 'intervals');
+
+    return launcherPage(
+      c,
+      runtime,
+      model(
+        c,
+        'workouts',
         'Intervals.icu',
-        html`<p>${connected ? 'Connected' : 'Enter your athlete ID and API key.'}</p>
-          <form method="post">
-            <input type="hidden" name="csrf_token" value="${c.get('browser').csrf}" /><label
-              >Athlete ID<input name="athlete_id" required /></label
-            ><label>API key<input type="password" name="api_key" required /></label><button>Save connection</button>
-          </form>
-          <form method="post" action="/intervals/${user.username}/sync">
-            <input type="hidden" name="csrf_token" value="${c.get('browser').csrf}" /><button>Sync workouts</button>
-          </form>`,
+        [
+          makeForm(
+            'intervals-credentials',
+            `/intervals/${user.username}/`,
+            [
+              field('athlete_id', 'Athlete ID', { value: credentials?.[0] ?? '', pattern: '^\\d+$', required: true }),
+              secret('api_key', 'API key', connected),
+            ],
+            'Save connection',
+          ),
+          makeForm('intervals-sync', `/intervals/${user.username}/sync`, [], 'Sync workouts'),
+        ],
+        { paragraphs: [connected ? 'Connected' : 'Enter your athlete ID and API key.'] },
       ),
+      c.req.method === 'POST' ? `/settings/${user.username}/` : undefined,
     );
   });
   app.on(['GET', 'POST'], '/trainingpeaks/:username/', async (c) => {
@@ -104,28 +119,35 @@ export function workoutRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     if (c.req.method === 'POST') {
       const form = await csrf(c, runtime);
       const overrides = runtime.services.settings.read(user.player_id);
-      overrides['workouts.trainingpeaks.bridgeFolder'] = z.string().parse(form.bridge_folder).trim();
+      overrides['workouts.trainingpeaks.bridgeFolder'] = z.string().max(500).parse(form.bridge_folder).trim();
       runtime.services.settings.save(user.player_id, overrides);
     }
 
-    return c.html(
-      page(
+    const folder =
+      runtime.services.settings.read(user.player_id)['workouts.trainingpeaks.bridgeFolder'] ??
+      runtime.config.riderDefaults.workouts.trainingpeaks.bridgeFolder;
+
+    return launcherPage(
+      c,
+      runtime,
+      model(
+        c,
+        'workouts',
         'TrainingPeaks bridge',
-        html`<p>
-            Export .zwo workouts to a local folder. Automatic TrainingPeaks API access requires approved partner
-            credentials.
-          </p>
-          <form method="post">
-            <input type="hidden" name="csrf_token" value="${c.get('browser').csrf}" /><label
-              >Export folder<input
-                name="bridge_folder"
-                value="${runtime.services.settings.read(user.player_id)['workouts.trainingpeaks.bridgeFolder'] ??
-                runtime.config.riderDefaults.workouts.trainingpeaks.bridgeFolder}" /></label
-            ><button>Save folder</button>
-          </form>
-          <form method="post" action="/trainingpeaks/${user.username}/sync">
-            <input type="hidden" name="csrf_token" value="${c.get('browser').csrf}" /><button>Import workouts</button>
-          </form>`,
+        [
+          makeForm(
+            'trainingpeaks-folder',
+            `/trainingpeaks/${user.username}/`,
+            [field('bridge_folder', 'Export folder', { value: folder, maxLength: 500 })],
+            'Save folder',
+          ),
+          makeForm('trainingpeaks-sync', `/trainingpeaks/${user.username}/sync`, [], 'Import workouts'),
+        ],
+        {
+          paragraphs: [
+            'Export .zwo workouts to a local folder. Automatic TrainingPeaks API access requires approved partner credentials.',
+          ],
+        },
       ),
     );
   });
@@ -148,12 +170,23 @@ export function workoutRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       message = 'Workout sync failed. Existing workouts were retained.';
     }
 
-    return c.html(
-      page(
-        'Workout sync',
-        html`<p>${message}</p>
-          <a href="/settings/${user.username}/">Settings</a>`,
-      ),
+    if (
+      !runtime.services.sessions.current(
+        c.get('browserId'),
+        c.get('browser'),
+        runtime.services.accounts.identityOf(user),
+      )
+    )
+      throw new HTTPException(401);
+
+    return launcherPage(
+      c,
+      runtime,
+      model(c, 'message', 'Workout sync', [], {
+        message,
+        failed: message.includes('failed'),
+        links: [{ href: `/settings/${user.username}/`, label: 'Settings' }],
+      }),
     );
   });
 }

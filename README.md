@@ -265,7 +265,7 @@ Stop the server before using the recovery CLI. Put the new password in a private
 pnpm --dir server cli --storage-dir /path/to/storage accounts recover --user 1 --password-file /private/path/new-password.txt --admin
 ```
 
-Remove the private password file after recovery. Omit `--admin` for password-only recovery. To remove password protection instead, use `--remove-password` without `--password-file`. The CLI revokes existing sessions. It does not prompt interactively for a password. Gmail/SMTP reset links are no longer supported.
+Remove the private password file after recovery. Omit `--admin` for password-only recovery. Riders cannot be left without a password. The CLI revokes existing sessions. It does not prompt interactively for a password. Gmail/SMTP reset links are no longer supported.
 
 ## IPv6 (Optional)
 

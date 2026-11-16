@@ -9,7 +9,7 @@ import { test } from 'node:test';
 
 await test('Discord bridges only configured human chat, handles commands and stops after close', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Discord Rider', '', true);
+  const user = await f.accounts.create('Discord Rider', 'test-password', true);
   const sent: string[] = [];
   const presence: number[] = [];
   let closed = false;

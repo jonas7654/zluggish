@@ -15,11 +15,11 @@ await test('settings page selects the resolved Strava method and preserves it on
     const response = await browser.request(path);
     assert.equal(response.status, 200);
     const html = await response.text();
-    const select = /<select name="strava_method">([\s\S]*?)<\/select>/.exec(html)?.[1];
+    const select = /<select name="strava_method"[^>]*>([\s\S]*?)<\/select>/.exec(html)?.[1];
     assert.ok(select);
 
     const selected = select
-      .matchAll(/<option value="([^"]+)"\s+selected>/g)
+      .matchAll(/<option value="([^"]+)"\s+selected(?:="")?>/g)
       .map((match) => match[1])
       .toArray();
 

@@ -50,7 +50,10 @@ export class AccountsService extends BaseService {
     const displayName = name.trim();
 
     if (!displayName || displayName.length > 100) throw new ConfigError('Enter a name between 1 and 100 characters');
-    const passwordHash = password ? await this.cryptoRepository.hashPassword(password) : null;
+
+    // Every rider has a password; the launcher can remember it per computer instead.
+    if (!password) throw new ConfigError('Choose a password for this rider');
+    const passwordHash = await this.cryptoRepository.hashPassword(password);
     let created: string | null = null;
     this.db.exec('BEGIN IMMEDIATE');
 
@@ -106,9 +109,9 @@ export class AccountsService extends BaseService {
     return this.cryptoRepository.verifyPassword(rider.pass_hash, password);
   }
 
-  async changePassword(id: number, password: string | null, admin = false) {
-    const hash = password ? await this.cryptoRepository.hashPassword(password) : null;
-    this.repository.setPassword(id, hash, admin);
+  async changePassword(id: number, password: string, admin = false) {
+    if (!password) throw new ConfigError('Password must not be empty');
+    this.repository.setPassword(id, await this.cryptoRepository.hashPassword(password), admin);
   }
 
   close() {

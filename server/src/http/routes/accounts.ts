@@ -1,64 +1,17 @@
+import type { LauncherPage } from '#src/dtos/launcher.dto';
+import { checkbox, field, form as makeForm, hidden, model } from '#src/http/launcher/models';
+import { launcherPage } from '#src/http/launcher/render';
+import { browserJson, launcherRedirect } from '#src/http/launcher/results';
 import { climbSchema, createUserSchema } from '#src/dtos/accounts.dto';
 import type { HttpRuntime as Runtime, RuntimeEnv } from '#src/http/runtime';
+import type { Rider } from '#src/repositories/accounts.repository';
+import { REMEMBER_SECONDS } from '#src/services/browser-session.service';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import type { Context, Hono } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
-import { html } from 'hono/html';
 import { HTTPException } from 'hono/http-exception';
 import { resolve } from 'node:path';
 import { z } from 'zod';
-
-export function page(title: string, body: ReturnType<typeof html>) {
-  return html`<!doctype html>
-    <html>
-      <head>
-        <meta charset="utf-8" />
-        <meta name="viewport" content="width=device-width" />
-        <title>${title}</title>
-        <link rel="stylesheet" href="/style/site.css" />
-        <style>
-          body {
-            font: 18px system-ui;
-            max-width: 50rem;
-            margin: 3rem auto;
-            padding: 1rem;
-            overflow: auto;
-            min-height: calc(100vh - 8rem);
-          }
-          a {
-            color: white;
-            text-shadow: 1px 1px 2px black;
-          }
-          button {
-            background: #f26722;
-            color: white;
-            border: 1px solid white;
-            border-radius: 0.3rem;
-            cursor: pointer;
-          }
-          input,
-          button,
-          select {
-            font: inherit;
-            padding: 0.5rem;
-            margin: 0.4rem;
-          }
-          label {
-            display: block;
-          }
-          nav {
-            display: flex;
-            gap: 1rem;
-            flex-wrap: wrap;
-          }
-        </style>
-      </head>
-      <body>
-        <h1 class="text-shadow">${title}</h1>
-        ${body}
-      </body>
-    </html>`;
-}
 
 export function authenticated(c: Context<RuntimeEnv>) {
   const rider = c.get('rider');
@@ -66,6 +19,47 @@ export function authenticated(c: Context<RuntimeEnv>) {
   if (!rider) throw new HTTPException(401);
 
   return rider;
+}
+
+function riderName(user: { first_name: string; last_name: string }) {
+  return `${user.first_name} ${user.last_name}`.trim();
+}
+
+function rememberCookie(playerId: number) {
+  return `zluggish_remember_${playerId}`;
+}
+
+// The password step after choosing a rider this computer does not remember.
+function unlockPage(c: Context<RuntimeEnv>, user: Rider, error = '') {
+  return model(
+    c,
+    'unlock',
+    riderName(user),
+    [
+      makeForm(
+        'unlock',
+        '/login/',
+        [
+          hidden('player_id', String(user.player_id)),
+          hidden('step', 'password'),
+          field('password', 'Password', {
+            type: 'password',
+            required: true,
+            autocomplete: 'current-password',
+            autofocus: true,
+          }),
+          checkbox('remember', 'Remember password'),
+        ],
+        'Sign in',
+        { primary: true, transient: true },
+      ),
+    ],
+    {
+      message: error,
+      failed: !!error,
+      back: { href: '/login/', label: 'Choose another rider' },
+    },
+  );
 }
 
 type FormFields = Record<string, string | File | (string | File)[]>;
@@ -103,7 +97,14 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
         c.req.path,
       );
 
-    const persistent = !authorization && (browserPage || (existing !== undefined && sessions.browsers.has(existing)));
+    const passive = c.req.path.startsWith('/ui/status/');
+    const previous = existing ? sessions.browsers.get(existing) : undefined;
+    const live = previous !== undefined && Date.now() - previous.touched <= 86_400_000;
+
+    const persistent =
+      !authorization &&
+      !c.req.path.startsWith('/static/launcher-ui/') &&
+      (passive ? live : browserPage || (existing !== undefined && sessions.browsers.has(existing)));
 
     const opened = persistent
       ? sessions.open(existing)
@@ -136,16 +137,48 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
     if (authorization && !c.get('rider')) throw new HTTPException(401);
 
+    if (browserPage || browserJson(c)) c.header('Cache-Control', 'no-store');
+    const context = c.req.header('X-Launcher-Context');
+
+    if (browserJson(c) && context && context !== c.get('browser').csrf)
+      throw new HTTPException(c.get('rider') ? 409 : 401, {
+        message: 'Your session or rider changed. Reload and retry.',
+      });
     await next();
   });
 
-  app.get('/', (c) => c.redirect('/login/'));
-  app.on(['GET', 'POST'], '/signup/', (c) => c.redirect('/riders/add/'));
+  app.get('/', (c) => launcherRedirect(c, '/login/'));
+  app.on(['GET', 'POST'], '/signup/', (c) => launcherRedirect(c, '/riders/add/'));
+
+  // The rider list; an error shows above it.
+  function loginPage(c: Context<RuntimeEnv>, error = '') {
+    return model(
+      c,
+      'login',
+      'Who’s riding?',
+      accounts.list().map((user) =>
+        makeForm(`rider-${user.player_id}`, '/login/', [hidden('player_id', String(user.player_id))], riderName(user), {
+          rider: {
+            initials: `${user.first_name.charAt(0)}${user.last_name.charAt(0)}`.toUpperCase(),
+            photo: runtime.services.files.exists(
+              resolve(runtime.services.profiles.folder(user.player_id), 'avatarLarge.jpg'),
+            )
+              ? `/download/${user.player_id}/avatarLarge.jpg`
+              : null,
+            // Riders created without an email get a placeholder username that means nothing to people.
+            email: user.username.endsWith('@local.invalid') ? null : user.username,
+          },
+        }),
+      ),
+      { message: error, failed: !!error, links: [{ href: '/riders/add/', label: 'Add rider' }] },
+    );
+  }
+
   app.on(['GET', 'POST'], '/login/', async (c) => {
     const session = c.get('browser');
     sessions.transition(session, { type: 'clear-selection' });
 
-    if (!accounts.setupComplete()) return c.redirect('/riders/add/');
+    if (!accounts.setupComplete()) return launcherRedirect(c, '/riders/add/');
     let error = '';
 
     if (c.req.method === 'POST') {
@@ -155,8 +188,48 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
       const user = id.success ? accounts.get(id.data) : null;
       const password = z.string().catch('').parse(form.password);
+      const step = form.step === 'password';
+      let signedIn: Rider | null = null;
 
-      if (user && (!user.pass_hash || (await accounts.verify(user, password)))) {
+      // Only riders migrated from legacy password hashes lack a password; they cannot sign in until it is set.
+      if (user && !user.pass_hash) {
+        runtime.world.lifecycle.log.warn(
+          'auth.login_no_password',
+          `Login failed: rider ${user.player_id} (${riderName(user)}) has no password and cannot sign in until an administrator sets one. ` +
+            'Stop the server, write the new password to a file, then run: ' +
+            `zluggish accounts recover --user ${user.player_id} --password-file PATH. ` +
+            'With Docker Compose, put the file in the storage folder and run: ' +
+            `docker compose run --rm zluggish zluggish accounts recover --user ${user.player_id} --password-file /usr/src/app/zluggish/storage/FILE. ` +
+            'Delete the file afterwards, then start the server again.',
+          { playerId: user.player_id },
+        );
+
+        return launcherPage(c, runtime, loginPage(c, 'Login failed.'));
+      }
+
+      if (user && !step) {
+        // Choosing a rider signs in at once when this computer remembers them; otherwise it opens their password step.
+        signedIn = sessions.remembered(getCookie(c, rememberCookie(user.player_id)) ?? '', user.player_id);
+
+        if (!signedIn) return launcherPage(c, runtime, unlockPage(c, user));
+      } else if (user && (await accounts.verify(user, password))) signedIn = user;
+
+      if (signedIn) {
+        const user = signedIn;
+
+        if (sessions.browsers.get(c.get('browserId')) !== session) throw new HTTPException(401);
+        const secure = c.req.url.startsWith('https:');
+
+        // Set before the session cookie: clients and tests read the session from the last Set-Cookie header.
+        if (!step || form.remember === 'on')
+          setCookie(c, rememberCookie(user.player_id), sessions.remember(user), {
+            httpOnly: true,
+            sameSite: 'Strict',
+            secure,
+            path: '/login/',
+            maxAge: REMEMBER_SECONDS,
+          });
+        else deleteCookie(c, rememberCookie(user.player_id), { path: '/login/' });
         sessions.end(c.get('browserId'));
         const fresh = sessions.open();
         sessions.transition(fresh.session, { type: 'login', identity: runtime.services.accounts.identityOf(user) });
@@ -173,33 +246,24 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
           flow: 'browser',
         });
 
-        return c.redirect(`/user/${encodeURIComponent(user.username)}/`);
+        return launcherRedirect(c, `/user/${encodeURIComponent(user.username)}/`);
       }
 
-      runtime.world.lifecycle.diagnostic('auth.login_failed', 'Login rejected', true);
-      error = 'Invalid rider or password.';
+      if (user && step) {
+        runtime.world.lifecycle.log.warn(
+          'auth.login_failed',
+          `Login failed: wrong password for rider ${user.player_id} (${riderName(user)})`,
+          { playerId: user.player_id, flow: 'browser' },
+        );
+
+        return launcherPage(c, runtime, unlockPage(c, user, 'Wrong password. Try again.'));
+      }
+
+      runtime.world.lifecycle.log.warn('auth.login_failed', 'Login failed: unknown rider', { flow: 'browser' });
+      error = 'That rider no longer exists. Choose another rider.';
     }
 
-    return c.html(
-      page(
-        'Choose a rider',
-        html`<p>${error}</p>
-          ${accounts
-            .list()
-            .map(
-              (user) =>
-                html`<form method="post">
-                  <input type="hidden" name="csrf_token" value="${session.csrf}" /><input
-                    type="hidden"
-                    name="player_id"
-                    value="${user.player_id}"
-                  /><strong>${user.first_name} ${user.last_name}</strong>${user.pass_hash
-                    ? html`<input type="password" name="password" aria-label="Password" required />`
-                    : ''}<button>Select rider</button>
-                </form>`,
-            )}<a href="/riders/add/">Add rider</a>`,
-      ),
-    );
+    return launcherPage(c, runtime, loginPage(c, error));
   });
 
   app.on(['GET', 'POST'], '/riders/add/', async (c) => {
@@ -207,38 +271,50 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     const current = c.get('rider');
 
     if (!first && !runtime.config.accounts.allowSelfRegistration && !current?.is_admin) throw new HTTPException(403);
-    const session = c.get('browser');
     let error = '';
 
     if (c.req.method === 'POST') {
       const form = await csrf(c, runtime);
       const password = z.string().catch('').parse(form.password);
 
-      if (password === z.string().catch('').parse(form.confirm_password)) {
+      if (!password) error = 'Choose a password for this rider.';
+      else if (password === z.string().catch('').parse(form.confirm_password)) {
         await accounts.create(z.string().parse(form.display_name), password, first);
 
-        return c.redirect('/login/');
-      }
-
-      error = 'Passwords did not match.';
+        return launcherRedirect(c, '/login/');
+      } else error = 'Passwords did not match.';
     }
 
-    return c.html(
-      page(
+    const extra: Partial<LauncherPage> = { message: error, failed: !!error };
+
+    if (!first) extra.back = { href: '/login/', label: 'Back to riders' };
+
+    return launcherPage(
+      c,
+      runtime,
+      model(
+        c,
+        'add',
         'Add rider',
-        html`<p>${error}</p>
-          <form method="post">
-            <input type="hidden" name="csrf_token" value="${session.csrf}" /><label
-              >Name<input
-                name="display_name"
-                value="${first ? 'zluggish' : ''}"
-                maxlength="100"
-                required
-                autofocus /></label
-            ><label>Optional password<input type="password" name="password" /></label
-            ><label>Confirm password<input type="password" name="confirm_password" /></label
-            ><button>Create rider</button> ${first ? '' : html`<a href="/login/">Cancel</a>`}
-          </form>`,
+        [
+          makeForm(
+            'add-rider',
+            '/riders/add/',
+            [
+              field('display_name', 'Name', { value: first ? 'zluggish' : '', maxLength: 100, required: true }),
+              field('password', 'Password', { type: 'password', required: true, autocomplete: 'new-password' }),
+              field('confirm_password', 'Confirm password', {
+                type: 'password',
+                required: true,
+                matches: 'password',
+                autocomplete: 'new-password',
+              }),
+            ],
+            'Create rider',
+            { primary: true },
+          ),
+        ],
+        extra,
       ),
     );
   });
@@ -248,18 +324,28 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     sessions.end(c.get('browserId'));
     deleteCookie(c, 'zluggish_session', { path: '/' });
 
-    return c.redirect('/login/');
+    return launcherRedirect(c, '/login/');
   });
 
   app.on(['GET', 'POST'], '/user/:username/', async (c) => {
     const user = authenticated(c);
-    const session = c.get('browser');
 
     if (c.req.method === 'POST') {
       const form = await csrf(c, runtime);
+
+      if (form.ambiguous === '1' && form.confirm_action !== 'on')
+        throw new HTTPException(400, { message: 'Confirm retrying uploads with an unknown result first.' });
       void runtime.services.uploads.retry(user.player_id, form.ambiguous === '1');
 
-      return c.redirect(`/user/${user.username}/`);
+      return launcherPage(
+        c,
+        runtime,
+        model(c, 'message', 'Activity uploads', [], {
+          message: 'Retry requested. Check the provider before retrying again.',
+          uploads: runtime.services.uploads.status(user.player_id).slice(0, 100),
+        }),
+        `/user/${user.username}/`,
+      );
     }
 
     await runtime.services.workouts.syncWorkoutsAutomatically(user.player_id);
@@ -273,80 +359,91 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       runtime.services.settings.read(user.player_id),
     );
 
-    return c.html(
-      page(
+    return launcherPage(
+      c,
+      runtime,
+      model(
+        c,
+        'dashboard',
         `${user.first_name} ${user.last_name}`,
-        html`<nav>
-            <a href="/profile/${user.username}/">Profile</a><a href="/zwift/${user.username}/">Zwift connection</a
-            ><a href="/reset/${user.username}/">Password</a><a href="/settings/${user.username}/">Settings</a
-            ><a href="/strava/${user.username}/">Strava</a><a href="/garmin/${user.username}/">Garmin</a
-            ><a href="/intervals/${user.username}/">Intervals.icu</a
-            ><a href="/trainingpeaks/${user.username}/">TrainingPeaks</a
-            ><a href="/power_curves/${user.username}/">Power curves</a>
-          </nav>
-          <h2>Activity uploads</h2>
-          <ul>
-            ${runtime.services.uploads
-              .status(user.player_id)
-              .map((job) => html`<li>Activity ${job.activity_id}: ${job.provider} — ${job.state}</li>`)}
-          </ul>
-          <p>
-            A failed upload was rejected by the provider. An upload with an unknown result may have reached the provider
-            before the connection failed: check the provider first, because a retry can create a duplicate.
-          </p>
-          <form method="post">
-            <input type="hidden" name="csrf_token" value="${session.csrf}" /><button>Retry failed uploads</button>
-          </form>
-          <form method="post">
-            <input type="hidden" name="csrf_token" value="${session.csrf}" /><input
-              type="hidden"
-              name="ambiguous"
-              value="1"
-            /><button>Retry failed uploads and uploads with an unknown result</button>
-          </form>
-          <form method="post" action="/start-zwift">
-            <input type="hidden" name="csrf_token" value="${session.csrf}" /><label
-              >Map<select name="map">
-                <option value="CALENDAR">Calendar</option>
-                ${[
-                  [2, 'Richmond'],
-                  [6, 'Watopia'],
-                  [7, 'London'],
-                  [8, 'New York'],
-                  [9, 'Innsbruck'],
-                  [11, 'Yorkshire'],
-                  [13, 'Makuri Islands'],
-                  [14, 'France'],
-                  [15, 'Paris'],
-                  [17, 'Scotland'],
-                ].map(([id, name]) => html`<option value="${id}">${name}</option>`)}
-              </select></label
-            ><label
-              >Climb<select name="climb">
-                <option value="CALENDAR">Calendar</option>
-                ${climbs.map((climb) => html`<option value="${climb.road}">${climb.name}</option>`)}
-              </select></label
-            ><label
-              ><input type="checkbox" name="enableghosts" ${settings.ghosts.enabled ? html`checked` : ''} />Enable
-              ghosts</label
-            ><button>Start Zwift</button>
-          </form>
-          <form method="post" action="/riders/switch/">
-            <input type="hidden" name="csrf_token" value="${session.csrf}" /><button>Switch rider</button>
-          </form>
-          ${user.is_admin
-            ? html`<h2>Server</h2>
-                ${[
-                  ['/restart', 'Restart with countdown'],
-                  ['/cancelrestart', 'Cancel restart'],
-                  ['/reloadbots', 'Reload bots'],
-                ].map(
-                  ([action, label]) =>
-                    html`<form method="post" action="${action}">
-                      <input type="hidden" name="csrf_token" value="${session.csrf}" /><button>${label}</button>
-                    </form>`,
-                )}`
-            : ''}`,
+        [
+          makeForm('retry-uploads', `/user/${user.username}/`, [], 'Retry failed uploads'),
+          makeForm(
+            'retry-unknown-uploads',
+            `/user/${user.username}/`,
+            [hidden('ambiguous', '1')],
+            'Retry failed uploads and uploads with an unknown result',
+            {
+              confirmation:
+                'Check the provider first. Retrying an upload with an unknown result can create a duplicate.',
+            },
+          ),
+          makeForm(
+            'launch',
+            '/start-zwift',
+            [
+              field('map', 'Map', {
+                type: 'select',
+                value: 'CALENDAR',
+                options: [
+                  { value: 'CALENDAR', label: 'Calendar' },
+                  ...[
+                    [2, 'Richmond'],
+                    [6, 'Watopia'],
+                    [7, 'London'],
+                    [8, 'New York'],
+                    [9, 'Innsbruck'],
+                    [11, 'Yorkshire'],
+                    [13, 'Makuri Islands'],
+                    [14, 'France'],
+                    [15, 'Paris'],
+                    [17, 'Scotland'],
+                  ].map(([id, name]) => ({ value: String(id), label: String(name) })),
+                ],
+              }),
+              field('climb', 'Climb', {
+                type: 'select',
+                value: 'CALENDAR',
+                options: [
+                  { value: 'CALENDAR', label: 'Calendar' },
+                  ...climbs.map((climb) => ({ value: climb.road, label: climb.name })),
+                ],
+              }),
+              checkbox('enableghosts', 'Enable ghosts', settings.ghosts.enabled),
+            ],
+            'Start Zwift',
+            { navigation: true, primary: true },
+          ),
+          makeForm('switch', '/riders/switch/', [], 'Switch rider'),
+          ...(user.is_admin
+            ? [
+                makeForm('restart', '/restart', [], 'Restart with countdown', {
+                  title: 'Server',
+                  confirmation: 'Schedule a server restart? Riders will be disconnected when the countdown ends.',
+                }),
+                makeForm('cancel-restart', '/cancelrestart', [], 'Cancel restart'),
+                makeForm('reload-bots', '/reloadbots', [], 'Reload bots', { confirmation: 'Reload server bots?' }),
+              ]
+            : []),
+        ],
+        {
+          back: { href: '/login/', label: 'Choose another rider' },
+          uploads: runtime.services.uploads.status(user.player_id).slice(0, 100),
+          paragraphs: [
+            'Check the provider before retrying a failed upload: it may have received the activity before the connection failed.',
+          ],
+          links: [
+            ['profile', 'Profile'],
+            ['zwift', 'Zwift connection'],
+            ['reset', 'Password'],
+            ['settings', 'Settings'],
+            ['strava', 'Strava'],
+            ['garmin', 'Garmin'],
+            ['intervals', 'Intervals.icu'],
+            ['trainingpeaks', 'TrainingPeaks'],
+            ['power_curves', 'Power curves'],
+          ].map(([path, label]) => ({ href: `/${path}/${encodeURIComponent(user.username)}/`, label: label! })),
+        },
       ),
     );
   });
@@ -360,28 +457,78 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       if (user.pass_hash && !(await accounts.verify(user, z.string().catch('').parse(form.current_password))))
         throw new HTTPException(403);
 
-      const password = form.remove_password === 'on' ? null : z.string().min(1).parse(form.password);
+      if (!sessions.current(c.get('browserId'), c.get('browser'), accounts.identityOf(user)))
+        throw new HTTPException(401);
+      // Every rider keeps a password; it can be changed but not removed.
+      const password = z.string().min(1).parse(form.password);
 
-      if (password !== null && password !== form.confirm_password) throw new HTTPException(400);
+      if (password !== form.confirm_password) throw new HTTPException(400);
 
       await accounts.changePassword(user.player_id, password);
       sessions.end(c.get('browserId'));
 
-      return c.redirect('/login/');
+      return launcherRedirect(c, '/login/');
     }
 
-    return c.html(
-      page(
+    return launcherPage(
+      c,
+      runtime,
+      model(
+        c,
+        'password',
         'Local password',
-        html`<form method="post">
-          <input type="hidden" name="csrf_token" value="${c.get('browser').csrf}" />${user.pass_hash
-            ? html`<label>Current password<input type="password" name="current_password" /></label>`
-            : ''}<label>New password<input type="password" name="password" /></label
-          ><label>Confirm password<input type="password" name="confirm_password" /></label
-          ><label><input type="checkbox" name="remove_password" />Remove password</label><button>Save</button>
-        </form>`,
+        [
+          makeForm(
+            'password',
+            `/reset/${user.username}/`,
+            [
+              ...(user.pass_hash
+                ? [
+                    field('current_password', 'Current password', {
+                      type: 'password',
+                      required: true,
+                      autocomplete: 'current-password',
+                    }),
+                  ]
+                : []),
+              field('password', 'New password', {
+                type: 'password',
+                required: true,
+                autocomplete: 'new-password',
+              }),
+              field('confirm_password', 'Confirm password', {
+                type: 'password',
+                required: true,
+                matches: 'password',
+                autocomplete: 'new-password',
+              }),
+            ],
+            'Save',
+          ),
+        ],
+        {
+          paragraphs: [
+            'Saving ends your session and makes every computer that remembers this password ask for it again.',
+          ],
+        },
       ),
     );
+  });
+
+  app.get('/ui/status/session', (c) => {
+    if (!c.get('browserId')) throw new HTTPException(401);
+    c.header('Cache-Control', 'no-store');
+
+    return c.body(null, 204);
+  });
+
+  app.get('/ui/status/uploads', (c) => {
+    const rider = authenticated(c);
+
+    if (!c.get('browserId')) throw new HTTPException(401);
+    c.header('Cache-Control', 'no-store');
+
+    return c.json({ jobs: runtime.services.uploads.status(rider.player_id).slice(0, 100) });
   });
 
   const launchAliases = [

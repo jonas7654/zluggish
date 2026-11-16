@@ -1,13 +1,15 @@
+import { checkbox, field, form as makeForm, hidden, model } from '#src/http/launcher/models';
+import { launcherPage } from '#src/http/launcher/render';
+import { launcherRedirect } from '#src/http/launcher/results';
 import { profileUpdateSchema } from '#src/dtos/profiles.dto';
 import { importFilenameSchema } from '#src/dtos/profile-import.dto';
 import { parseProtobuf } from '#src/http/protobuf';
-import { authenticated, csrf, page } from '#src/http/routes/accounts';
+import { authenticated, csrf } from '#src/http/routes/accounts';
 import type { HttpRuntime as Runtime, RuntimeEnv } from '#src/http/runtime';
 import { PlayerProfileSchema, ProfileEntitlementsSchema } from '#src/protocol/generated/profile_pb';
 import type { ImportFiles } from '#src/dtos/profile-import.dto';
 import { create, toBinary } from '@bufbuild/protobuf';
 import type { Context, Hono } from 'hono';
-import { html } from 'hono/html';
 import { HTTPException } from 'hono/http-exception';
 import { resolve } from 'node:path';
 import { z } from 'zod';
@@ -48,25 +50,32 @@ export function profileRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
       runtime.services.sessions.transition(browser, { type: 'stage-import', stage });
 
-      return c.redirect(`/profile/${rider.username}/confirm/`);
+      return launcherRedirect(c, `/profile/${rider.username}/confirm/`);
     }
 
-    return c.html(
-      page(
+    return launcherPage(
+      c,
+      runtime,
+      model(
+        c,
+        'import',
         'Import profile data',
-        html`<p>Your local rider ID and password remain unchanged.</p>
-          <p><a href="/zwift/${rider.username}/">Download from Zwift or manage connection</a></p>
-          <form method="post" enctype="multipart/form-data">
-            <input type="hidden" name="csrf_token" value="${c.get('browser').csrf}" /><input
-              type="hidden"
-              name="source"
-              value="files"
-            /><label>Profile<input type="file" name="profile.bin" /></label
-            ><label>Achievements<input type="file" name="achievements.bin" /></label
-            ><label>Economy<input type="file" name="economy_config.txt" /></label
-            ><label>Game storage<input type="file" name="user_storage.bin" /></label
-            ><label>Streaks<input type="file" name="streaks.bin" /></label><button>Review import</button>
-          </form>`,
+        [
+          makeForm(
+            'import-files',
+            `/profile/${rider.username}/`,
+            [
+              hidden('source', 'files'),
+              ...importFilenameSchema.options.map((name) => field(name, name, { type: 'file' })),
+            ],
+            'Review import',
+            { multipart: true },
+          ),
+        ],
+        {
+          paragraphs: ['Your local rider ID and password remain unchanged.'],
+          links: [{ href: `/zwift/${rider.username}/`, label: 'Download from Zwift or manage connection' }],
+        },
       ),
     );
   });
@@ -75,7 +84,7 @@ export function profileRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     const rider = authenticated(c);
     const stage = c.get('browser').pendingImport;
 
-    if (!stage) return c.redirect(`/profile/${rider.username}/`);
+    if (!stage) return launcherRedirect(c, `/profile/${rider.username}/`);
     const manifest = imports.inspect(rider, stage);
 
     const duplicate =
@@ -108,23 +117,46 @@ export function profileRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
       runtime.services.sessions.transition(c.get('browser'), { type: 'finish-import' });
 
-      return c.redirect(`/user/${rider.username}/`);
+      return launcherRedirect(c, `/user/${rider.username}/`);
     }
 
-    return c.html(
-      page(
+    return launcherPage(
+      c,
+      runtime,
+      model(
+        c,
+        'confirm',
         'Confirm profile import',
-        html`<p>${manifest.firstName} ${manifest.lastName} (${manifest.sourceId ?? 'unknown source'})</p>
-          <p>Replace: ${manifest.files.join(', ')}</p>
-          <form method="post">
-            <input type="hidden" name="csrf_token" value="${c.get('browser').csrf}" />${duplicate || mixed
-              ? html`<label
-                  ><input type="checkbox" name="confirm_source" required />Confirm this source may differ or be shared
-                  with another rider</label
-                >`
-              : ''}<label><input type="checkbox" name="keep_name" />Keep local name</label
-            ><button name="confirm" value="1">Confirm import</button><button name="cancel" value="1">Cancel</button>
-          </form>`,
+        [
+          makeForm(
+            'confirm-import',
+            `/profile/${rider.username}/confirm/`,
+            [
+              ...(duplicate || mixed
+                ? [
+                    field('confirm_source', 'Confirm this source may differ or be shared with another rider', {
+                      type: 'checkbox',
+                      required: true,
+                    }),
+                  ]
+                : []),
+              checkbox('keep_name', 'Keep local name'),
+            ],
+            'Confirm import',
+            {
+              buttons: [
+                { label: 'Confirm import', name: 'confirm', value: '1' },
+                { label: 'Cancel', name: 'cancel', value: '1', skipValidation: true },
+              ],
+            },
+          ),
+        ],
+        {
+          paragraphs: [
+            `${manifest.firstName} ${manifest.lastName} (${manifest.sourceId ?? 'unknown source'})`,
+            `Replace: ${manifest.files.join(', ')}`,
+          ],
+        },
       ),
     );
   });

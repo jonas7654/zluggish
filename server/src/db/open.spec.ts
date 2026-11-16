@@ -46,9 +46,11 @@ for (const upgrade of ['startup', 'accounts migrate'] as const) {
 
 await test('a fresh database uses WAL, the current version and one settings store', (t) => {
   const storage = mkdtempSync(resolve(tmpdir(), 'zluggish-fresh-'));
-  t.after(() => rmSync(storage, { recursive: true, force: true }));
   const db = openDatabase(storage);
-  t.after(() => db.close());
+  t.after(() => {
+    db.close();
+    rmSync(storage, { recursive: true, force: true });
+  });
   assert.equal(db.prepare('PRAGMA journal_mode').get()?.journal_mode, 'wal');
   assert.equal(db.prepare('PRAGMA synchronous').get()?.synchronous, 2);
   assert.equal(db.prepare('PRAGMA foreign_keys').get()?.foreign_keys, 1);
