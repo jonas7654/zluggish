@@ -30,7 +30,7 @@
     "lint:anti-slop": "cd .. && node server/node_modules/oxlint/bin/oxlint --config server/.oxlintrc.json server/src server/tests server/web",
     "lint:eslint": "cd .. && node server/node_modules/eslint/bin/eslint.js --config server/eslint.config.mjs \"server/src/**/*.{ts,tsx}\" \"server/tests/**/*.ts\" \"server/web/**/*.{ts,svelte}\" --max-warnings 0",
     "cli": "node --conditions=development --import tsx src/cli/bin.ts",
-    "build:web": "vite build && node scripts/check-ui-size.mjs && vite build --ssr",
+    "build:web": "vite build && vite build --ssr",
     "dev:web": "vite build --watch",
     "check:web": "svelte-check --tsconfig web/tsconfig.json",
     "test:browser": "pnpm build && node --test dist/tests/browser/*.spec.js"
@@ -57,6 +57,7 @@
     "@bufbuild/buf": "1.75.0",
     "@bufbuild/protoc-gen-es": "2.17.0",
     "@eslint/js": "^10.0.1",
+    "@fontsource/montserrat": "5.2.8",
     "@oxlint/plugins": "1.93.0",
     "@stylistic/eslint-plugin": "^6.0.0",
     "@sveltejs/vite-plugin-svelte": "7.3.1",

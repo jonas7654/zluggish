@@ -18,6 +18,42 @@ export function authenticated(c: Context<RuntimeEnv>) {
   return rider;
 }
 
+function riderName(user: { first_name: string; last_name: string }) {
+  return `${user.first_name} ${user.last_name}`.trim();
+}
+
+// The password step shown after choosing a protected rider.
+function unlockPage(
+  c: Context<RuntimeEnv>,
+  user: { player_id: number; first_name: string; last_name: string },
+  error = '',
+) {
+  return model(
+    c,
+    'unlock',
+    riderName(user),
+    [
+      makeForm(
+        'unlock',
+        '/login/',
+        [
+          hidden('player_id', String(user.player_id)),
+          hidden('step', 'password'),
+          field('password', 'Password', {
+            type: 'password',
+            required: true,
+            autocomplete: 'current-password',
+            autofocus: true,
+          }),
+        ],
+        'Sign in',
+        { primary: true },
+      ),
+    ],
+    { message: error, failed: !!error, links: [{ href: '/login/', label: 'Choose another rider' }] },
+  );
+}
+
 type FormFields = Record<string, string | File | (string | File)[]>;
 
 export async function csrf(c: Context<RuntimeEnv>, runtime: Runtime): Promise<FormFields> {
@@ -119,6 +155,10 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
       const user = id.success ? accounts.get(id.data) : null;
       const password = z.string().catch('').parse(form.password);
+      const unlocking = form.step === 'password';
+
+      // Choosing a protected rider opens its password step instead of failing.
+      if (user?.pass_hash && !unlocking) return launcherPage(c, runtime, unlockPage(c, user));
 
       if (user && (!user.pass_hash || (await accounts.verify(user, password)))) {
         if (sessions.browsers.get(c.get('browserId')) !== session) throw new HTTPException(401);
@@ -142,7 +182,9 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       }
 
       runtime.world.lifecycle.diagnostic('auth.login_failed', 'Login rejected', true);
-      error = 'Invalid rider or password.';
+
+      if (user && unlocking) return launcherPage(c, runtime, unlockPage(c, user, 'Wrong password. Try again.'));
+      error = 'That rider no longer exists. Choose another rider.';
     }
 
     return launcherPage(
@@ -151,25 +193,24 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       model(
         c,
         'login',
-        'Choose a rider',
+        'Who’s riding?',
         accounts.list().map((user) =>
           makeForm(
             `rider-${user.player_id}`,
             '/login/',
-            [
-              hidden('player_id', String(user.player_id)),
-              ...(user.pass_hash
-                ? [
-                    field('password', 'Password', {
-                      type: 'password',
-                      required: true,
-                      autocomplete: 'current-password',
-                    }),
-                  ]
-                : []),
-            ],
-            'Select rider',
-            { title: `${user.first_name} ${user.last_name}` },
+            [hidden('player_id', String(user.player_id))],
+            riderName(user),
+            {
+              rider: {
+                initials: `${user.first_name.charAt(0)}${user.last_name.charAt(0)}`.toUpperCase(),
+                photo: runtime.services.files.exists(
+                  resolve(runtime.services.profiles.folder(user.player_id), 'avatarLarge.jpg'),
+                )
+                  ? `/download/${user.player_id}/avatarLarge.jpg`
+                  : null,
+                locked: !!user.pass_hash,
+              },
+            },
           ),
         ),
         { message: error, failed: !!error, links: [{ href: '/riders/add/', label: 'Add rider' }] },
@@ -218,6 +259,7 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
               }),
             ],
             'Create rider',
+            { primary: true },
           ),
         ],
         { message: error, failed: !!error, links: first ? [] : [{ href: '/login/', label: 'Cancel' }] },
@@ -305,7 +347,7 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
               checkbox('enableghosts', 'Enable ghosts', settings.ghosts.enabled),
             ],
             'Start Zwift',
-            { navigation: true },
+            { navigation: true, primary: true },
           ),
           makeForm('switch', '/riders/switch/', [], 'Switch rider'),
           ...(user.is_admin

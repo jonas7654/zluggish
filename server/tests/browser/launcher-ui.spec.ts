@@ -31,10 +31,13 @@ async function browserFixture(t: TestContext) {
 
 async function signIn(page: Page, origin: string, id: number, password = '') {
   await page.goto(`${origin}/login/`);
-  const form = page.locator(`form:has(input[name=player_id][value="${id}"])`);
+  await page.locator(`form:has(input[name=player_id][value="${id}"]) button`).click();
 
-  if (password) await form.locator('[name=password]').fill(password);
-  await form.getByRole('button', { name: 'Select rider' }).click();
+  if (password) {
+    await page.getByLabel('Password', { exact: true }).fill(password);
+    await page.getByRole('button', { name: 'Sign in' }).click();
+  }
+
   await page.waitForURL('**/user/**');
 }
 
@@ -61,9 +64,10 @@ for (const javaScriptEnabled of [true, false]) {
     await page.getByRole('button', { name: 'Create rider' }).click();
     await page.waitForURL('**/login/');
     const rider = f.accounts.list()[0]!;
+    await page.getByRole('button', { name: 'New Browser Rider' }).click();
     await page.getByLabel('Password', { exact: true }).fill('wrong');
-    await page.getByRole('button', { name: 'Select rider' }).click();
-    await page.getByText('Invalid rider or password.', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    await page.getByText('Wrong password. Try again.', { exact: true }).first().waitFor();
     await signIn(page, f.origin, rider.player_id, 'browser-password');
     // Inspect the native request while preventing the browser's external protocol handler.
     let posted = '';

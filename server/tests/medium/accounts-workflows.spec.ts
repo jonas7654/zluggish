@@ -66,7 +66,7 @@ await test('first-owner setup and passwordless rider selection are real HTTP flo
   assert.equal(redirect.headers.get('Location'), '/riders/add/');
   const setup = await client.request(redirect.headers.get('Location')!);
   const html = await setup.text();
-  assert.match(html, /<link rel="stylesheet" href="\/style\/site.css"/);
+  assert.match(html, /<link rel="stylesheet" href="\/static\/launcher-ui\/assets\/client-[\w-]+\.css"/);
   const csrf = inputValue(html, 'csrf_token') ?? '';
 
   assert.match(html, /<title>Add rider<\/title>/);
@@ -96,6 +96,40 @@ await test('first-owner setup and passwordless rider selection are real HTTP flo
   assert.equal(response4.status, 200);
 });
 
+await test('choosing a protected rider asks for its password on a separate step', async (t) => {
+  const f = runtimeFixture(t);
+  const rider = await f.accounts.create('Alex Rider', 'first', true);
+  const client = browser(f.app);
+  const picker = await client.picker();
+  assert.equal(inputValue(picker, 'password'), undefined);
+
+  const step = await client.form('/login/', { player_id: String(rider.player_id) });
+  const unlock = await step.text();
+  assert.equal(step.status, 200);
+  assert.match(unlock, /<title>Alex Rider<\/title>/);
+  assert.equal(inputValue(unlock, 'step'), 'password');
+  assert.match(unlock, /name="password"/);
+
+  const wrong = await client.form('/login/', {
+    player_id: String(rider.player_id),
+    password: 'nope',
+    step: 'password',
+  });
+
+  assert.equal(wrong.status, 200);
+  assert.match(await wrong.text(), /Wrong password\. Try again\./);
+  const profile = await client.request('/api/profiles/me');
+  assert.equal(profile.status, 401);
+
+  const right = await client.form('/login/', {
+    player_id: String(rider.player_id),
+    password: 'first',
+    step: 'password',
+  });
+
+  assert.equal(right.status, 302);
+});
+
 await test('distinct riders launch and refresh independently; password change revokes existing tokens', async (t) => {
   const f = runtimeFixture(t);
   const a = await f.accounts.create('Alex Rider', 'first', true);
@@ -112,6 +146,7 @@ await test('distinct riders launch and refresh independently; password change re
     const response5 = await client.form('/login/', {
       player_id: String(user.player_id),
       password,
+      step: 'password',
     });
 
     assert.equal(response5.status, 302);

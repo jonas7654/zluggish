@@ -30,7 +30,7 @@ The source hook compiles Svelte in memory. Node watch restarts development on im
 - `pnpm test:browser`: compiled app with Chromium hydration, bound drafts, multipart fetch, validation and JavaScript-off POST.
 - Container CI fetches authenticated settings and its JS/CSS after pruning development dependencies.
 
-Provisional targets remain ES2022 and Chrome 100 CSS pending real webview checks. The migration bundle is approximately 51.6 kB raw JavaScript, 19.5 kB gzip (Node default gzip), 0.86 kB raw CSS, and 72.1 kB raw bundled SSR on Node 24.22.1 / TypeScript 6. The build enforces the spike's 20,000-byte gzip JavaScript budget across all client chunks with `scripts/check-ui-size.mjs`. A release usability budget still needs real launcher measurements.
+Provisional targets remain ES2022 and Chrome 100 CSS pending real webview checks. The launcher bundle is approximately 53.2 kB raw JavaScript, 20.3 kB gzip (Node default gzip), 8.4 kB raw CSS, two self-hosted Montserrat WOFF2 fonts and the blurred background image, and 72.7 kB raw bundled SSR on Node 24.22.1 / TypeScript 6. The build no longer enforces a JavaScript size budget; the owner removed the spike's check. A release usability budget still needs real launcher measurements.
 
 ## Required real launcher tests
 

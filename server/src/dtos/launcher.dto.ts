@@ -9,6 +9,7 @@ export interface LauncherField {
   pattern?: string;
   autocomplete?: 'username' | 'new-password' | 'current-password' | 'one-time-code';
   matches?: string;
+  autofocus?: boolean;
   when?: { field: string; value: string | boolean };
   options?: { value: string; label: string }[];
 }
@@ -23,6 +24,9 @@ export interface LauncherForm {
   multipart?: boolean;
   confirmation?: string;
   method?: 'paid' | 'free';
+  /** The page's main action, highlighted in Zwift orange. */
+  primary?: boolean;
+  rider?: { initials: string; photo: string | null; locked: boolean };
 }
 
 export interface UploadJob {
@@ -34,6 +38,7 @@ export interface UploadJob {
 export interface LauncherPage {
   kind:
     | 'login'
+    | 'unlock'
     | 'add'
     | 'dashboard'
     | 'settings'

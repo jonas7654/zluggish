@@ -55,12 +55,12 @@
   });
 </script>
 
-<Layout title={current.title}>
+<Layout title={current.title} page={current.kind}>
   {#if current.links?.length}<nav aria-label="Rider pages">
       {#each current.links as link (link.href)}<a href={link.href}>{link.label}</a>{/each}
     </nav>{/if}
   {#each current.paragraphs ?? [] as text, index (index)}<p>{text}</p>{/each}
-  {#if current.message}<p role={current.failed ? 'alert' : 'status'}>{current.message}</p>{/if}
+  {#if current.message}<p class="notice" role={current.failed ? 'alert' : 'status'}>{current.message}</p>{/if}
   {#if locked}<p class="error" role="alert">
       Your session or rider changed. <a href="/login/">Sign in</a> or
       <button type="button" onclick={() => location.reload()}>Reload this page</button>.

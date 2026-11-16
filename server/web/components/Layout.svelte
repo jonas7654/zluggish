@@ -1,78 +1,51 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
 
-  let { title, children }: { title: string; children: Snippet } = $props();
+  let { title, page, children }: { title: string; page: string; children: Snippet } = $props();
 </script>
 
 <svelte:head><title>{title}</title></svelte:head>
-<main>
-  <h1 class="text-shadow">{title}</h1>
+<header>
+  <span class="logo" aria-hidden="true"></span>
+  <span class="wordmark">zluggish</span>
+</header>
+<main data-page={page}>
+  <h1>{title}</h1>
   {@render children()}
 </main>
 
 <style>
-  :global(body) {
-    font: 18px system-ui;
-    max-width: 50rem;
-    margin: 3rem auto;
-    padding: 1rem;
-    overflow: auto;
-    min-height: calc(100vh - 8rem);
-  }
-  :global(a) {
-    color: white;
-    text-shadow: 1px 1px 2px black;
-  }
-  :global(button) {
-    background: #b94000;
-    color: white;
-    border: 1px solid white;
-    border-radius: 0.3rem;
-    cursor: pointer;
-  }
-  :global(input),
-  :global(button),
-  :global(select) {
-    font: inherit;
-    padding: 0.5rem;
-    margin: 0.4rem;
-    max-width: 100%;
-    box-sizing: border-box;
-  }
-  :global(label) {
-    display: block;
-  }
-  :global(nav) {
+  header {
     display: flex;
-    gap: 1rem;
-    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.75rem max(1.5rem, calc((100% - 57rem) / 2));
+    background: rgb(26 36 50 / 0.82);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
   }
-  :global(:focus-visible) {
-    outline: 3px solid #ffb365;
-    outline-offset: 3px;
+  .logo {
+    width: 3rem;
+    height: 1.9rem;
+    background: var(--orange);
+    -webkit-mask: url('../../../media/zluggish.svg') center / contain no-repeat;
+    mask: url('../../../media/zluggish.svg') center / contain no-repeat;
   }
-  :global(button:disabled) {
-    cursor: wait;
-    opacity: 0.65;
+  .wordmark {
+    font-size: 1.125rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
   }
-  :global(.error) {
-    background: #3d0b0b;
-    color: white;
-    padding: 0.5rem;
-  }
-  :global([hidden]) {
-    display: none !important;
+  main {
+    max-width: 57rem;
+    margin: 0 auto;
+    padding: 1.25rem 1.5rem 2rem;
   }
   @media (max-width: 500px) {
-    :global(body) {
-      margin: 0.5rem auto;
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    :global(*) {
-      scroll-behavior: auto !important;
-      animation: none !important;
-      transition: none !important;
+    header,
+    main {
+      padding-inline: 1rem;
     }
   }
 </style>

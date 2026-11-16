@@ -250,6 +250,7 @@
             />
             <p>{draft[field.name]}</p>
           {:else}
+            <!-- svelte-ignore a11y_autofocus (only set on single-field steps such as the rider password) -->
             <input
               type={field.type ?? 'text'}
               {id}
@@ -260,6 +261,7 @@
               maxlength={field.maxLength}
               pattern={field.pattern}
               autocomplete={field.autocomplete}
+              autofocus={field.autofocus}
               aria-invalid={!!error}
               aria-describedby={error ? `${id}-error` : undefined}
               onblur={() => (touched[field.name] = true)}
@@ -274,8 +276,15 @@
       {/if}
     {/each}
     {#each model.buttons as button (button.label)}
-      <button type="submit" name={button.name} value={button.value} formnovalidate={button.skipValidation}
-        >{pending ? 'Submitting…' : button.label}</button
+      <button
+        type="submit"
+        class:primary={model.primary}
+        name={button.name}
+        value={button.value}
+        formnovalidate={button.skipValidation}
+        >{#if model.rider}<span class="avatar" data-locked={model.rider.locked || undefined}
+            >{#if model.rider.photo}<img src={model.rider.photo} alt="" />{:else}{model.rider.initials}{/if}</span
+          >{/if}{pending ? 'Submitting…' : button.label}</button
       >
     {/each}
   </fieldset>
@@ -298,8 +307,5 @@
     padding: 0;
     margin: 0;
     min-width: 0;
-  }
-  form {
-    margin-block: 1rem;
   }
 </style>
