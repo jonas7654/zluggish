@@ -54,6 +54,8 @@ export interface LauncherPage {
     | 'message';
   title: string;
   csrf: string;
+  /** The server's release version, shown in the top bar. */
+  version: string;
   forms: LauncherForm[];
   links?: { href: string; label: string }[];
   /** Shown as a back button beside the title; it navigates and never signs out. */

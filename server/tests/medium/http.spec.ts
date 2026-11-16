@@ -1,3 +1,4 @@
+import { packageVersion } from '#src/config/load';
 import { createApp } from '#src/http/app';
 import { FeatureRequestSchema, FeatureResponseSchema } from '#src/protocol/generated/variants_pb';
 import { AssetFiles } from '#src/repositories/files.repository';
@@ -21,11 +22,7 @@ await test('public metadata routes preserve response values and content types', 
   assert.equal(info.headers.get('Content-Type'), 'application/json');
   assert.equal(await info.text(), metadata.gameInfo);
   const health = await app.request('/health');
-  assert.deepEqual(await health.json(), {
-    status: 'ok',
-    implementation: 'typescript',
-    rideReady: false,
-  });
+  assert.deepEqual(await health.json(), { name: 'zluggish', version: packageVersion(), status: 'ok' });
 });
 
 await test('machine variant endpoint consumes and returns protobuf, including unknown names', async () => {

@@ -23,6 +23,17 @@ export function packageRoot(): string {
   throw new ConfigError('Cannot locate server package');
 }
 
+let version: string | undefined;
+
+/** The server's own release version from package.json, shown in the launcher and on /health. */
+export function packageVersion(): string {
+  version ??= z
+    .object({ version: z.string() })
+    .parse(JSON.parse(readFileSync(resolve(packageRoot(), 'package.json'), 'utf8'))).version;
+
+  return version;
+}
+
 export function selectConfigPath(path?: string, env = process.env): string {
   const selected = resolve(path ?? env.ZLUGGISH_CONFIG ?? resolve(packageRoot(), CONFIG_NAME));
 

@@ -1,3 +1,4 @@
+import { packageVersion } from '#src/config/load';
 import type { LauncherField, LauncherForm, LauncherPage } from '#src/dtos/launcher.dto';
 import type { RuntimeEnv } from '#src/http/runtime';
 import type { Context } from 'hono';
@@ -50,5 +51,5 @@ export function model(
   forms: LauncherForm[],
   extra: Partial<LauncherPage> = {},
 ): LauncherPage {
-  return { kind, title, csrf: c.get('browser').csrf, forms, ...extra };
+  return { kind, title, csrf: c.get('browser').csrf, version: packageVersion(), forms, ...extra };
 }

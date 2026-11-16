@@ -1,3 +1,4 @@
+import { packageVersion } from '#src/config/load';
 import { browserJson } from '#src/http/launcher/results';
 import { ApplicationError } from '#src/errors';
 import { parseProtobuf } from '#src/http/protobuf';
@@ -81,7 +82,7 @@ export function createApp(metadata: PublicMetadata, runtime?: Runtime) {
     staticRoutes(app, runtime);
   }
 
-  app.get('/health', (c) => c.json({ status: 'ok', implementation: 'typescript', rideReady: false }));
+  app.get('/health', (c) => c.json({ name: 'zluggish', version: packageVersion(), status: 'ok' }));
   app.get('/', (c) =>
     c.html(
       '<!doctype html><title>Zluggish development server</title><h1>Zluggish</h1><p>The TypeScript server is under development. Client compatibility is awaiting manual verification.</p>',

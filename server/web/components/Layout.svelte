@@ -5,14 +5,22 @@
     title,
     page,
     back,
+    version,
     children,
-  }: { title: string; page: string; back?: { href: string; label: string } | undefined; children: Snippet } = $props();
+  }: {
+    title: string;
+    page: string;
+    back?: { href: string; label: string } | undefined;
+    version: string;
+    children: Snippet;
+  } = $props();
 </script>
 
 <svelte:head><title>{title}</title></svelte:head>
 <div class="bar">
   <span class="logo" aria-hidden="true"></span>
   <span class="wordmark">zluggish</span>
+  <span class="version">v{version}</span>
 </div>
 <main data-page={page}>
   <header>
@@ -44,6 +52,13 @@
     font-weight: 800;
     text-transform: uppercase;
     letter-spacing: 0.04em;
+  }
+  /* Quiet, at the far end of the bar: there for support questions, not competing with the wordmark. */
+  .version {
+    margin-left: auto;
+    color: var(--muted);
+    font-size: 0.8125rem;
+    font-variant-numeric: tabular-nums;
   }
   main {
     max-width: 57rem;
