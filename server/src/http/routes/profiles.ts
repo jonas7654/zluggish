@@ -197,7 +197,7 @@ export function profileRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     if (
       !runtime.services.accounts.get(id) &&
       !runtime.services.profiles.synthetic.has(BigInt(id)) &&
-      !runtime.services.files.exists(resolve(runtime.services.profiles.folder(id), 'profile.bin'))
+      !runtime.services.profiles.exists(id)
     )
       throw new HTTPException(404);
     const profile = runtime.services.profiles.forViewer(runtime.services.profiles.get(id), viewer.player_id);

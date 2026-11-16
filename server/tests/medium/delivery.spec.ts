@@ -1,0 +1,338 @@
+import { ActivitySchema } from '#src/protocol/generated/activity_pb';
+import { PlayerProfileSchema } from '#src/protocol/generated/profile_pb';
+import { DeliveryRefusedError } from '#src/errors';
+import { ZwiftRepository } from '#src/repositories/zwift.repository';
+import { UploadsService } from '#src/services/uploads.service';
+import { binary, mediumFixture } from '#tests/medium/support';
+import { create, toBinary } from '@bufbuild/protobuf';
+import { Garmin, GarminAuthError, GarminConnectionError, GarminHttpError } from 'garminconnect-js';
+import assert from 'node:assert/strict';
+import { readdirSync, readFileSync, rmSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { test } from 'node:test';
+import { z } from 'zod';
+
+const fit = readFileSync(new URL('../fixtures/ride.fit', import.meta.url));
+
+type Fixture = Awaited<ReturnType<typeof mediumFixture>>;
+
+async function completed(f: Awaited<ReturnType<typeof mediumFixture>>) {
+  const data = {
+    playerId: BigInt(f.rider.player_id),
+    courseId: 6n,
+    name: 'Delivered',
+    startDate: new Date().toISOString(),
+    distanceInMeters: 3000,
+    fitFilename: 'ride.fit',
+    fit,
+  };
+
+  const response = await f.request(`/api/profiles/${f.rider.player_id}/activities`, {
+    method: 'POST',
+    ...binary(ActivitySchema, data),
+  });
+
+  const { id } = z.object({ id: z.number() }).parse(await response.json());
+  f.services.activities.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }));
+
+  return id;
+}
+
+const reset = () =>
+  Promise.reject(new TypeError('fetch failed', { cause: Object.assign(new Error('reset'), { code: 'ECONNRESET' }) }));
+
+for (const [outcome, response, state] of [
+  ['confirmed success', () => Promise.resolve(new Response(null, { status: 200 })), 'sent'],
+  ['a rejection', () => Promise.resolve(new Response(null, { status: 400 })), 'failed'],
+  ['a server error after the request', () => Promise.resolve(new Response(null, { status: 503 })), 'ambiguous'],
+  ['remote acceptance with a lost response', reset, 'ambiguous'],
+  ['a connection reset', reset, 'ambiguous'],
+  ['a timeout', () => Promise.reject(new DOMException('The operation timed out', 'TimeoutError')), 'ambiguous'],
+] as const)
+  await test(`a delivery with ${outcome} becomes ${state} and never sends twice on its own`, async (t) => {
+    const f = await mediumFixture(t);
+    f.services.documents.put(f.rider.player_id, 'runalyze_token.txt', 'token');
+    await completed(f);
+    const sends = t.mock.method(globalThis, 'fetch', response);
+    await f.services.jobs.drain();
+    assert.equal(f.services.uploads.status(f.rider.player_id)[0]?.state, state);
+    await f.services.jobs.drain();
+    assert.equal(sends.mock.callCount(), 1);
+  });
+
+await test('a stop during each delivery state never sends a delivery twice', async (t) => {
+  const f = await mediumFixture(t);
+  f.services.documents.put(f.rider.player_id, 'runalyze_token.txt', 'token');
+  const id = await completed(f);
+  const sends = t.mock.method(globalThis, 'fetch', () => Promise.resolve(new Response(null, { status: 200 })));
+
+  // Stopped while sending: the restart records an unknown result and does not send.
+  f.accounts.db.prepare("UPDATE activity_upload SET state='sending', attempt='lost' WHERE activity_id=?").run(id);
+  f.services.uploads.start();
+  await f.services.jobs.drain();
+  assert.equal(f.services.uploads.status(f.rider.player_id)[0]?.state, 'ambiguous');
+  assert.equal(sends.mock.callCount(), 0);
+
+  // Stopped while pending: the queued job sends once after the restart.
+  f.accounts.db.prepare("UPDATE activity_upload SET state='pending' WHERE activity_id=?").run(id);
+  f.accounts.repositories.jobsRepository.enqueue('delivery', { activityId: id, provider: 'runalyze' });
+  f.services.uploads.start();
+  await f.services.jobs.drain();
+  assert.equal(sends.mock.callCount(), 1);
+
+  // Stopped after a result: neither sent nor failed deliveries run again.
+  for (const final of ['sent', 'failed']) {
+    f.accounts.db.prepare('UPDATE activity_upload SET state=? WHERE activity_id=?').run(final, id);
+    f.accounts.repositories.jobsRepository.enqueue('delivery', { activityId: id, provider: 'runalyze' });
+    f.services.uploads.start();
+    await f.services.jobs.drain();
+  }
+
+  assert.equal(sends.mock.callCount(), 1);
+});
+
+await test('a partial Zwift delivery keeps its remote activity and a retry uploads to it', async (t) => {
+  const f = await mediumFixture(t);
+  f.services.connections.save(f.rider.player_id, 'zwift', ['user', 'pass']);
+  f.settings.save(f.rider.player_id, { 'uploads.zwift.enabled': true });
+  t.mock.method(ZwiftRepository.prototype, 'officialLogin', () => Promise.resolve('token'));
+  await completed(f);
+  const calls: string[] = [];
+  let uploads = 0;
+
+  t.mock.method(globalThis, 'fetch', (input: string | URL, init?: RequestInit) => {
+    const call = `${init?.method ?? 'GET'} ${new URL(String(input)).pathname}`;
+    calls.push(call);
+
+    if (call.endsWith('/profiles/me'))
+      return Promise.resolve(new Response(toBinary(PlayerProfileSchema, create(PlayerProfileSchema, { id: 555n }))));
+
+    if (call.startsWith('POST')) return Promise.resolve(Response.json({ id: 77 }));
+
+    return Promise.resolve(new Response(null, { status: ++uploads === 1 ? 503 : 200 }));
+  });
+
+  await f.services.jobs.drain();
+  const record = f.accounts.db.prepare('SELECT state, remote_id, step FROM activity_upload').get();
+  assert.deepEqual({ ...record }, { state: 'ambiguous', remote_id: '77', step: 'created' });
+
+  await f.services.uploads.retry(f.rider.player_id, true);
+  assert.equal(f.services.uploads.status(f.rider.player_id)[0]?.state, 'sent');
+  assert.deepEqual(
+    calls.filter((call) => !call.endsWith('/profiles/me')),
+    ['POST /api/profiles/555/activities', 'PUT /api/profiles/555/activities/77', 'PUT /api/profiles/555/activities/77'],
+  );
+});
+
+await test('deleting every FIT export breaks neither details, charts nor delivery; a job creates them again', async (t) => {
+  const f = await mediumFixture(t);
+  f.services.documents.put(f.rider.player_id, 'runalyze_token.txt', 'token');
+  const delivered: Uint8Array[] = [];
+  t.mock.method(globalThis, 'fetch', async (_input: string | URL, init?: RequestInit) => {
+    const file = z.instanceof(FormData).parse(init?.body).get('file');
+    delivered.push(new Uint8Array(await z.instanceof(Blob).parse(file).arrayBuffer()));
+
+    return new Response(null, { status: 200 });
+  });
+  const id = await completed(f);
+  const folder = resolve(f.profiles.folder(f.rider.player_id), 'fit');
+  await f.services.jobs.drain();
+  assert.deepEqual(readdirSync(folder), [`${id} - ride.fit`]);
+  rmSync(folder, { recursive: true });
+  rmSync(resolve(f.config.storageDir, 'activities'), { recursive: true });
+
+  f.accounts.db.exec("UPDATE activity_upload SET state='failed'");
+  await f.services.uploads.retry(f.rider.player_id);
+  assert.equal(delivered.length, 2);
+  assert.deepEqual(Buffer.from(delivered[1] ?? []), fit);
+
+  const details = await f.request(`/api/activities/${id}`);
+  assert.equal(details.status, 200);
+  await f.services.jobs.drain();
+
+  const detail = await f.request(`/api/activities/${id}`);
+  const ready = z.object({ fitnessData: z.object({ fullDataUrl: z.string() }) }).parse(await detail.json());
+  const chart = await f.request(new URL(ready.fitnessData.fullDataUrl).pathname);
+  assert.equal(chart.status, 200);
+
+  f.accounts.repositories.jobsRepository.enqueue('fit_export', { activityId: id });
+  await f.services.jobs.drain();
+  assert.deepEqual(readFileSync(resolve(folder, `${id} - ride.fit`)), fit);
+});
+
+type Outcome = 'sent' | 'failed' | 'ambiguous';
+
+/** The delivery state a provider call leads to: sent, failed (refused) or ambiguous. */
+async function outcome(call: () => Promise<void>): Promise<Outcome> {
+  try {
+    await call();
+
+    return 'sent';
+  } catch (error) {
+    return error instanceof DeliveryRefusedError ? 'failed' : 'ambiguous';
+  }
+}
+
+const status = (code: number) => () => Promise.resolve(new Response(code === 200 ? '{}' : 'error', { status: code }));
+const offline = () => Promise.reject(new TypeError('fetch failed'));
+
+const activity = create(ActivitySchema, {
+  playerId: 1n,
+  courseId: 6n,
+  name: 'Ride',
+  startDate: '2026-11-01T10:00:00Z',
+  fit,
+  fitFilename: 'ride.fit',
+});
+
+for (const [provider, setup] of [
+  ['runalyze', (f: Fixture) => f.services.documents.put(f.rider.player_id, 'runalyze_token.txt', 'token')],
+  ['intervals', (f: Fixture) => f.services.connections.save(f.rider.player_id, 'intervals', ['42', 'key'])],
+  [
+    'strava',
+    (f: Fixture) => f.services.documents.put(f.rider.player_id, 'strava_token.txt', '1\nsecret\na\nr\n9999999999\n'),
+  ],
+] as const)
+  for (const [response, expected] of [
+    [status(200), 'sent'],
+    [status(400), 'failed'],
+    [status(401), 'failed'],
+    [status(409), 'failed'],
+    [status(408), 'ambiguous'],
+    [status(429), 'ambiguous'],
+    [status(500), 'ambiguous'],
+    [status(503), 'ambiguous'],
+    [offline, 'ambiguous'],
+  ] as const)
+    await test(`${provider}: ${response === offline ? 'a network failure' : 'a response'} becomes ${expected}`, async (t) => {
+      const f = await mediumFixture(t);
+      setup(f);
+      t.mock.method(globalThis, 'fetch', response);
+      const uploads = new UploadsService(f);
+      assert.equal(await outcome(() => uploads[provider](f.rider.player_id, activity)), expected);
+    });
+
+await test('every provider refuses a delivery without credentials, before any request', async (t) => {
+  const f = await mediumFixture(t);
+  const sends = t.mock.method(globalThis, 'fetch', status(200));
+  const uploads = new UploadsService(f);
+  const player = f.rider.player_id;
+
+  for (const send of [
+    () => uploads.runalyze(player, activity),
+    () => uploads.intervals(player, activity),
+    () => uploads.strava(player, activity),
+    () => uploads.freeStrava(player, activity, []),
+    () => uploads.garmin(player, activity),
+    () => uploads.zwift(player, activity),
+  ])
+    assert.equal(await outcome(send), 'failed');
+
+  f.services.connections.save(player, 'intervals', ['not-a-number', 'key']);
+  assert.equal(await outcome(() => uploads.intervals(player, activity)), 'failed');
+  assert.equal(sends.mock.callCount(), 0);
+});
+
+await test('strava: a failed token refresh happens before the upload and is refused', async (t) => {
+  const f = await mediumFixture(t);
+  f.services.documents.put(f.rider.player_id, 'strava_token.txt', '1\nsecret\na\nr\n1\n');
+  const calls = t.mock.method(globalThis, 'fetch', status(400));
+  assert.equal(await outcome(() => new UploadsService(f).strava(f.rider.player_id, activity)), 'failed');
+  assert.equal(calls.mock.callCount(), 1, 'only the refresh request');
+});
+
+for (const [step, expected] of [
+  ['the upload form cannot be read', 'failed'],
+  ['the session is not valid', 'failed'],
+  ['the upload request fails', 'ambiguous'],
+] as const)
+  await test(`strava session cookie: ${step} becomes ${expected}`, async (t) => {
+    const f = await mediumFixture(t);
+    f.services.documents.put(f.rider.player_id, 'strava4_session.txt', 'cookie');
+
+    t.mock.method(globalThis, 'fetch', (input: string | URL) => {
+      const url = String(input);
+
+      if (url.endsWith('/upload/select'))
+        return step === 'the upload form cannot be read'
+          ? offline()
+          : Promise.resolve(
+              new Response(
+                step === 'the session is not valid'
+                  ? 'Log in'
+                  : 'Upload and Sync Your Activities <meta name="csrf-token" content="token">',
+              ),
+            );
+
+      return offline();
+    });
+
+    assert.equal(await outcome(() => new UploadsService(f).freeStrava(f.rider.player_id, activity, [])), expected);
+  });
+
+for (const [error, expected] of [
+  [new GarminConnectionError('Import error: duplicate', { cause: new GarminHttpError('dup', 409, 'u', '') }), 'sent'],
+  [new GarminConnectionError('Import error: bad', { cause: new GarminHttpError('bad', 400, 'u', '') }), 'failed'],
+  [new GarminConnectionError('Import error: server', { cause: new GarminHttpError('srv', 502, 'u', '') }), 'ambiguous'],
+  [new GarminAuthError('expired'), 'failed'],
+  [new GarminConnectionError('timeout'), 'ambiguous'],
+] as const)
+  await test(`garmin: ${error.message} becomes ${expected}`, async (t) => {
+    const f = await mediumFixture(t);
+    const tokens = { oauth_token: 't', oauth_token_secret: 's' };
+    f.services.documents.put(f.rider.player_id, 'garth/oauth1_token.json', JSON.stringify(tokens));
+    f.services.documents.put(
+      f.rider.player_id,
+      'garth/oauth2_token.json',
+      JSON.stringify({
+        scope: '',
+        jti: '',
+        token_type: 'Bearer',
+        access_token: 'a',
+        refresh_token: 'r',
+        expires_in: 3600,
+        refresh_token_expires_in: 7200,
+        expires_at: 9_999_999_999,
+        refresh_token_expires_at: 9_999_999_999,
+      }),
+    );
+    t.mock.method(Garmin.prototype, 'importActivity', () => Promise.reject(error));
+    assert.equal(await outcome(() => new UploadsService(f).garmin(f.rider.player_id, activity)), expected);
+  });
+
+for (const [step, expected, creates] of [
+  ['the login fails', 'failed', 0],
+  ['the profile read is rejected', 'failed', 0],
+  ['the creation is rejected', 'failed', 1],
+  ['the creation response is lost', 'ambiguous', 1],
+  ['the upload is rejected', 'failed', 1],
+] as const)
+  await test(`zwift: ${step} becomes ${expected}`, async (t) => {
+    const f = await mediumFixture(t);
+    f.services.connections.save(f.rider.player_id, 'zwift', ['user', 'pass']);
+    t.mock.method(ZwiftRepository.prototype, 'officialLogin', () =>
+      step === 'the login fails' ? Promise.reject(new Error('login')) : Promise.resolve('token'),
+    );
+
+    let posts = 0;
+
+    t.mock.method(globalThis, 'fetch', (input: string | URL, init?: RequestInit) => {
+      if (String(input).endsWith('/profiles/me'))
+        return step === 'the profile read is rejected'
+          ? status(401)()
+          : Promise.resolve(new Response(toBinary(PlayerProfileSchema, create(PlayerProfileSchema, { id: 5n }))));
+
+      if (init?.method === 'POST') {
+        posts++;
+
+        if (step === 'the creation is rejected') return status(400)();
+
+        return step === 'the creation response is lost' ? offline() : Promise.resolve(Response.json({ id: 77 }));
+      }
+
+      return step === 'the upload is rejected' ? status(400)() : status(200)();
+    });
+
+    assert.equal(await outcome(() => new UploadsService(f).zwift(f.rider.player_id, activity)), expected);
+    assert.equal(posts, creates);
+  });

@@ -3,13 +3,12 @@ import { createApp } from '#src/http/app';
 import { ActivitySchema } from '#src/protocol/generated/activity_pb';
 import { PlayerProfileSchema, StreaksSchema } from '#src/protocol/generated/profile_pb';
 import { GhostSchema, PlayerStateSchema } from '#src/protocol/generated/udp-node-msgs_pb';
-import { Completions } from '#src/repositories/completion.repository';
 import { AssetFiles } from '#src/repositories/files.repository';
 import { LoggingRepository } from '#src/repositories/logging.repository';
 import { AccountsService } from '#src/services/auth.service';
 import { FitService } from '#src/services/fit.service';
 import { ImportsService } from '#src/services/profile-import.service';
-import { StreakService } from '#src/services/streak.service';
+import { JobsService } from '#src/services/jobs.service';
 import { UploadsService } from '#src/services/uploads.service';
 import { Simulation } from '#src/world/simulation';
 import { binary, decode, mediumBrowser, mediumFixture } from '#tests/medium/support';
@@ -17,14 +16,14 @@ import { create, toBinary } from '@bufbuild/protobuf';
 import { Encoder, Profile, type FileIdMesg, type RecordMesg } from '@garmin/fitsdk';
 import assert from 'node:assert/strict';
 import { EventEmitter, once } from 'node:events';
-import { existsSync, mkdirSync, readFileSync, unlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
 import { z } from 'zod';
 
 await test('deleting a queued activity while another upload is sending prevents its later delivery', async (t) => {
   const f = await mediumFixture(t);
-  new AssetFiles().writeDurable(resolve(f.profiles.folder(f.rider.player_id), 'runalyze_token.txt'), 'test');
+  f.services.documents.put(f.rider.player_id, 'runalyze_token.txt', 'test');
   const ids: number[] = [];
 
   const data = {
@@ -57,19 +56,19 @@ await test('deleting a queued activity while another upload is sending prevents 
     return new Response(null, { status: 200 });
   });
 
-  const draining = f.services.uploads.drain();
-  assert.equal(uploads.mock.callCount(), 1);
   const deleted = await f.request(`/api/profiles/${f.rider.player_id}/activities/${ids[1]}`, { method: 'DELETE' });
   assert.equal(deleted.status, 200);
+  const draining = f.services.jobs.drain();
+  await new Promise((resolve) => setImmediate(resolve));
   delivery.emit('release');
   await draining;
   assert.equal(uploads.mock.callCount(), 1);
   assert.deepEqual(f.services.uploads.status(f.rider.player_id), [
-    { activity_id: ids[0], provider: 'runalyze', state: 'sent' },
+    { activity_id: ids[0], provider: 'runalyze', state: 'sent', last_error: null },
   ]);
 });
 
-await test('a failed completion commit is recovered before the rider saves another activity', async (t) => {
+await test('a failed completion transaction commits nothing and a repeated save completes once', async (t) => {
   const f = await mediumFixture(t);
   const base = `/api/profiles/${f.rider.player_id}/activities`;
 
@@ -85,38 +84,44 @@ await test('a failed completion commit is recovered before the rider saves anoth
 
   const first = await f.request(base, { method: 'POST', ...binary(ActivitySchema, data) });
   const { id } = z.object({ id: z.number() }).parse(await first.json());
-  f.accounts.db.exec(`CREATE TRIGGER fail_completion BEFORE UPDATE OF done ON activity_completion
+  f.accounts.db.exec(`CREATE TRIGGER fail_completion BEFORE INSERT ON activity_completion
     BEGIN SELECT RAISE(ABORT, 'injected completion failure'); END`);
 
-  const failed = await f.request(`${base}/${id}?upload-to-strava=true`, {
-    method: 'PUT',
-    ...binary(ActivitySchema, { ...data, name: 'Final name' }),
-  });
+  const finish = () =>
+    f.request(`${base}/${id}?upload-to-strava=true`, {
+      method: 'PUT',
+      ...binary(ActivitySchema, { ...data, name: 'Final name' }),
+    });
 
+  const failed = await finish();
   assert.equal(failed.status, 500);
   assert.equal(f.accounts.db.prepare('SELECT name FROM activity WHERE id=?').get(id)?.name, 'Before failure');
-  assert.equal(f.accounts.db.prepare('SELECT count(*) AS n FROM power_curve').get()?.n, 0);
+  assert.equal(f.accounts.db.prepare('SELECT fit FROM activity WHERE id=?').get(id)?.fit, null);
+  assert.equal(f.accounts.db.prepare('SELECT count(*) AS n FROM job').get()?.n, 0);
+  assert.equal(f.services.documents.has(f.rider.player_id, 'streaks.bin'), false);
   f.accounts.db.exec('DROP TRIGGER fail_completion');
-  const second = await f.request(base, { method: 'POST', ...binary(ActivitySchema, data) });
-  const next = z.object({ id: z.number() }).parse(await second.json());
 
-  const saved = await f.request(`${base}/${next.id}?upload-to-strava=true`, {
-    method: 'PUT',
-    ...binary(ActivitySchema, data),
-  });
+  for (let i = 0; i < 2; i++) {
+    const saved = await finish();
+    assert.equal(saved.status, 200);
+  }
 
-  assert.equal(saved.status, 200);
-  f.services.activities.recover();
+  await f.services.jobs.drain();
   const streaks = await decode(await f.request('/api/fitness/streaks'), StreaksSchema);
-  assert.equal(streaks.curStreakDistance, 6000);
-  assert.equal(f.accounts.db.prepare('SELECT count(*) AS n FROM power_curve').get()?.n, 2);
+  assert.equal(streaks.curStreakDistance, 3000);
+  assert.equal(f.accounts.db.prepare('SELECT count(*) AS n FROM power_curve').get()?.n, 1);
   assert.equal(f.accounts.db.prepare('SELECT name FROM activity WHERE id=?').get(id)?.name, 'Final name');
+  assert.deepEqual(
+    Buffer.from(
+      z.instanceof(Uint8Array).parse(f.accounts.db.prepare('SELECT fit FROM activity WHERE id=?').get(id)?.fit),
+    ),
+    Buffer.from(data.fit),
+  );
 });
 
-await test('reopened upload queues require explicit owner retries for interrupted sends and honor disconnection', async (t) => {
+await test('reopened delivery queues mark interrupted sends ambiguous and honor disconnection', async (t) => {
   const f = await mediumFixture(t);
-  const token = resolve(f.profiles.folder(f.rider.player_id), 'runalyze_token.txt');
-  new AssetFiles().writeDurable(token, 'test');
+  f.services.documents.put(f.rider.player_id, 'runalyze_token.txt', 'test');
 
   const data = {
     playerId: BigInt(f.rider.player_id),
@@ -138,23 +143,28 @@ await test('reopened upload queues require explicit owner retries for interrupte
   f.accounts.db.exec("UPDATE activity_upload SET state='sending'");
   f.accounts.close();
   const reopened = new AccountsService(f.accounts.storage);
-  const queue = new UploadsService({ ...f, accounts: reopened });
+  const context = { ...f, accounts: reopened, settings: reopened.repositories.settingsRepository };
+  const queue = new UploadsService(context);
+  const jobs = new JobsService(context);
+  queue.registerJobs(jobs);
 
   // Windows cannot remove the fixture directory while the reopened SQLite handle is live.
   // Scoped cleanup runs before runtimeFixture's after hook, including on assertion failure.
   try {
     queue.start();
-    await queue.drain();
-    assert.equal(queue.status(f.rider.player_id)[0]?.state, 'failed');
-    await queue.retry(f.other.player_id);
-    assert.equal(queue.status(f.rider.player_id)[0]?.state, 'failed');
-    assert.deepEqual(queue.status(f.other.player_id), []);
-    unlinkSync(token);
+    await jobs.drain();
+    assert.equal(queue.status(f.rider.player_id)[0]?.state, 'ambiguous');
     await queue.retry(f.rider.player_id);
+    assert.equal(queue.status(f.rider.player_id)[0]?.state, 'ambiguous');
+    await queue.retry(f.other.player_id, true);
+    assert.equal(queue.status(f.rider.player_id)[0]?.state, 'ambiguous');
+    assert.deepEqual(queue.status(f.other.player_id), []);
+    reopened.repositories.riderDocuments.remove(f.rider.player_id, 'runalyze_token.txt');
+    await queue.retry(f.rider.player_id, true);
     assert.equal(queue.status(f.rider.player_id)[0]?.state, 'cancelled');
   } finally {
     try {
-      await queue.close();
+      await jobs.close();
     } finally {
       reopened.close();
     }
@@ -203,7 +213,7 @@ await test('charts retain running records with no power and intermittent sensor 
   assert.deepEqual(chart.heartRate, [120, 0, 130]);
 });
 
-await test('finalization retries and crash recovery preserve one streak update and durable upload intent', async (t) => {
+await test('repeated finalization keeps one streak update and deliveries retry only on request', async (t) => {
   const f = await mediumFixture(t);
   const fit = readFileSync(new URL('../fixtures/ride.fit', import.meta.url));
 
@@ -223,44 +233,30 @@ await test('finalization retries and crash recovery preserve one streak update a
   });
 
   const { id } = z.object({ id: z.number() }).parse(await response.json());
-  const activity = create(ActivitySchema, { ...data, id: BigInt(id) });
-
-  const after = toBinary(
-    StreaksSchema,
-    StreakService.advancedStreak(
-      new StreakService(f.accounts.repositories).streaksFor(f.profiles, f.rider.player_id),
-      activity,
-    ),
-  );
-
-  new Completions(f.accounts.db).prepare(activity.id, f.rider.player_id, toBinary(ActivitySchema, activity), after);
-  // Model a crash after the streak file was replaced but before the database commit.
-  new AssetFiles().writeDurable(resolve(f.profiles.folder(f.rider.player_id), 'streaks.bin'), after);
-  new AssetFiles().writeDurable(resolve(f.profiles.folder(f.rider.player_id), 'runalyze_token.txt'), 'test');
-  f.services.activities.recover();
+  f.services.documents.put(f.rider.player_id, 'runalyze_token.txt', 'test');
   let delivered = 0;
   t.mock.method(globalThis, 'fetch', () => {
     delivered++;
 
-    return Promise.resolve(new Response(null, { status: delivered === 1 ? 503 : 200 }));
+    return Promise.resolve(new Response(null, { status: delivered === 1 ? 400 : 200 }));
   });
-  await f.services.uploads.drain();
-  assert.equal(f.services.uploads.status(f.rider.player_id)[0]?.state, 'failed');
   const path = `/api/profiles/${f.rider.player_id}/activities/${id}?upload-to-strava=true`;
 
-  for (let i = 0; i < 2; i++) {
-    const retry = await f.request(path, { method: 'PUT', ...binary(ActivitySchema, data) });
-    assert.equal(retry.status, 200);
+  for (let i = 0; i < 3; i++) {
+    const saved = await f.request(path, { method: 'PUT', ...binary(ActivitySchema, data) });
+    assert.equal(saved.status, 200);
   }
 
+  await f.services.jobs.drain();
   assert.equal(delivered, 1);
+  assert.equal(f.services.uploads.status(f.rider.player_id)[0]?.state, 'failed');
   const streaks = await decode(await f.request('/api/fitness/streaks'), StreaksSchema);
   assert.equal(streaks.curStreakDistance, 3000);
   assert.equal(f.accounts.db.prepare('SELECT count(*) AS n FROM power_curve').get()?.n, 1);
   const browser = await mediumBrowser(f);
   const retried = await browser.form(`/user/${f.rider.username}/`);
   assert.equal(retried.status, 302);
-  await f.services.uploads.drain();
+  await f.services.jobs.drain();
   assert.equal(delivered, 2);
   assert.equal(f.services.uploads.status(f.rider.player_id)[0]?.state, 'sent');
 
@@ -353,7 +349,11 @@ await test('ghost recordings apply migrated equipment and randomized body overri
     config: validateConfig({ ...f.config, ghosts: { profileFile: configFile } }),
   });
 
+  t.after(() => simulation.close());
+  await simulation.ready;
+
   for (const state of states) simulation.receive(BigInt(f.rider.player_id), state);
+  await simulation.idle();
   const ghost = f.profiles.synthetic.get(BigInt(f.rider.player_id) + 10_000_000n);
   assert.ok(ghost);
   assert.equal(ghost.rideJersey, 42);

@@ -11,7 +11,7 @@ export function removeLegacyAccountFields(db: DatabaseSync, storage: string) {
   );
 
   if (columns.has('enable_ghosts')) {
-    const settings = new SettingsStore(storage);
+    const settings = SettingsStore.legacy(storage);
 
     try {
       for (const row of db.prepare('SELECT player_id, enable_ghosts FROM user').all()) {

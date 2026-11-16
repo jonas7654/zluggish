@@ -66,9 +66,7 @@ export function settingsRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
             'Save preferences',
           ),
           ...downloadable.options
-            .filter((name) =>
-              runtime.services.files.exists(resolve(runtime.services.profiles.folder(rider.player_id), name)),
-            )
+            .filter((name) => runtime.services.documents.has(rider.player_id, name))
             .map((name) =>
               makeForm(`download-${name}`, '/download', [hidden('filename', name)], `Download ${name}`, {
                 navigation: true,
@@ -84,11 +82,11 @@ export function settingsRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     const rider = authenticated(c);
     const form = await csrf(c, runtime);
     const file = downloadable.parse(form.filename);
-    const path = resolve(runtime.services.profiles.folder(rider.player_id), file);
+    const data = runtime.services.documents.get(rider.player_id, file);
 
-    if (!runtime.services.files.exists(path)) throw new HTTPException(404);
+    if (!data) throw new HTTPException(404);
 
-    return c.body(runtime.services.files.read(path), 200, {
+    return c.body(new Uint8Array(data), 200, {
       'Content-Disposition': `attachment; filename="${file}"`,
     });
   });

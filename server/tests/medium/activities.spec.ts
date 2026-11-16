@@ -376,6 +376,8 @@ for (const discard of [false, true])
     );
 
     assert.equal(deleted.status, 200);
+    // The rows go with the request; a cleanup job removes the files.
+    await f.services.jobs.drain();
 
     for (const path of paths) assert.equal(existsSync(path), false);
 

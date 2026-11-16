@@ -179,6 +179,12 @@ export const configSchema = z
           .min(0)
           .refine((value) => value === 0 || value >= 10, 'Use 0 or at least 10 seconds')
           .default(60),
+        metricsIntervalSeconds: z
+          .number()
+          .int()
+          .min(0)
+          .refine((value) => value === 0 || value >= 10, 'Use 0 or at least 10 seconds')
+          .default(60),
       })
       .prefault({})
       .readonly(),
@@ -219,6 +225,28 @@ export const configSchema = z
       .readonly(),
     riderDefaults: riderSettingsSchema,
     storageDir: nonEmptyString.default('../storage'),
+    recovery: z
+      .strictObject({
+        checkpointSeconds: z.number().int().min(5).default(30),
+        resumeMinutes: z.number().int().min(1).default(15),
+        maxBytes: z
+          .number()
+          .int()
+          .min(65_536)
+          .default(4 * 1024 * 1024),
+      })
+      .prefault({})
+      .readonly(),
+    retention: z
+      .strictObject({
+        finishedJobsDays: z.number().int().min(1).default(14),
+        deliveryRecordsDays: z.number().int().min(1).default(365),
+        ghostsPerRoute: z.number().int().min(1).default(50),
+        migrationBackups: z.number().int().min(1).default(2),
+        temporaryFileHours: z.number().int().min(1).default(24),
+      })
+      .prefault({})
+      .readonly(),
     tls: z
       .strictObject({
         certFile: optionalPath.default(''),

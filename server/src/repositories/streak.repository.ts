@@ -1,18 +1,18 @@
 import type { Streaks } from '#src/protocol/generated/profile_pb';
 import { StreaksSchema } from '#src/protocol/generated/profile_pb';
-import { AssetFiles } from '#src/repositories/files.repository';
+import type { RiderDocuments } from '#src/repositories/rider-document.repository';
 import { fromBinary, toBinary } from '@bufbuild/protobuf';
-import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 
 export class StreakRepository {
-  readStreaks(folder: string) {
-    const path = resolve(folder, 'streaks.bin');
+  constructor(private readonly documents: RiderDocuments) {}
 
-    return existsSync(path) ? fromBinary(StreaksSchema, readFileSync(path)) : null;
+  readStreaks(player: number) {
+    const data = this.documents.get(player, 'streaks.bin');
+
+    return data ? fromBinary(StreaksSchema, data) : null;
   }
 
-  saveStreaks(folder: string, streaks: Streaks) {
-    new AssetFiles().writeDurable(resolve(folder, 'streaks.bin'), toBinary(StreaksSchema, streaks), true);
+  saveStreaks(player: number, streaks: Streaks) {
+    this.documents.put(player, 'streaks.bin', toBinary(StreaksSchema, streaks));
   }
 }

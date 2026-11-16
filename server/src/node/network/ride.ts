@@ -6,14 +6,11 @@ import {
   PlayerStateSchema,
   ServerToClientSchema,
 } from '#src/protocol/generated/udp-node-msgs_pb';
-import { AssetFiles } from '#src/repositories/files.repository';
 import { expired, worldTime } from '#src/world/state';
 import { create, fromBinary, toBinary } from '@bufbuild/protobuf';
 import { createSocket } from 'node:dgram';
-import { existsSync, readFileSync } from 'node:fs';
 import type { Socket } from 'node:net';
 import { createServer } from 'node:net';
-import { resolve } from 'node:path';
 
 export function startRideListeners(runtime: Runtime) {
   const { world, config } = runtime;
@@ -140,12 +137,16 @@ export function startRideListeners(runtime: Runtime) {
 
             if (!runtime.accounts.get(id)) throw new Error('Unknown rider');
 
-            const keyPath = resolve(config.storageDir, String(id), 'encryption_key.bin');
-
+            // The stored relay key lets a restarted server accept the existing session.
             const current = world.relays.get(playerId);
+            const documents = runtime.services.documents;
 
-            if (current) new AssetFiles().writeDurable(keyPath, current.key, true);
-            else if (existsSync(keyPath)) world.login(playerId, readFileSync(keyPath));
+            if (current) documents.put(id, 'encryption_key.bin', current.key);
+            else {
+              const key = documents.get(id, 'encryption_key.bin');
+
+              if (key) world.login(playerId, key);
+            }
           }
 
           const relay = playerId === null ? null : world.relays.get(playerId);

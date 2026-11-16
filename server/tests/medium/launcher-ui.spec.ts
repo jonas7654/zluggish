@@ -161,3 +161,40 @@ await test('browser JSON errors do not change game API responses and never seria
     assert.ok(!html.includes('never-send-'));
   }
 });
+
+await test('launcher downloads and connection controls use persisted database documents', async (t) => {
+  const f = await mediumFixture(t);
+  const browser = await mediumBrowser(f);
+  const player = f.rider.player_id;
+  f.services.documents.put(player, 'economy_config.txt', 'database economy');
+  const settings = await browser.request(`/settings/${f.rider.username}/`);
+  assert.match(await settings.text(), /Download economy_config.txt/);
+  const download = await browser.form('/download', { filename: 'economy_config.txt' });
+  assert.equal(download.status, 200);
+  assert.equal(await download.text(), 'database economy');
+
+  f.services.connections.save(player, 'zwift', ['zwift-user', 'secret']);
+  const zwift = await browser.request(`/zwift/${f.rider.username}/`);
+  assert.match(await zwift.text(), /Remove credentials/);
+  f.services.documents.put(player, 'strava_token.txt', 'saved-token');
+  f.services.documents.put(player, 'garth/oauth1_token.json', '{}');
+  f.services.documents.put(player, 'garth/oauth2_token.json', '{}');
+
+  for (const [provider, file] of [
+    ['strava', 'strava_token.txt'],
+    ['garmin', 'garth/oauth1_token.json'],
+  ] as const) {
+    const page = await browser.request(`/${provider}/${f.rider.username}/`);
+    const html = await page.text();
+    assert.match(html, /Authorized\./);
+    assert.ok(html.includes(`Remove ${file}`));
+    const rejected = await browser.form(`/delete/${file}`);
+    assert.equal(rejected.status, 400);
+    assert.equal(f.services.documents.has(player, file), true);
+    const removed = await browser.form(`/delete/${file}`, { confirm_action: 'on' });
+    assert.equal(removed.status, 302);
+    assert.equal(f.services.documents.has(player, file), false);
+  }
+
+  assert.equal(f.services.documents.has(player, 'garth/oauth2_token.json'), false);
+});

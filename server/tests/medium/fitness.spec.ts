@@ -17,7 +17,6 @@ await test('streak ride timestamps persist when starting, extending and restarti
     ['2026-11-30', 1, 3000, '2026-11-30'],
   ] as const) {
     new StreakService(f.accounts.repositories).updateStreaks(
-      f.profiles,
       f.rider.player_id,
       create(ActivitySchema, { startDate: `${date}T12:00:00Z`, distanceInMeters: 3000 }),
     );

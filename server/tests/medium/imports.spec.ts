@@ -2,7 +2,6 @@ import { createApp } from '#src/http/app';
 import { LoginResponseSchema } from '#src/protocol/generated/login_pb';
 import { AchievementsSchema, PlayerProfileSchema, StreaksSchema } from '#src/protocol/generated/profile_pb';
 import { UserStorageSchema } from '#src/protocol/generated/user_storage_pb';
-import { Connections } from '#src/repositories/connections.repository';
 import { AssetFiles } from '#src/repositories/files.repository';
 import { mediumBrowser, mediumFixture } from '#tests/medium/support';
 import { create, fromBinary, toBinary } from '@bufbuild/protobuf';
@@ -10,7 +9,6 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
-import { z } from 'zod';
 
 const cases = [
   {
@@ -58,8 +56,8 @@ for (const item of cases) {
     const browser = await mediumBrowser(f);
     const other = await mediumBrowser(f, f.other);
     const folder = f.profiles.folder(f.rider.player_id);
-    const path = resolve(folder, item.name);
-    new AssetFiles().writeDurable(path, item.before, true);
+    const stored = () => Buffer.from(f.services.documents.get(f.rider.player_id, item.name) ?? []);
+    f.services.documents.put(f.rider.player_id, item.name, item.before);
     const account = f.accounts.get(f.rider.player_id);
 
     const upload = async () => {
@@ -68,7 +66,7 @@ for (const item of cases) {
       const response = await browser.upload(`/profile/${f.rider.username}/`, files);
       assert.equal(response.status, 302);
       assert.equal(response.headers.get('Location'), `/profile/${f.rider.username}/confirm/`);
-      assert.deepEqual(readFileSync(path), Buffer.from(item.before));
+      assert.deepEqual(stored(), Buffer.from(item.before));
       const review = await browser.request(`/profile/${f.rider.username}/confirm/`);
       assert.equal(review.status, 200);
       assert.match(await review.text(), new RegExp(item.name.replaceAll('.', '\\.')));
@@ -77,7 +75,7 @@ for (const item of cases) {
     await upload();
     const canceled = await browser.form(`/profile/${f.rider.username}/confirm/`, { cancel: '1' });
     assert.equal(canceled.status, 302);
-    assert.deepEqual(readFileSync(path), Buffer.from(item.before));
+    assert.deepEqual(stored(), Buffer.from(item.before));
     assert.equal(
       readdirSync(folder).some((name) => name.startsWith('.ts-import-')),
       false,
@@ -90,7 +88,7 @@ for (const item of cases) {
     });
 
     assert.equal(foreignConfirm.status, 302);
-    assert.deepEqual(readFileSync(path), Buffer.from(item.before));
+    assert.deepEqual(stored(), Buffer.from(item.before));
 
     const published = await browser.form(`/profile/${f.rider.username}/confirm/`, {
       confirm: '1',
@@ -114,7 +112,7 @@ for (const item of cases) {
     assert.deepEqual(readFileSync(resolve(folder, backups[0]!)), Buffer.from(item.before));
     assert.equal(f.accounts.get(f.rider.player_id)?.auth_version, account?.auth_version);
     assert.equal(f.accounts.get(f.rider.player_id)?.is_admin, account?.is_admin);
-    assert.equal(existsSync(resolve(f.profiles.folder(f.other.player_id), item.name)), false);
+    assert.equal(f.services.documents.has(f.other.player_id, item.name), false);
     assert.equal(
       readdirSync(folder).some((name) => name.startsWith('.ts-import-')),
       false,
@@ -148,30 +146,28 @@ await test('F12 multipart restore accepts selected empty protobuf files and requ
   }
 });
 
-await test('F12 app reconstruction rolls back a partially published restore before serving rider state', async (t) => {
+await test('F12 app reconstruction removes a stage whose restore already committed', async (t) => {
   const f = await mediumFixture(t);
   const browser = await mediumBrowser(f);
   const folder = f.profiles.folder(f.rider.player_id);
   const original = toBinary(StreaksSchema, create(StreaksSchema, { curStreak: 2 }));
   const incoming = toBinary(StreaksSchema, create(StreaksSchema, { curStreak: 99 }));
-  new AssetFiles().writeDurable(resolve(folder, 'streaks.bin'), original);
+  f.services.documents.put(f.rider.player_id, 'streaks.bin', original);
   const files = new FormData();
   files.set('streaks.bin', new File([incoming], 'streaks.bin'));
   const staged = await browser.upload(`/profile/${f.rider.username}/`, files);
   assert.equal(staged.status, 302);
   const stage = readdirSync(folder).find((name) => name.startsWith('.ts-import-'));
   assert.ok(stage);
-  const manifestPath = resolve(folder, stage, 'manifest.json');
-  const manifest = z.record(z.string(), z.json()).parse(JSON.parse(readFileSync(manifestPath, 'utf8')));
-  // Simulate a process stopping between file replacement and journal commit.
-  new AssetFiles().writeDurable(resolve(folder, stage, 'old-streaks.bin'), original);
-  new AssetFiles().writeDurable(resolve(folder, 'streaks.bin'), incoming, true);
-  new AssetFiles().writeDurable(manifestPath, JSON.stringify({ ...manifest, state: 'publishing' }), true);
+  // Simulate a process stopping after the publication transaction, before the stage removal.
+  f.accounts.db.exec('BEGIN');
+  f.services.documents.put(f.rider.player_id, 'streaks.bin', incoming);
+  f.accounts.db.prepare('INSERT INTO rider_import (stage, player_id) VALUES (?, ?)').run(stage, f.rider.player_id);
+  f.accounts.db.exec('COMMIT');
   const restarted = createApp({ gameInfo: '{}', gameInfoHash: '0', variants: '{}' }, f);
   const response = await restarted.request('/api/fitness/streaks', { headers: f.headers() });
   assert.equal(response.status, 200);
-  assert.equal(fromBinary(StreaksSchema, new Uint8Array(await response.arrayBuffer())).curStreak, 2);
-  assert.deepEqual(readFileSync(resolve(folder, 'streaks.bin')), Buffer.from(original));
+  assert.equal(fromBinary(StreaksSchema, new Uint8Array(await response.arrayBuffer())).curStreak, 99);
   assert.equal(existsSync(resolve(folder, stage)), false);
 });
 
@@ -191,10 +187,12 @@ for (const choice of ['profile', 'achievements', 'both']) {
 
     assert.equal(saved.status, 200);
     assert.doesNotMatch(await saved.text(), /medium-secret|official@example.test/);
-    const connections = new Connections(f.config.storageDir);
+    const connections = f.accounts.repositories.connectionsRepository;
     assert.deepEqual(connections.read(f.rider.player_id, 'zwift'), ['official@example.test', 'medium-secret']);
     assert.equal(
-      readFileSync(connections.file(f.rider.player_id, 'zwift')).includes(Buffer.from('medium-secret')),
+      Buffer.from(f.services.documents.get(f.rider.player_id, 'zwift_credentials.bin') ?? []).includes(
+        Buffer.from('medium-secret'),
+      ),
       false,
     );
     assert.equal(connections.read(f.other.player_id, 'zwift'), null);
@@ -260,9 +258,8 @@ for (const choice of ['profile', 'achievements', 'both']) {
     assert.equal(published.status, 302);
     assert.equal(f.profiles.get(f.rider.player_id).id, BigInt(f.rider.player_id));
     assert.equal(f.profiles.get(f.rider.player_id).firstName, 'Medium');
-    const folder = f.profiles.folder(f.rider.player_id);
-    assert.equal(existsSync(resolve(folder, 'economy_config.txt')), choice !== 'achievements');
-    assert.equal(existsSync(resolve(folder, 'achievements.bin')), choice !== 'profile');
+    assert.equal(f.services.documents.has(f.rider.player_id, 'economy_config.txt'), choice !== 'achievements');
+    assert.equal(f.services.documents.has(f.rider.player_id, 'achievements.bin'), choice !== 'profile');
     assert.equal(calls.includes('/api/profiles/me'), choice !== 'achievements');
     assert.equal(calls.includes('/api/achievement/loadPlayerAchievements'), choice !== 'profile');
     assert.equal(calls.at(-1), '/auth/realms/zwift/tokens/logout');
@@ -276,7 +273,7 @@ for (const choice of ['profile', 'achievements', 'both']) {
     assert.equal(disabled.status, 200);
     assert.equal(f.settings.read(f.rider.player_id)['uploads.zwift.enabled'], false);
     assert.equal(f.settings.read(f.rider.player_id)['devices.zwiftClick.enabled'], true);
-    assert.deepEqual(new Connections(f.config.storageDir).read(f.rider.player_id, 'zwift'), [
+    assert.deepEqual(f.accounts.repositories.connectionsRepository.read(f.rider.player_id, 'zwift'), [
       'official@example.test',
       'medium-secret',
     ]);
@@ -289,7 +286,7 @@ for (const choice of ['profile', 'achievements', 'both']) {
     assert.equal(invalidCsrf.status, 400);
     const removed = await browser.form('/delete/zwift_credentials.bin', { confirm_action: 'on' });
     assert.equal(removed.status, 302);
-    assert.equal(new Connections(f.config.storageDir).read(f.rider.player_id, 'zwift'), null);
+    assert.equal(f.accounts.repositories.connectionsRepository.read(f.rider.player_id, 'zwift'), null);
   });
 }
 

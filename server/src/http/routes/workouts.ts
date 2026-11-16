@@ -85,7 +85,7 @@ export function workoutRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       connections.save(user.player_id, 'intervals', [athlete, key]);
     }
 
-    const connected = runtime.services.files.exists(connections.file(user.player_id, 'intervals'));
+    const connected = connections.has(user.player_id, 'intervals');
 
     const credentials = connections.read(user.player_id, 'intervals');
 

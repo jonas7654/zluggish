@@ -1,6 +1,6 @@
 import type { Activity } from '#src/protocol/generated/activity_pb';
 import { StreaksSchema } from '#src/protocol/generated/profile_pb';
-import type { Profiles } from '#src/repositories/profile.repository';
+import type { PlayerProfile } from '#src/protocol/generated/profile_pb';
 import { BaseService } from '#src/services/base.service';
 import { clone, create } from '@bufbuild/protobuf';
 
@@ -13,11 +13,13 @@ export class StreakService extends BaseService {
     return { start: start.getTime(), end: start.getTime() + 604_800_000 - 1000 };
   }
 
-  streaksFor(profiles: Profiles, id: number) {
-    const persisted = this.streakRepository.readStreaks(profiles.folder(id));
+  streaksFor(id: number) {
+    return this.streakRepository.readStreaks(id) ?? StreakService.fromProfile(this.profileRepository.get(id));
+  }
 
-    if (persisted) return persisted;
-    const profile = profiles.get(id);
+  /** Streaks before streaks.bin existed live in the profile. */
+  static fromProfile(profile: PlayerProfile | null) {
+    if (!profile) return create(StreaksSchema);
 
     return create(StreaksSchema, {
       curStreak: profile.curStreak,
@@ -33,9 +35,9 @@ export class StreakService extends BaseService {
     });
   }
 
-  updateStreaks(profiles: Profiles, id: number, activity: Activity) {
-    const streaks = StreakService.advancedStreak(this.streaksFor(profiles, id), activity);
-    this.streakRepository.saveStreaks(profiles.folder(id), streaks);
+  updateStreaks(id: number, activity: Activity) {
+    const streaks = StreakService.advancedStreak(this.streaksFor(id), activity);
+    this.streakRepository.saveStreaks(id, streaks);
   }
 
   /** Invalid dates are ignored; older dates retain the existing same-week behavior. */

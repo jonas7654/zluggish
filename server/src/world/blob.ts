@@ -79,6 +79,31 @@ export class Blob {
 
   resets = 0;
 
+  private static readonly assets = new Map<
+    string,
+    { roadLimits: Blob['roadLimits']; roadWidths: Blob['roadWidths'] }
+  >();
+
+  /** Static road assets load once; blobs are rebuilt on the riding path. */
+  static roads(assets: string) {
+    const cached = Blob.assets.get(assets);
+
+    if (cached) return cached;
+
+    const roads = {
+      roadLimits: z
+        .record(z.string(), z.tuple([z.number(), z.number()]))
+        .parse(JSON.parse(readFileSync(resolve(assets, 'data/road_limits.txt'), 'utf8'))),
+      roadWidths: z
+        .record(z.string(), z.array(z.tuple([z.number(), z.number(), z.number()])))
+        .parse(JSON.parse(readFileSync(resolve(assets, 'data/road_width_profile.txt'), 'utf8'))),
+    };
+
+    Blob.assets.set(assets, roads);
+
+    return roads;
+  }
+
   constructor(
     readonly playerId: bigint,
     readonly index: number,
@@ -92,12 +117,9 @@ export class Blob {
     generation = (generation + 1) % 33;
     this.steps = Array.from({ length: 32 }, () => rng.between(1, 1.4));
     this.leaders = config.riders >= 4 ? clamp(Math.round(config.riders * 0.33), 1, 4) : 0;
-    this.roadLimits = z
-      .record(z.string(), z.tuple([z.number(), z.number()]))
-      .parse(JSON.parse(readFileSync(resolve(assets, 'data/road_limits.txt'), 'utf8')));
-    this.roadWidths = z
-      .record(z.string(), z.array(z.tuple([z.number(), z.number(), z.number()])))
-      .parse(JSON.parse(readFileSync(resolve(assets, 'data/road_width_profile.txt'), 'utf8')));
+    const roads = Blob.roads(assets);
+    this.roadLimits = roads.roadLimits;
+    this.roadWidths = roads.roadWidths;
 
     for (let i = 0; i < config.riders; i++)
       this.riders.push({

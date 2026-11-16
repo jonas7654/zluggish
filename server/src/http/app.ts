@@ -64,6 +64,16 @@ export function createApp(metadata: PublicMetadata, runtime?: Runtime) {
 
   app.use('*', bodyLimit({ maxSize: 16 * 1024 * 1024 }));
 
+  if (runtime)
+    app.use('*', async (_c, next) => {
+      const durability = runtime.services.durability;
+      const before = durability.changes();
+      await next();
+
+      // A save is acknowledged by its response: the WAL is flushed before it leaves.
+      if (durability.changes() !== before) await durability.flush();
+    });
+
   if (runtime) {
     accountRoutes(app, runtime);
     profileRoutes(app, runtime);

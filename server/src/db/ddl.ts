@@ -27,3 +27,60 @@ CREATE TABLE IF NOT EXISTS activity_upload (
  activity_id INTEGER NOT NULL, provider TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'pending',
  PRIMARY KEY(activity_id, provider)
 );`;
+
+// Version 6 merges settings.db and rider files into the main database, and adds
+// durable jobs and delivery states. Fresh installations apply it to an empty v5 schema.
+export const storageSchemaSQL = `
+CREATE TABLE IF NOT EXISTS rider_settings (player_id INTEGER PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS config_migration (id TEXT PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS world_settings (id TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS rider_document (
+ player_id INTEGER NOT NULL REFERENCES user(player_id) ON DELETE CASCADE, name TEXT NOT NULL,
+ data BLOB NOT NULL, encrypted INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (player_id, name)
+);
+CREATE TABLE IF NOT EXISTS bookmark (
+ player_id INTEGER NOT NULL REFERENCES user(player_id) ON DELETE CASCADE, course INTEGER NOT NULL,
+ sport INTEGER NOT NULL, name TEXT NOT NULL, state BLOB NOT NULL, PRIMARY KEY (player_id, course, sport, name)
+);
+CREATE TABLE IF NOT EXISTS rider_import (stage TEXT PRIMARY KEY, player_id INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS job (
+ id INTEGER PRIMARY KEY, type TEXT NOT NULL, payload_version INTEGER NOT NULL DEFAULT 1, payload TEXT NOT NULL,
+ state TEXT NOT NULL DEFAULT 'queued', attempts INTEGER NOT NULL DEFAULT 0, next_run_at INTEGER NOT NULL,
+ lease_expires_at INTEGER, claim_token TEXT, last_error TEXT, created_at INTEGER NOT NULL, finished_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS job_ready ON job(state, next_run_at);
+CREATE TABLE IF NOT EXISTS system_flag (name TEXT PRIMARY KEY, value TEXT NOT NULL);
+ALTER TABLE activity_upload ADD COLUMN attempt TEXT;
+ALTER TABLE activity_upload ADD COLUMN remote_id TEXT;
+ALTER TABLE activity_upload ADD COLUMN step TEXT;
+ALTER TABLE activity_upload ADD COLUMN last_error TEXT;
+ALTER TABLE activity_upload ADD COLUMN updated_at INTEGER;
+ALTER TABLE power_curve ADD COLUMN activity_id INTEGER;
+`;
+
+// Version 7: indexes for the main queries, and reservation states for media files.
+export const indexesSQL = `
+CREATE INDEX IF NOT EXISTS activity_player_date ON activity(player_id, date);
+CREATE INDEX IF NOT EXISTS activity_player_start ON activity(player_id, start_date);
+CREATE INDEX IF NOT EXISTS activity_date ON activity(date);
+CREATE INDEX IF NOT EXISTS segment_result_segment ON segment_result(segment_id, elapsed_ms);
+CREATE INDEX IF NOT EXISTS segment_result_player ON segment_result(player_id, segment_id);
+CREATE INDEX IF NOT EXISTS segment_result_time ON segment_result(world_time);
+CREATE INDEX IF NOT EXISTS route_result_player ON route_result(player_id, route_hash);
+CREATE INDEX IF NOT EXISTS power_curve_player ON power_curve(player_id, time, timestamp);
+CREATE INDEX IF NOT EXISTS power_curve_activity ON power_curve(activity_id);
+CREATE INDEX IF NOT EXISTS activity_file_activity ON activity_file(activity_id);
+CREATE INDEX IF NOT EXISTS activity_image_activity ON activity_image(activity_id, player_id);
+CREATE INDEX IF NOT EXISTS activity_media_activity ON activity_media(activity_id, player_id);
+CREATE INDEX IF NOT EXISTS activity_upload_state ON activity_upload(state);
+CREATE INDEX IF NOT EXISTS goal_player ON goal(player_id);
+CREATE INDEX IF NOT EXISTS playback_segment ON playback(player_id, segment_id, type, world_time);
+CREATE INDEX IF NOT EXISTS zfile_player ON zfile(player_id, folder, filename);
+CREATE INDEX IF NOT EXISTS notification_player ON notification(player_id);
+CREATE INDEX IF NOT EXISTS notification_event ON notification(event_id);
+CREATE INDEX IF NOT EXISTS job_type ON job(type, state);
+ALTER TABLE activity_media ADD COLUMN state TEXT NOT NULL DEFAULT 'ready';
+ALTER TABLE activity_media ADD COLUMN created_at INTEGER;
+ALTER TABLE activity_image ADD COLUMN state TEXT NOT NULL DEFAULT 'ready';
+ALTER TABLE activity_image ADD COLUMN created_at INTEGER;
+`;

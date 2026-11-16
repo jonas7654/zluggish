@@ -11,31 +11,43 @@ import { z } from 'zod';
 const rowSchema = z.object({ value: z.string() });
 
 export class SettingsStore {
-  readonly db: DatabaseSync;
-
   private readonly executor: SqliteExecutor;
 
-  constructor(storage: string, readOnly = false) {
+  // Read-through caches. This store is the only writer while the server holds the
+  // storage lock, so each committed change updates or invalidates its entry.
+  private readonly riders = new Map<number, Overrides>();
+
+  private readonly worlds = new Map<string, Record<string, z.infer<ReturnType<typeof z.json>>>>();
+
+  /** Settings live in the main database. The store does not close a shared connection. */
+  constructor(
+    readonly db: DatabaseSync,
+    private readonly owned = false,
+  ) {
+    this.executor = new SqliteExecutor(db);
+  }
+
+  /** settings.db from before version 6. Offline upgrades write it; the storage
+  migration merges it into the main database.
+  */
+  static legacy(storage: string, readOnly = false) {
     const path = resolve(storage, 'settings.db');
 
     if (readOnly && !existsSync(path)) throw new ConfigError('No persisted preferences; initialize storage first');
 
     if (!readOnly) mkdirSync(storage, { recursive: true });
 
-    this.db = new DatabaseSync(path, { readOnly, timeout: 5000 });
-    this.executor = new SqliteExecutor(this.db);
+    const db = new DatabaseSync(path, { readOnly, timeout: 5000 });
 
-    const version = z
-      .object({ user_version: z.number() })
-      .parse(this.db.prepare('PRAGMA user_version').get()).user_version;
+    const version = z.object({ user_version: z.number() }).parse(db.prepare('PRAGMA user_version').get()).user_version;
 
     if (version > 1 || (readOnly && version !== 1)) {
-      this.db.close();
+      db.close();
       throw new ConfigError('Unsupported settings database version');
     }
 
     if (!readOnly) {
-      this.db.exec(`PRAGMA synchronous=FULL;
+      db.exec(`PRAGMA synchronous=FULL;
         BEGIN IMMEDIATE;
         CREATE TABLE IF NOT EXISTS rider_settings (player_id INTEGER PRIMARY KEY, value TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS config_migration (id TEXT PRIMARY KEY);
@@ -43,6 +55,46 @@ export class SettingsStore {
         PRAGMA user_version=1;
         COMMIT;`);
     }
+
+    return new SettingsStore(db, true);
+  }
+
+  /** Offline tools: the main database after version 6, otherwise settings.db. */
+  static open(storage: string) {
+    return SettingsStore.openMerged(storage, false) ?? SettingsStore.legacy(storage);
+  }
+
+  /** Read-only offline access; null when no settings were ever saved. */
+  static openReadOnly(storage: string) {
+    return (
+      SettingsStore.openMerged(storage, true) ??
+      (existsSync(resolve(storage, 'settings.db')) ? SettingsStore.legacy(storage, true) : null)
+    );
+  }
+
+  private static openMerged(storage: string, readOnly: boolean) {
+    const main = resolve(storage, 'zluggish.db');
+
+    if (existsSync(main)) {
+      const db = new DatabaseSync(main, { readOnly, timeout: 5000 });
+
+      try {
+        const merged = !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='rider_document'").get();
+
+        if (merged) {
+          if (!readOnly) db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;');
+
+          return new SettingsStore(db, true);
+        }
+      } catch (error) {
+        db.close();
+        throw error;
+      }
+
+      db.close();
+    }
+
+    return null;
   }
 
   has(playerId: number) {
@@ -52,11 +104,14 @@ export class SettingsStore {
   }
 
   read(playerId: number): Overrides {
+    const cached = this.riders.get(playerId);
+
+    if (cached) return { ...cached };
     const row = this.executor.get(query.selectFrom('rider_settings').select('value').where('player_id', '=', playerId));
+    const overrides = row ? overrideSchema.parse(JSON.parse(rowSchema.parse(row).value)) : {};
+    this.riders.set(playerId, overrides);
 
-    if (!row) return {};
-
-    return overrideSchema.parse(JSON.parse(rowSchema.parse(row).value));
+    return { ...overrides };
   }
 
   save(playerId: number, overrides: Overrides) {
@@ -68,9 +123,13 @@ export class SettingsStore {
         .values({ player_id: candidate.playerId, value })
         .onConflict((conflict) => conflict.column('player_id').doUpdateSet({ value })),
     );
+
+    if (this.db.isTransaction) this.riders.delete(candidate.playerId);
+    else this.riders.set(candidate.playerId, candidate.overrides);
   }
 
   import(id: string, preferences: Preference[]) {
+    this.riders.clear();
     this.db.exec('BEGIN IMMEDIATE');
 
     try {
@@ -93,15 +152,21 @@ export class SettingsStore {
     } catch (error) {
       this.db.exec('ROLLBACK');
       throw error;
+    } finally {
+      this.riders.clear();
     }
   }
 
   world(id: string) {
-    if (!this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='world_settings'").get()) return {};
+    const cached = this.worlds.get(id);
+
+    if (cached) return structuredClone(cached);
 
     const row = this.executor.get(query.selectFrom('world_settings').select('value').where('id', '=', id));
+    const value = row ? z.record(z.string(), z.json()).parse(JSON.parse(rowSchema.parse(row).value)) : {};
+    this.worlds.set(id, value);
 
-    return row ? z.record(z.string(), z.json()).parse(JSON.parse(rowSchema.parse(row).value)) : {};
+    return structuredClone(value);
   }
 
   worldIds() {
@@ -119,14 +184,16 @@ export class SettingsStore {
         .values({ id, value: serialized })
         .onConflict((conflict) => conflict.column('id').doUpdateSet({ value: serialized })),
     );
+    this.worlds.set(id, structuredClone(checked));
   }
 
   resetWorld(id: string) {
     this.executor.run(query.deleteFrom('world_settings').where('id', '=', id));
+    this.worlds.delete(id);
   }
 
   close() {
-    if (this.db.isOpen) this.db.close();
+    if (this.owned && this.db.isOpen) this.db.close();
   }
 }
 

@@ -240,14 +240,10 @@ export function recordRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
       const best = new Map<string, SegmentResult>();
 
-      for (const row of service.segmentLeaderboard()) {
-        const result = records.decode(SegmentResultSchema, row);
+      const since = runtime.config.leaderboards.allTime ? null : worldTime() - 3_600_000n;
 
-        if (
-          (segment && result.segmentId !== BigInt(segment)) ||
-          (!runtime.config.leaderboards.allTime && result.worldTime <= worldTime() - 3_600_000n)
-        )
-          continue;
+      for (const row of service.segmentLeaderboard(segment ? BigInt(segment) : null, since)) {
+        const result = records.decode(SegmentResultSchema, row);
         const key = `${result.segmentId}:${result.playerId}`;
 
         if (best.has(key)) continue;
@@ -323,7 +319,7 @@ export function recordRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     });
   });
 
-  const unlockPath = (id: number) => resolve(runtime.services.profiles.folder(id), 'route_completion_achievements.bin');
+  const documents = runtime.services.documents;
 
   app.get('/api/achievement/route-completion-achievements', (c) => {
     const user = authenticated(c);
@@ -333,11 +329,9 @@ export function recordRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       runtime.services.files.read(resolve(runtime.assets, 'data/route_completion_achievement.txt'), 'utf8'),
     );
 
-    const file = unlockPath(user.player_id);
+    const stored = documents.get(user.player_id, 'route_completion_achievements.bin');
 
-    const unlocked = runtime.services.files.exists(file)
-      ? fromBinary(RouteCompletionAchievementUnlockRequestSchema, runtime.services.files.read(file)).achievementUuids
-      : [];
+    const unlocked = stored ? fromBinary(RouteCompletionAchievementUnlockRequestSchema, stored).achievementUuids : [];
 
     for (const achievement of response.achievements)
       if (unlocked.includes(achievement.achievementUuid)) achievement.unlocked = true;
@@ -352,14 +346,18 @@ export function recordRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       new Uint8Array(await c.req.arrayBuffer()),
     );
 
-    const file = unlockPath(user.player_id);
+    const stored = documents.get(user.player_id, 'route_completion_achievements.bin');
 
-    const old = runtime.services.files.exists(file)
-      ? fromBinary(RouteCompletionAchievementUnlockRequestSchema, runtime.services.files.read(file))
+    const old = stored
+      ? fromBinary(RouteCompletionAchievementUnlockRequestSchema, stored)
       : create(RouteCompletionAchievementUnlockRequestSchema);
 
     old.achievementUuids = [...new Set([...old.achievementUuids, ...incoming.achievementUuids])];
-    runtime.services.files.write(file, toBinary(RouteCompletionAchievementUnlockRequestSchema, old), true);
+    documents.put(
+      user.player_id,
+      'route_completion_achievements.bin',
+      toBinary(RouteCompletionAchievementUnlockRequestSchema, old),
+    );
 
     return c.body(null, 202);
   });

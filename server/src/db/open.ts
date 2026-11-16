@@ -1,16 +1,43 @@
 import { removeLegacyAccountFields } from '#src/db/account-upgrade';
 import { ConfigError } from '#src/config/index';
-import { completionSchemaSQL, createSchemaSQL } from '#src/db/ddl';
+import { completionSchemaSQL, createSchemaSQL, indexesSQL, storageSchemaSQL } from '#src/db/ddl';
+import { migrateStorage, resolvePendingMigration, STORAGE_VERSION, StorageFile } from '#src/migrations/storage';
 import { existsSync, mkdirSync, readdirSync, renameSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { z } from 'zod';
 
-/** Absent -> fresh v5; compatible v4 -> transactionally upgraded v5; v5 -> open.
+/** Ordinary schema migrations after the storage merge. Each runs in one transaction at
+startup. A migration that changes existing data needs a backup first (storage backup).
+*/
+const migrations: { version: number; up: (db: DatabaseSync) => void }[] = [
+  { version: 7, up: (db) => db.exec(indexesSQL) },
+];
+
+/** The schema version this release writes. */
+export const SCHEMA_VERSION = STORAGE_VERSION + migrations.length;
+
+function version(db: DatabaseSync) {
+  return z.object({ version: z.number() }).parse(db.prepare('SELECT version FROM version LIMIT 1').get()).version;
+}
+
+/** Per connection: WAL, full durability, foreign keys. An acknowledged save survives a
+process crash and a power loss on storage that honors flush requests.
+*/
+export function configureConnection(db: DatabaseSync) {
+  db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;');
+}
+
+/** Absent -> fresh v6; v4 -> v5 in place; v5 or legacy stores -> storage migration to v6
+(temporary database, validation, durable publication); v6 -> ordinary migrations.
 Incompatible schema/hash/folder evidence requires explicit account migration.
-Filename publication is separate from the schema transaction; neither invents identities.
 */
 export function openDatabase(storage: string): DatabaseSync {
+  if (existsSync(resolve(storage, StorageFile.RestoreMarker)))
+    throw new ConfigError('A storage restore did not finish; run storage restore again while the server is stopped');
+
+  resolvePendingMigration(storage);
+
   const path = resolve(storage, 'zluggish.db');
   const legacyPath = resolve(storage, 'zwift-offline.db');
   const existingPath = existsSync(path) ? path : legacyPath;
@@ -20,7 +47,7 @@ export function openDatabase(storage: string): DatabaseSync {
     const inspection = new DatabaseSync(existingPath, { readOnly: true });
 
     try {
-      const version = z
+      const found = z
         .object({ version: z.number() })
         .safeParse(inspection.prepare('SELECT version FROM version LIMIT 1').get());
 
@@ -31,9 +58,12 @@ export function openDatabase(storage: string): DatabaseSync {
           .map((row) => row.name),
       );
 
+      if (found.success && found.data.version > SCHEMA_VERSION)
+        throw new ConfigError('The database is newer than this release; use a newer release');
+
       if (
-        !version.success ||
-        ![4, 5].includes(version.data.version) ||
+        !found.success ||
+        found.data.version < 4 ||
         !columns.has('auth_version') ||
         !columns.has('official_player_id') ||
         !!inspection
@@ -62,7 +92,9 @@ export function openDatabase(storage: string): DatabaseSync {
   }
 
   mkdirSync(storage, { recursive: true });
-  const db = new DatabaseSync(path, { timeout: 5000 });
+  // A settings.db from an offline config migration is a legacy store: merge it.
+  const legacySettings = existsSync(resolve(storage, StorageFile.Settings));
+  let db = new DatabaseSync(path, { timeout: 5000 });
 
   try {
     db.exec('PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;');
@@ -70,24 +102,46 @@ export function openDatabase(storage: string): DatabaseSync {
     if (fresh) {
       db.exec('BEGIN IMMEDIATE');
       db.exec(createSchemaSQL);
-      db.exec('INSERT INTO version VALUES (5); INSERT INTO account_state VALUES (1, 0); COMMIT;');
+      db.exec(completionSchemaSQL);
+
+      if (legacySettings) db.exec('INSERT INTO version VALUES (5)');
+      else {
+        db.exec(storageSchemaSQL);
+        db.exec(`INSERT INTO version VALUES (${STORAGE_VERSION})`);
+      }
+
+      db.exec('INSERT INTO account_state VALUES (1, 0); COMMIT;');
     }
 
-    const version = z.object({ version: z.number() }).parse(db.prepare('SELECT version FROM version LIMIT 1').get());
-
-    if (version.version === 4) {
+    if (version(db) === 4) {
       db.exec('BEGIN IMMEDIATE');
       removeLegacyAccountFields(db, storage);
-
       db.exec('DELETE FROM version; INSERT INTO version VALUES (5); COMMIT;');
     }
 
     db.exec(completionSchemaSQL);
 
+    if (version(db) === 5) {
+      db.close();
+      migrateStorage(storage);
+      db = new DatabaseSync(path, { timeout: 5000 });
+    }
+
+    configureConnection(db);
+
+    for (const migration of migrations) {
+      if (migration.version <= version(db)) continue;
+      db.exec('BEGIN IMMEDIATE');
+      migration.up(db);
+      db.prepare('UPDATE version SET version=?').run(migration.version);
+      db.exec('COMMIT');
+    }
+
     return db;
   } catch (error) {
-    if (db.isTransaction) db.exec('ROLLBACK');
-    db.close();
+    if (db.isOpen && db.isTransaction) db.exec('ROLLBACK');
+
+    if (db.isOpen) db.close();
     throw error;
   }
 }

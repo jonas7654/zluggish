@@ -257,9 +257,9 @@ export function migrationCandidate(options: MigrationOptions) {
     return parsed.data;
   });
 
-  if (existsSync(resolve(storage, 'settings.db'))) {
-    const store = new SettingsStore(storage, true);
+  const store = SettingsStore.openReadOnly(storage);
 
+  if (store) {
     try {
       for (const preference of preferences) {
         const exists = store.has(preference.playerId);
@@ -333,7 +333,7 @@ export async function migrateConfig(options: MigrationOptions) {
     if (existsSync(journal.output) && readFileSync(journal.output, 'utf8') !== journal.source)
       throw new ConfigError('Migration output changed; recover manually before continuing');
 
-    const settings = new SettingsStore(options.storage);
+    const settings = SettingsStore.open(options.storage);
 
     try {
       settings.import(journal.id, journal.preferences);

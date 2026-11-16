@@ -1,11 +1,9 @@
 import { packageVersion } from '#src/config/load';
 import { createApp } from '#src/http/app';
 import { FeatureRequestSchema, FeatureResponseSchema } from '#src/protocol/generated/variants_pb';
-import { AssetFiles } from '#src/repositories/files.repository';
 import { runtimeFixture } from '#tests/support/runtime';
 import { create, fromBinary, toBinary } from '@bufbuild/protobuf';
 import assert from 'node:assert/strict';
-import { resolve } from 'node:path';
 import { test } from 'node:test';
 
 const metadata = {
@@ -82,7 +80,7 @@ await test('malformed protobuf and missing required fields return 400 without ch
 await test('unexpected failures are logged while responses omit error details', async (t) => {
   const f = runtimeFixture(t);
   const user = await f.accounts.create('Broken Profile', 'test-password', true);
-  new AssetFiles().writeDurable(resolve(f.profiles.folder(user.player_id), 'profile.bin'), new Uint8Array([255]));
+  f.accounts.repositories.riderDocuments.put(user.player_id, 'profile.bin', new Uint8Array([255]));
   const logged = t.mock.method(console, 'error', () => {});
 
   const response = await f.app.request('/api/profiles/me', {

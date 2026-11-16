@@ -1,32 +1,62 @@
+import { atomic } from '#src/db/transaction';
 import type { PlayerProfile } from '#src/protocol/generated/profile_pb';
 import { PlayerProfileSchema } from '#src/protocol/generated/profile_pb';
 import type { AccountsRepository } from '#src/repositories/accounts.repository';
 import { CryptoRepository } from '#src/repositories/crypto.repository';
-import { AssetFiles } from '#src/repositories/files.repository';
+import type { RiderDocuments } from '#src/repositories/rider-document.repository';
 import { clone, create, fromBinary, toBinary } from '@bufbuild/protobuf';
-import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import type { DatabaseSync } from 'node:sqlite';
 
 export class Profiles {
   readonly synthetic = new Map<bigint, PlayerProfile>();
 
+  // Each committed change advances the source version and replaces the cache entry.
+  private readonly cache = new Map<number, PlayerProfile>();
+
+  private readonly versions = new Map<number, number>();
+
   constructor(
     readonly storage: string,
+    private readonly db: DatabaseSync,
     private readonly accounts: AccountsRepository,
+    private readonly documents: RiderDocuments,
   ) {}
 
+  /** Media and replaceable exports stay in the rider folder. */
   folder(id: number) {
     return resolve(this.storage, String(id));
+  }
+
+  version(id: number) {
+    return this.versions.get(id) ?? 0;
   }
 
   get(id: number): PlayerProfile {
     const synthetic = this.synthetic.get(BigInt(id));
 
     if (synthetic) return clone(PlayerProfileSchema, synthetic);
-    const path = resolve(this.folder(id), 'profile.bin');
+    const cached = this.cache.get(id);
 
-    if (existsSync(path)) {
-      const profile = fromBinary(PlayerProfileSchema, readFileSync(path));
+    if (cached) return clone(PlayerProfileSchema, cached);
+    const profile = this.decode(id, this.documents.get(id, 'profile.bin'));
+    this.cache.set(id, profile);
+
+    return clone(PlayerProfileSchema, profile);
+  }
+
+  /** Database reads are short lookups; the asynchronous form keeps session loads uniform. */
+  load(id: number): Promise<PlayerProfile> {
+    return Promise.try(() => this.get(id));
+  }
+
+  exists(id: number) {
+    return this.documents.has(id, 'profile.bin');
+  }
+
+  private decode(id: number, bytes: Uint8Array | null) {
+    if (bytes) {
+      const profile = fromBinary(PlayerProfileSchema, bytes);
       profile.id = BigInt(id);
 
       return profile;
@@ -50,13 +80,23 @@ export class Profiles {
     });
   }
 
+  /** The profile and the account names commit together: they cannot differ after a crash. */
   save(id: number, profile: PlayerProfile) {
     profile.id = BigInt(id);
-    new AssetFiles().writeDurable(
-      resolve(this.folder(id), 'profile.bin'),
-      toBinary(PlayerProfileSchema, profile),
-      true,
-    );
-    this.accounts.updateName(id, profile.firstName, profile.lastName);
+    // Inside a caller's transaction the commit is not known yet: only invalidate.
+    const joined = this.db.isTransaction;
+    atomic(this.db, () => {
+      this.documents.put(id, 'profile.bin', toBinary(PlayerProfileSchema, profile));
+      this.accounts.updateName(id, profile.firstName, profile.lastName);
+    });
+    this.invalidate(id);
+
+    if (!joined) this.cache.set(id, clone(PlayerProfileSchema, profile));
+  }
+
+  /** Call after any change to the stored profile or account names outside save(). */
+  invalidate(id: number) {
+    this.versions.set(id, this.version(id) + 1);
+    this.cache.delete(id);
   }
 }

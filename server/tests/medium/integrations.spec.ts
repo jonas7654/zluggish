@@ -1,7 +1,7 @@
 import { inputValue } from '#tests/support/html';
 import { createApp } from '#src/http/app';
+import { DeliveryRefusedError } from '#src/errors';
 import { UploadsService } from '#src/services/uploads.service';
-import { Connections } from '#src/repositories/connections.repository';
 import { ActivitySchema } from '#src/protocol/generated/activity_pb';
 import { PlayerStateSchema } from '#src/protocol/generated/udp-node-msgs_pb';
 import { FeatureRequestSchema, FeatureResponseSchema } from '#src/protocol/generated/variants_pb';
@@ -69,7 +69,10 @@ await test('Strava credentials are stored encrypted, never echoed, and removal i
   assert.match(body, /Credentials saved/);
   assert.doesNotMatch(body, /very-secret-value/);
 
-  assert.deepEqual(new Connections(f.config.storageDir).read(user.player_id, 'strava'), ['12345', 'very-secret-value']);
+  assert.deepEqual(f.accounts.repositories.connectionsRepository.read(user.player_id, 'strava'), [
+    '12345',
+    'very-secret-value',
+  ]);
 
   const response3 = await client.form(`/strava/${user.username}/`, {
     client_id: '',
@@ -87,9 +90,9 @@ await test('Strava credentials are stored encrypted, never echoed, and removal i
     _strava4_session: 'cookie-value',
   });
 
-  const cookieFile = resolve(f.profiles.folder(user.player_id), 'strava4_session.txt');
-
-  assert.equal(readFileSync(cookieFile, 'utf8'), 'cookie-value');
+  assert.equal(f.services.documents.text(user.player_id, 'strava4_session.txt'), 'cookie-value');
+  const stored = f.accounts.db.prepare("SELECT data FROM rider_document WHERE name='strava4_session.txt'").get();
+  assert.equal(Buffer.from(z.instanceof(Uint8Array).parse(stored?.data)).includes('cookie-value'), false);
   const response4 = await client.form('/delete/profile.bin', {});
   assert.equal(response4.status, 403);
   const response5 = await client.form('/delete/..%2Fprofile.bin', {});
@@ -97,7 +100,7 @@ await test('Strava credentials are stored encrypted, never echoed, and removal i
 
   const removed = await client.form('/delete/strava4_session.txt', { confirm_action: 'on' });
   assert.equal(removed.status, 302);
-  assert.equal(existsSync(cookieFile), false);
+  assert.equal(f.services.documents.has(user.player_id, 'strava4_session.txt'), false);
   const response6 = await f.app.request('/delete/strava_token.txt');
   assert.equal(response6.status, 404);
 });
@@ -138,7 +141,7 @@ function stubFetch(t: TestContext) {
 await test('Intervals.icu upload pairs the planned workout and removes only that workout', async (t) => {
   const f = runtimeFixture(t);
   const user = await f.accounts.create('Interval Rider', 'test-password', true);
-  new Connections(f.config.storageDir).save(user.player_id, 'intervals', ['42', 'key']);
+  f.accounts.repositories.connectionsRepository.save(user.player_id, 'intervals', ['42', 'key']);
   const folder = f.profiles.folder(user.player_id);
   const cached = resolve(f.config.storageDir, 'tp-workouts/intervalsicu');
   mkdirSync(cached, { recursive: true });
@@ -172,10 +175,7 @@ await test('Intervals.icu upload pairs the planned workout and removes only that
   );
 
   const calls = stubFetch(t);
-  const warnings: string[] = [];
-  await new UploadsService(f, (message) => {
-    warnings.push(message);
-  }).run(user.player_id, activityWithFit(), []);
+  await new UploadsService(f).intervals(user.player_id, activityWithFit());
 
   const upload = calls.find((call) => call.url.includes('intervals.icu'));
   assert.ok(upload);
@@ -192,16 +192,13 @@ await test('Intervals.icu upload pairs the planned workout and removes only that
   );
   assert.equal(existsSync(resolve(cached, `${first}.zwo`)), false);
   assert.equal(existsSync(resolve(cached, `${second}.zwo`)), true);
-  assert.deepEqual(warnings, []);
 });
 
-await test('an expired Strava token is refreshed before upload and one failing service does not stop the rest', async (t) => {
+await test('an expired Strava token is saved before an upload whose result is unknown', async (t) => {
   const f = runtimeFixture(t);
   const user = await f.accounts.create('Upload Rider', 'test-password', true);
-  const folder = f.profiles.folder(user.player_id);
-  mkdirSync(folder, { recursive: true });
-  writeFileSync(resolve(folder, 'strava_token.txt'), '1\nsecret\nold\nrefresh\n1\n');
-  writeFileSync(resolve(folder, 'runalyze_token.txt'), 'runalyze-token\n');
+  f.services.documents.put(user.player_id, 'strava_token.txt', '1\nsecret\nold\nrefresh\n1\n');
+  f.services.documents.put(user.player_id, 'runalyze_token.txt', 'runalyze-token\n');
   const calls: string[] = [];
 
   t.mock.method(globalThis, 'fetch', (input: URL | string) => {
@@ -218,15 +215,14 @@ await test('an expired Strava token is refreshed before upload and one failing s
     );
   });
 
-  const warnings: string[] = [];
-  await new UploadsService(f, (message) => {
-    warnings.push(message);
-  }).run(user.player_id, activityWithFit(), []);
-
-  assert.equal(readFileSync(resolve(folder, 'strava_token.txt'), 'utf8'), '1\nsecret\nnew\nnewer\n9000000000\n');
+  const uploads = new UploadsService(f);
+  await assert.rejects(
+    uploads.strava(user.player_id, activityWithFit()),
+    (error) => !(error instanceof DeliveryRefusedError),
+  );
+  assert.equal(f.services.documents.text(user.player_id, 'strava_token.txt'), '1\nsecret\nnew\nnewer\n9000000000\n');
+  await uploads.runalyze(user.player_id, activityWithFit());
   assert.ok(calls.some((url) => url.includes('runalyze.com')));
-  assert.equal(warnings.length, 1);
-  assert.match(warnings[0] ?? '', /^Strava upload failed: offline$/);
 });
 
 await test('only administrators can control restarts and bot reloads', async (t) => {
@@ -354,7 +350,7 @@ await test('Strava authorization only completes for the browser that started it'
   const user = await f.accounts.create('OAuth Rider', 'test-password', true);
   const client = browser(f.app);
   await client.signIn(user.player_id, user.username);
-  new Connections(f.config.storageDir).save(user.player_id, 'strava', ['55', 'secret']);
+  f.accounts.repositories.connectionsRepository.save(user.player_id, 'strava', ['55', 'secret']);
   const calls = stubFetch(t);
 
   const start = await client.request('/strava_auth');
@@ -364,14 +360,13 @@ await test('Strava authorization only completes for the browser that started it'
   assert.equal(target.searchParams.get('client_id'), '55');
   assert.equal(target.searchParams.get('state'), client.csrf);
 
-  const file = resolve(f.profiles.folder(user.player_id), 'strava_token.txt');
   const refused = await client.request('/authorization?code=abc&state=other');
   assert.match(await refused.text(), /canceled/);
   assert.equal(calls.length, 0);
-  assert.equal(existsSync(file), false);
+  assert.equal(f.services.documents.has(user.player_id, 'strava_token.txt'), false);
 
   const accepted = await client.request(`/authorization?code=abc&state=${client.csrf}`);
 
   assert.match(await accepted.text(), /Strava authorized/);
-  assert.equal(readFileSync(file, 'utf8'), '55\nsecret\na\nr\n9000000000\n');
+  assert.equal(f.services.documents.text(user.player_id, 'strava_token.txt'), '55\nsecret\na\nr\n9000000000\n');
 });

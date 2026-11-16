@@ -4,9 +4,10 @@ import type { RepositoryContext } from '#src/context';
 import type { SettingsStore } from '#src/repositories/settings.repository';
 import type { Overrides } from '#src/dtos/settings.dto';
 import { BaseService } from '#src/services/base.service';
+import { UploadsService } from '#src/services/uploads.service';
 
 export class SettingsService extends BaseService {
-  constructor(context: RepositoryContext) {
+  constructor(private readonly context: RepositoryContext) {
     super(context.accounts.repositories);
   }
 
@@ -14,8 +15,10 @@ export class SettingsService extends BaseService {
     return this.settingsRepository.read(...args);
   }
 
+  /** A settings change can withdraw consent to a provider: pending deliveries follow. */
   save(...args: Parameters<SettingsStore['save']>) {
-    return this.settingsRepository.save(...args);
+    this.settingsRepository.save(...args);
+    new UploadsService(this.context).revoke(args[0]);
   }
 
   import(...args: Parameters<SettingsStore['import']>) {

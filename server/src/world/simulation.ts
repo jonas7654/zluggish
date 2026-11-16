@@ -4,6 +4,7 @@ import { PlayerProfileSchema } from '#src/protocol/generated/profile_pb';
 import type { PlayerState } from '#src/protocol/generated/udp-node-msgs_pb';
 import { GhostSchema, PlayerStateSchema, UserBikeAction } from '#src/protocol/generated/udp-node-msgs_pb';
 import { AssetFiles } from '#src/repositories/files.repository';
+import { Metric, metrics } from '#src/repositories/metrics.repository';
 import { SettingsService } from '#src/services/settings.service';
 import { Blob } from '#src/world/blob';
 import { Random, clamp } from '#src/world/geometry';
@@ -13,7 +14,8 @@ import { Peloton } from '#src/world/peloton';
 import { RiderPool, ghostAppearanceSchema } from '#src/world/riders';
 import { course, forward, road, worldTime } from '#src/world/state';
 import { clone, fromBinary, toBinary } from '@bufbuild/protobuf';
-import { appendFileSync, existsSync, readFileSync, readdirSync, renameSync, statSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
+import { appendFile, rename, stat } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
 import { z } from 'zod';
 
@@ -29,7 +31,7 @@ Exhaustion is position >= states.length per recording; regroup can revive it.
 */
 interface RiderGhosts {
   lastRoadTime: number;
-  loading: 'waiting' | 'loaded';
+  loading: 'waiting' | 'loading' | 'loaded';
   playback: 'waiting' | 'playing';
   startRoad: number;
   startTime: number;
@@ -39,18 +41,6 @@ interface RiderGhosts {
 
 const ahead = (state: PlayerState, time: number) =>
   Math.abs(state.roadTime - time) < 500_000 && (forward(state) ? state.roadTime > time : state.roadTime < time);
-
-export function filesUnder(folder: string, suffix: string): string[] {
-  if (!existsSync(folder)) return [];
-
-  return readdirSync(folder, { withFileTypes: true }).flatMap((entry) =>
-    entry.isDirectory()
-      ? filesUnder(resolve(folder, entry.name), suffix)
-      : entry.isFile() && entry.name.endsWith(suffix)
-        ? resolve(folder, entry.name)
-        : [],
-  );
-}
 
 export class Simulation {
   readonly replays = new Map<bigint, ReplayRider>();
@@ -81,6 +71,19 @@ export class Simulation {
 
   lastBot = 0;
 
+  /** Resolves after the first replay load. Later reloads replace replays atomically. */
+  readonly ready: Promise<void>;
+
+  private readonly files = new AssetFiles();
+
+  private readonly pending = new Set<Promise<void>>();
+
+  private reloads = 0;
+
+  private closed = false;
+
+  private recording = { queue: Promise.resolve(), size: 0 };
+
   private autoGroup: {
     id: bigint;
     all: boolean;
@@ -99,40 +102,70 @@ export class Simulation {
     this.starts = z
       .record(z.string(), z.object({ road: z.number(), time: z.number() }))
       .parse(JSON.parse(readFileSync(resolve(runtime.assets, 'data/start_lines.txt'), 'utf8')));
+    // Static road assets load at startup; blobs are rebuilt on the riding path.
+    Blob.roads(runtime.assets);
     runtime.world.simulation = this;
-    this.reload();
+    this.ready = this.reload();
+  }
+
+  /** Run a background load. Failures are logged; they never stop the simulation. */
+  private track(work: Promise<void>) {
+    const tracked = work.catch(() => {
+      this.runtime.world.lifecycle.log.warn('simulation.load_failed', 'Simulation storage load failed');
+    });
+
+    this.pending.add(tracked);
+    void tracked.finally(() => this.pending.delete(tracked));
+  }
+
+  /** Resolves when all background loads and writes have finished. */
+  async idle() {
+    await this.ready;
+
+    while (this.pending.size > 0) await Promise.all(this.pending);
+    await this.recording.queue;
   }
 
   start() {
-    if (!this.timer) this.timer = setInterval(() => this.tick(), 500);
+    if (this.timer) return;
+    this.closed = false;
+    let expected = performance.now() + 500;
+    this.timer = setInterval(() => {
+      const now = performance.now();
+      metrics.record(Metric.SimulationTickDelay, Math.max(0, now - expected));
+      expected = now + 500;
+      this.tick();
+    }, 500);
   }
 
+  /** Stop ticking, then wait for background loads and writes to finish. */
   close() {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    this.closed = true;
+
+    return this.idle();
   }
 
-  reload() {
-    for (const id of this.replays.keys()) {
-      this.runtime.world.synthetic.delete(id);
-      this.runtime.profiles.synthetic.delete(id);
-    }
-
-    this.replays.clear();
+  async reload() {
+    const generation = ++this.reloads;
     const storage = this.runtime.config.storageDir;
+    const replays = new Map<bigint, ReplayRider>();
 
-    for (const file of filesUnder(resolve(storage, 'robopacers'), 'route.bin')) {
-      const profileFile = resolve(file, '../profile.bin');
+    for (const file of await this.files.filesUnder(resolve(storage, 'robopacers'), 'route.bin')) {
+      const [profileBytes, routeBytes] = await Promise.all([
+        this.files.readAsync(resolve(file, '../profile.bin')),
+        this.files.readAsync(file),
+      ]);
 
-      if (!existsSync(profileFile)) continue;
+      if (!profileBytes || !routeBytes) continue;
 
       try {
-        const profile = fromBinary(PlayerProfileSchema, readFileSync(profileFile));
-
-        const states = fromBinary(GhostSchema, readFileSync(file)).states;
+        const profile = fromBinary(PlayerProfileSchema, profileBytes);
+        const states = fromBinary(GhostSchema, routeBytes).states;
 
         if (profile.id > 0n && states.length > 0)
-          this.replays.set(profile.id, {
+          replays.set(profile.id, {
             profile,
             states,
             position: 0,
@@ -147,19 +180,25 @@ export class Simulation {
     if (this.runtime.config.bots.enabled) {
       let index = 1;
 
-      for (const folder of readdirSync(storage, { withFileTypes: true })) {
+      const folders = await this.files.entriesAsync(storage);
+
+      for (const folder of folders) {
         if (!folder.isDirectory() || !/^\d+$/.test(folder.name)) continue;
 
-        for (const file of filesUnder(resolve(storage, folder.name, 'ghosts'), '.bin')) {
+        for (const file of await this.files.filesUnder(resolve(storage, folder.name, 'ghosts'), '.bin')) {
+          const bytes = await this.files.readAsync(file);
+
+          if (!bytes) continue;
+
           try {
-            const states = fromBinary(GhostSchema, readFileSync(file)).states;
+            const states = fromBinary(GhostSchema, bytes).states;
 
             if (states.length === 0) continue;
 
             for (let copy = 0; copy < this.runtime.config.bots.multiplier; copy++) {
               const id = BigInt(1_000_000 + index + copy * 10_000);
               const profile = this.pool.profile(id);
-              this.replays.set(id, {
+              replays.set(id, {
                 profile,
                 states,
                 position: Math.floor(this.rng.value() * states.length),
@@ -176,7 +215,21 @@ export class Simulation {
       }
     }
 
-    for (const [id, replay] of this.replays) this.runtime.profiles.synthetic.set(id, replay.profile);
+    // A newer reload started during the reads; its result replaces this one.
+    if (generation !== this.reloads || this.closed) return;
+
+    for (const id of this.replays.keys()) {
+      this.runtime.world.synthetic.delete(id);
+      this.runtime.profiles.synthetic.delete(id);
+    }
+
+    this.replays.clear();
+
+    for (const [id, replay] of replays) {
+      this.replays.set(id, replay);
+      this.runtime.profiles.synthetic.set(id, replay.profile);
+    }
+
     this.loadPelotons();
 
     const ids = new Set([
@@ -306,7 +359,7 @@ export class Simulation {
 
     if (ghosts.lastRoadTime && state.roadTime !== ghosts.lastRoadTime) {
       if (ghosts.loading === 'waiting') {
-        ghosts.loading = 'loaded';
+        ghosts.loading = 'loading';
 
         const folder = resolve(this.runtime.profiles.folder(Number(id)), 'ghosts', String(course(state)));
 
@@ -322,37 +375,7 @@ export class Simulation {
           ghosts.startTime = start.time;
         }
 
-        for (const directory of directories) {
-          if (!existsSync(directory)) continue;
-
-          for (const file of readdirSync(directory)) {
-            if (!file.endsWith('.bin') || ghosts.playbacks.length >= 100) continue;
-
-            try {
-              const states = fromBinary(GhostSchema, readFileSync(resolve(directory, file))).states;
-
-              if (states.length === 0) continue;
-
-              const ghostId = id + BigInt(ghosts.playbacks.length + 1) * 10_000_000n;
-
-              ghosts.playbacks.push({
-                id: ghostId,
-                states,
-                position: 0,
-                date: states[0]?.worldTime ?? 0n,
-              });
-              const profile = this.runtime.profiles.get(Number(id));
-              profile.id = ghostId;
-              profile.firstName = '';
-              profile.lastName = 'Ghost';
-              profile.countryCode = 0;
-              this.pool.customizeGhost(profile, this.ghostAppearance);
-              this.runtime.profiles.synthetic.set(ghostId, profile);
-            } catch {
-              this.runtime.world.lifecycle.log.warn('simulation.invalid_ghost', 'Skipping an invalid ghost recording');
-            }
-          }
-        }
+        this.track(this.loadGhosts(id, ghosts, directories, this.runtime.world.generation(id)));
       }
 
       if (
@@ -365,6 +388,57 @@ export class Simulation {
     }
 
     ghosts.lastRoadTime = state.roadTime;
+  }
+
+  /** Read recordings without blocking packets. A result attaches only to the
+  session and ghost state that requested it; a new login retries the load.
+  */
+  private async loadGhosts(id: bigint, ghosts: RiderGhosts, directories: Set<string>, generation: number) {
+    const recordings: PlayerState[][] = [];
+
+    for (const directory of directories) {
+      for (const { name } of await this.files.entriesAsync(directory)) {
+        if (!name.endsWith('.bin') || recordings.length >= 100) continue;
+        const bytes = await this.files.readAsync(resolve(directory, name));
+
+        if (!bytes) continue;
+
+        try {
+          const states = fromBinary(GhostSchema, bytes).states;
+
+          if (states.length > 0) recordings.push(states);
+        } catch {
+          this.runtime.world.lifecycle.log.warn('simulation.invalid_ghost', 'Skipping an invalid ghost recording');
+        }
+      }
+    }
+
+    const rider = recordings.length > 0 ? await this.runtime.profiles.load(Number(id)) : null;
+
+    if (this.ghosts.get(id) !== ghosts || this.closed) return;
+
+    if (this.runtime.world.generation(id) !== generation) {
+      ghosts.loading = 'waiting';
+
+      return;
+    }
+
+    for (const states of recordings) {
+      const ghostId = id + BigInt(ghosts.playbacks.length + 1) * 10_000_000n;
+
+      ghosts.playbacks.push({ id: ghostId, states, position: 0, date: states[0]?.worldTime ?? 0n });
+
+      if (!rider) continue;
+      const profile = clone(PlayerProfileSchema, rider);
+      profile.id = ghostId;
+      profile.firstName = '';
+      profile.lastName = 'Ghost';
+      profile.countryCode = 0;
+      this.pool.customizeGhost(profile, this.ghostAppearance);
+      this.runtime.profiles.synthetic.set(ghostId, profile);
+    }
+
+    ghosts.loading = 'loaded';
   }
 
   regroup(id: bigint) {
@@ -416,13 +490,17 @@ export class Simulation {
   }
 
   loadBookmarks(id: bigint) {
+    return Promise.try(() => this.readBookmarks(id));
+  }
+
+  private readBookmarks(id: bigint) {
     const bookmarks = new Map<bigint, { state: PlayerState; name: string }>();
 
-    for (const file of filesUnder(resolve(this.runtime.profiles.folder(Number(id)), 'bookmarks'), '.bin')) {
+    for (const row of this.runtime.accounts.repositories.bookmarksRepository.list(Number(id))) {
       try {
-        const state = fromBinary(PlayerStateSchema, readFileSync(file));
+        const state = fromBinary(PlayerStateSchema, row.state);
         state.id = 9_000_000n + (id % 1000n) * 1000n + BigInt(bookmarks.size + 1);
-        bookmarks.set(state.id, { state, name: basename(file, '.bin') });
+        bookmarks.set(state.id, { state, name: row.name });
       } catch {
         this.runtime.world.lifecycle.log.warn('simulation.invalid_bookmark', 'Skipping an invalid bookmark');
       }
@@ -441,18 +519,23 @@ export class Simulation {
       .slice(0, 120);
 
     if (!safe) return;
-    new AssetFiles().writeDurable(
-      resolve(
-        this.runtime.profiles.folder(Number(state.id)),
-        'bookmarks',
-        String(course(state)),
-        String(state.sport),
-        `${safe}.bin`,
-      ),
-      toBinary(PlayerStateSchema, state),
-      true,
-    );
-    this.loadBookmarks(state.id);
+    const id = state.id;
+
+    try {
+      this.runtime.accounts.repositories.bookmarksRepository.save(
+        Number(id),
+        course(state),
+        state.sport,
+        safe,
+        toBinary(PlayerStateSchema, state),
+      );
+    } catch {
+      this.runtime.world.lifecycle.log.warn('simulation.bookmark_failed', 'Bookmark could not be saved');
+
+      return;
+    }
+
+    this.readBookmarks(id);
   }
 
   logout(id: bigint) {
@@ -625,6 +708,31 @@ export class Simulation {
     this.autoGroup = { id, all, road: -1, forward: false };
   }
 
+  /** Append a blob recording line off the main thread. A slow disk drops lines
+  instead of growing the queue without limit.
+  */
+  private record(line: string) {
+    if (this.recording.size >= 1000) return;
+    const file = resolve(this.runtime.config.storageDir, 'solo_blob_record.jsonl');
+    this.recording.size++;
+
+    this.recording.queue = this.recording.queue
+      .then(async () => {
+        const size = await stat(file)
+          .then((info) => info.size)
+          .catch(() => 0);
+
+        if (size > 80 * 1024 * 1024) await rename(file, `${file}.old`);
+        await appendFile(file, line);
+      })
+      .catch(() => {
+        this.runtime.world.lifecycle.log.warn('simulation.record_failed', 'Blob recording could not be written');
+      })
+      .finally(() => {
+        this.recording.size--;
+      });
+  }
+
   tick() {
     const now = this.now();
     const time = worldTime();
@@ -680,11 +788,7 @@ export class Simulation {
 
       if (!(blob.config.record && states.length > 0)) continue;
 
-      const file = resolve(this.runtime.config.storageDir, 'solo_blob_record.jsonl');
-
-      if (existsSync(file) && statSync(file).size > 80 * 1024 * 1024) renameSync(file, `${file}.old`);
-      appendFileSync(
-        file,
+      this.record(
         `${JSON.stringify({ time: Number(time), playerId: String(id), mode: blob.mode, grade: blob.grade, shift: blob.shift, riders: blob.riders.map((rider) => ({ id: String(rider.profile.id), gap: rider.gap, lateral: rider.lateral, rate: rider.rate, phase: rider.phase })) })}\n`,
       );
     }

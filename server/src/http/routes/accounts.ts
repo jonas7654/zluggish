@@ -331,8 +331,11 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     const user = authenticated(c);
 
     if (c.req.method === 'POST') {
-      await csrf(c, runtime);
-      void runtime.services.uploads.retry(user.player_id);
+      const form = await csrf(c, runtime);
+
+      if (form.ambiguous === '1' && form.confirm_action !== 'on')
+        throw new HTTPException(400, { message: 'Confirm retrying uploads with an unknown result first.' });
+      void runtime.services.uploads.retry(user.player_id, form.ambiguous === '1');
 
       return launcherPage(
         c,
@@ -365,6 +368,16 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
         `${user.first_name} ${user.last_name}`,
         [
           makeForm('retry-uploads', `/user/${user.username}/`, [], 'Retry failed uploads'),
+          makeForm(
+            'retry-unknown-uploads',
+            `/user/${user.username}/`,
+            [hidden('ambiguous', '1')],
+            'Retry failed uploads and uploads with an unknown result',
+            {
+              confirmation:
+                'Check the provider first. Retrying an upload with an unknown result can create a duplicate.',
+            },
+          ),
           makeForm(
             'launch',
             '/start-zwift',

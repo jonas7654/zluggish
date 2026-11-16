@@ -1,7 +1,6 @@
 import { LoginRequestSchema, LoginResponseSchema } from '#src/protocol/generated/login_pb';
 import { AchievementsSchema, PlayerProfileSchema, StreaksSchema } from '#src/protocol/generated/profile_pb';
 import { UserStorageSchema } from '#src/protocol/generated/user_storage_pb';
-import { Connections } from '#src/repositories/connections.repository';
 import { AssetFiles } from '#src/repositories/files.repository';
 import { ImportsService } from '#src/services/profile-import.service';
 import { WorkoutsService } from '#src/services/workout.service';
@@ -26,19 +25,21 @@ await test('all rider state files stage, cancel, publish and recover with durabl
   };
 
   const old = toBinary(StreaksSchema, create(StreaksSchema, { curStreak: 1 }));
-  new AssetFiles().writeDurable(resolve(f.profiles.folder(user.player_id), 'streaks.bin'), old);
+
+  const streaks = () =>
+    fromBinary(StreaksSchema, f.services.documents.get(user.player_id, 'streaks.bin') ?? new Uint8Array());
+
+  f.services.documents.put(user.player_id, 'streaks.bin', old);
   const canceled = imports.prepare(user, files);
   imports.cancel(user, canceled);
-  assert.deepEqual(readFileSync(resolve(f.profiles.folder(user.player_id), 'streaks.bin')), Buffer.from(old));
+  assert.equal(streaks().curStreak, 1);
   const stage = imports.prepare(user, files);
   assert.equal(imports.inspect(user, stage).files.length, 5);
   imports.publish(user, stage, false);
   assert.equal(f.profiles.get(user.player_id).id, BigInt(user.player_id));
   assert.equal(f.profiles.get(user.player_id).firstName, 'Imported');
-  assert.equal(
-    fromBinary(StreaksSchema, readFileSync(resolve(f.profiles.folder(user.player_id), 'streaks.bin'))).curStreak,
-    3,
-  );
+  assert.equal(f.accounts.get(user.player_id)?.first_name, 'Imported');
+  assert.equal(streaks().curStreak, 3);
   assert.ok(
     readdirSync(f.profiles.folder(user.player_id)).some(
       (name) => name.startsWith('streaks.bin.') && name.endsWith('.bak'),
@@ -46,21 +47,21 @@ await test('all rider state files stage, cancel, publish and recover with durabl
   );
   const fresh = f.accounts.get(user.player_id);
   assert.ok(fresh);
-  const recovering = imports.prepare(fresh, { 'streaks.bin': old });
-  const folder = imports.folder(fresh, recovering);
-  const manifest = imports.inspect(fresh, recovering);
-  new AssetFiles().writeDurable(resolve(folder, 'old-streaks.bin'), files['streaks.bin']);
-  new AssetFiles().writeDurable(
-    resolve(folder, 'manifest.json'),
-    JSON.stringify({ ...manifest, state: 'publishing' }),
-    true,
-  );
-  new AssetFiles().writeDurable(resolve(f.profiles.folder(user.player_id), 'streaks.bin'), old, true);
+
+  // A crash after the publication commit leaves its stage behind: recovery removes it,
+  // and the stage cannot apply a second time.
+  const repeated = imports.prepare(fresh, { 'streaks.bin': old });
+  const folder = imports.folder(fresh, repeated);
+  const manifest = imports.inspect(fresh, repeated);
+  imports.publish(fresh, repeated, false);
+  assert.equal(streaks().curStreak, 1);
+  f.services.documents.put(user.player_id, 'streaks.bin', files['streaks.bin']);
+  mkdirSync(folder);
+  new AssetFiles().writeDurable(resolve(folder, 'streaks.bin'), old);
+  new AssetFiles().writeDurable(resolve(folder, 'manifest.json'), JSON.stringify(manifest));
   new ImportsService(f.accounts, f.world).recover();
-  assert.equal(
-    fromBinary(StreaksSchema, readFileSync(resolve(f.profiles.folder(user.player_id), 'streaks.bin'))).curStreak,
-    3,
-  );
+  assert.equal(existsSync(folder), false);
+  assert.equal(streaks().curStreak, 3);
   assert.throws(() => imports.prepare(fresh, { 'user_storage.bin': new Uint8Array([255]) }));
   assert.throws(() => imports.prepare(fresh, { 'economy_config.txt': Buffer.from('{"cycling_levels":"invalid"}') }));
 });
@@ -78,7 +79,7 @@ await test('browser restore accepts empty protobuf state and waits for review be
   const response = await f.app.request(`/profile/${user.username}/`, { method: 'POST', headers, body: form });
   assert.equal(response.status, 302);
   assert.ok(session.session.pendingImport);
-  assert.equal(existsSync(resolve(f.profiles.folder(user.player_id), 'streaks.bin')), false);
+  assert.equal(f.services.documents.has(user.player_id, 'streaks.bin'), false);
 
   const published = await f.app.request(`/profile/${user.username}/confirm/`, {
     method: 'POST',
@@ -87,8 +88,8 @@ await test('browser restore accepts empty protobuf state and waits for review be
   });
 
   assert.equal(published.status, 302);
-  assert.equal(readFileSync(resolve(f.profiles.folder(user.player_id), 'streaks.bin')).length, 0);
-  assert.equal(readFileSync(resolve(f.profiles.folder(user.player_id), 'user_storage.bin')).length, 0);
+  assert.equal(f.services.documents.get(user.player_id, 'streaks.bin')?.length, 0);
+  assert.equal(f.services.documents.get(user.player_id, 'user_storage.bin')?.length, 0);
 });
 
 await test('Zwift connection encrypts secrets and official downloads stage a rider-preserving import', async (t) => {
@@ -115,9 +116,14 @@ await test('Zwift connection encrypts secrets and official downloads stage a rid
 
   const html = await saved.text();
   assert.doesNotMatch(html, /super-secret|official@example.test/);
-  const connections = new Connections(f.config.storageDir);
+  const connections = f.accounts.repositories.connectionsRepository;
   assert.deepEqual(connections.read(user.player_id, 'zwift'), ['official@example.test', 'super-secret']);
-  assert.equal(readFileSync(connections.file(user.player_id, 'zwift')).includes(Buffer.from('super-secret')), false);
+  assert.equal(
+    Buffer.from(f.services.documents.get(user.player_id, 'zwift_credentials.bin') ?? []).includes(
+      Buffer.from('super-secret'),
+    ),
+    false,
+  );
   assert.equal(f.settings.read(user.player_id)['uploads.zwift.enabled'], true);
   assert.equal(f.settings.read(user.player_id)['devices.zwiftClick.enabled'], true);
   const calls: string[] = [];
@@ -193,7 +199,7 @@ const xml =
 await test('automatic home and Android login sync coalesce, preserve UUIDs and expose cycling-only schedules', async (t) => {
   const f = runtimeFixture(t);
   const user = await f.accounts.create('Planned Rider', 'test-password', true);
-  new Connections(f.config.storageDir).save(user.player_id, 'intervals', ['123', 'key']);
+  f.accounts.repositories.connectionsRepository.save(user.player_id, 'intervals', ['123', 'key']);
   const headers = { Authorization: `Bearer ${f.sessions.tokens(user, f.tokens).access_token}` };
   const now = new Date();
   const day = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -314,7 +320,7 @@ await test('a failed TrainingPeaks refresh retains all previously published file
 await test('automatic sync deadline aborts provider work and never publishes a late response', async (t) => {
   const f = runtimeFixture(t);
   const user = await f.accounts.create('Deadline Rider', 'test-password', true);
-  new Connections(f.config.storageDir).save(user.player_id, 'intervals', ['123', 'key']);
+  f.accounts.repositories.connectionsRepository.save(user.player_id, 'intervals', ['123', 'key']);
   const workouts = new WorkoutsService(f);
   const before = Buffer.from('{"provider":"intervals-icu","workouts":[]}');
   new AssetFiles().writeDurable(workouts.metadataFile(user.player_id), before);

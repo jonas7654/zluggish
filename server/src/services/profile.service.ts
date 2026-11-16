@@ -25,6 +25,10 @@ export class ProfilesService extends BaseService {
     return this.profileRepository.get(...args);
   }
 
+  exists(...args: Parameters<Profiles['exists']>) {
+    return this.profileRepository.exists(...args);
+  }
+
   save(...args: Parameters<Profiles['save']>) {
     return this.profileRepository.save(...args);
   }

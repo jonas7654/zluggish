@@ -116,7 +116,7 @@ export class FitnessService extends BaseService {
   }
 
   streaks(id: number) {
-    return new StreakService(this.repositories).streaksFor(this.profileRepository, id);
+    return new StreakService(this.repositories).streaksFor(id);
   }
 
   metrics(id: number, date: number, historical: boolean) {

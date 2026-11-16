@@ -22,13 +22,13 @@ export class RecordsService extends BaseService {
   }
 
   mine(playerId: number, sport?: string, segment?: string) {
-    return this.protobufRepository
-      .select('segment_result', SegmentResultSchema, BigInt(playerId))
-      .filter(
-        (result) =>
-          (sport === undefined || result.sport === (sport === 'RUNNING' ? 1 : 0)) &&
-          (segment === undefined || result.segmentId === BigInt(segment)),
-      );
+    return this.recordsRepository
+      .riderSegments(
+        BigInt(playerId),
+        segment === undefined ? null : BigInt(segment),
+        sport === undefined ? null : sport === 'RUNNING' ? 1 : 0,
+      )
+      .map((row) => this.protobufRepository.decode(SegmentResultSchema, row));
   }
 
   segmentLeaderboard(...values: Parameters<RecordsRepository['segmentLeaderboard']>) {

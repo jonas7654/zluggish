@@ -1,5 +1,10 @@
 import { openDatabase } from '#src/db/open';
 import { AccountsRepository } from '#src/repositories/accounts.repository';
+import { BookmarksRepository } from '#src/repositories/bookmark.repository';
+import { DurabilityRepository } from '#src/repositories/durability.repository';
+import { JobsRepository } from '#src/repositories/jobs.repository';
+import { RiderDocuments } from '#src/repositories/rider-document.repository';
+import { SystemFlagsRepository } from '#src/repositories/system-flag.repository';
 import { ActivitiesRepository } from '#src/repositories/activities.repository';
 import { Completions } from '#src/repositories/completion.repository';
 import { Connections } from '#src/repositories/connections.repository';
@@ -26,6 +31,7 @@ import { StravaRepository } from '#src/repositories/strava.repository';
 import { StreakRepository } from '#src/repositories/streak.repository';
 import { UploadsRepository } from '#src/repositories/uploads.repository';
 import { ZwiftRepository } from '#src/repositories/zwift.repository';
+import { resolve } from 'node:path';
 
 /** One repository set per account database, shared by every service. */
 export class Repositories {
@@ -87,11 +93,26 @@ export class Repositories {
 
   readonly profileRepository: Profiles;
 
+  readonly riderDocuments: RiderDocuments;
+
+  readonly bookmarksRepository: BookmarksRepository;
+
+  readonly jobsRepository: JobsRepository;
+
+  readonly systemFlagsRepository: SystemFlagsRepository;
+
+  readonly durabilityRepository: DurabilityRepository;
+
   constructor(readonly storage: string) {
     this.db = openDatabase(storage);
     this.accountsRepository = new AccountsRepository(this.db);
+    this.riderDocuments = new RiderDocuments(this.db, storage);
+    this.bookmarksRepository = new BookmarksRepository(this.db);
+    this.jobsRepository = new JobsRepository(this.db);
+    this.systemFlagsRepository = new SystemFlagsRepository(this.db);
+    this.durabilityRepository = new DurabilityRepository(this.db, resolve(storage, 'zluggish.db'));
     this.activitiesRepository = new ActivitiesRepository(this.db);
-    this.connectionsRepository = new Connections(storage);
+    this.connectionsRepository = new Connections(this.riderDocuments);
     this.eventsRepository = new EventsRepository(this.db);
     this.fitnessRepository = new FitnessRepository(this.db);
     this.goalRepository = new GoalRepository(this.db);
@@ -108,16 +129,16 @@ export class Repositories {
     this.profileDownloadRepository = new ProfileDownloadRepository(this.loggingRepository);
     this.stravaRepository = new StravaRepository();
     this.garminRepository = new GarminRepository();
-    this.streakRepository = new StreakRepository();
+    this.streakRepository = new StreakRepository(this.riderDocuments);
     this.eventCatalogRepository = new EventCatalogRepository();
     this.riderRepository = new RiderRepository();
     this.sessionRepository = new SessionRepository();
     this.zwiftRepository = new ZwiftRepository();
     this.discordRepository = new DiscordRepository();
-    this.profileRepository = new Profiles(storage, this.accountsRepository);
+    this.profileRepository = new Profiles(storage, this.db, this.accountsRepository, this.riderDocuments);
   }
 
   get settingsRepository() {
-    return (this.settings ??= new SettingsStore(this.storage));
+    return (this.settings ??= new SettingsStore(this.db));
   }
 }

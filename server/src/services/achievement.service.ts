@@ -1,5 +1,6 @@
 import type { RepositoryContext as Runtime } from '#src/context';
 import { AchievementEntrySchema, AchievementsSchema } from '#src/protocol/generated/profile_pb';
+import { immediate } from '#src/db/transaction';
 import { BaseService } from '#src/services/base.service';
 import { create, fromBinary, toBinary } from '@bufbuild/protobuf';
 import { resolve } from 'node:path';
@@ -10,12 +11,9 @@ threshold/report events. Import replaces this state externally; reads may backfi
 */
 export class AchievementService extends BaseService {
   loadAchievements(runtime: Runtime, id: number) {
-    const file = resolve(runtime.profiles.folder(id), 'achievements.bin');
-    const exists = this.filesRepository.existsSync(file);
-
-    const achievements = exists
-      ? fromBinary(AchievementsSchema, this.filesRepository.readFileSync(file))
-      : create(AchievementsSchema);
+    const stored = this.riderDocuments.get(id, 'achievements.bin');
+    const exists = stored !== null;
+    const achievements = stored ? fromBinary(AchievementsSchema, stored) : create(AchievementsSchema);
 
     let changed = !exists;
 
@@ -43,7 +41,7 @@ export class AchievementService extends BaseService {
         changed = true;
       }
 
-    if (changed) this.filesRepository.writeDurable(file, toBinary(AchievementsSchema, achievements), true);
+    if (changed) this.riderDocuments.put(id, 'achievements.bin', toBinary(AchievementsSchema, achievements));
 
     return achievements;
   }
@@ -57,22 +55,12 @@ export class AchievementService extends BaseService {
         JSON.parse(this.filesRepository.readFileSync(resolve(runtime.assets, 'data/game_dictionary.txt'), 'utf8')),
       );
 
-    const db = runtime.accounts.db;
-    db.exec('BEGIN IMMEDIATE');
-
-    try {
-      const repository = this.recordsRepository;
-
+    immediate(runtime.accounts.db, () => {
       for (const badge of achievements.achievements) {
         const hash = dictionary.achievements[String(badge.id)];
 
-        if (hash !== undefined) repository.ensureRoute(id, hash);
+        if (hash !== undefined) this.recordsRepository.ensureRoute(id, hash);
       }
-
-      db.exec('COMMIT');
-    } catch (error) {
-      db.exec('ROLLBACK');
-      throw error;
-    }
+    });
   }
 }

@@ -40,7 +40,7 @@ function fixture(t: TestContext) {
     storage,
     output: resolve(root, 'external/zluggish.config.ts'),
     openSettings(readOnly = false) {
-      const store = new SettingsStore(storage, readOnly);
+      const store = SettingsStore.legacy(storage, readOnly);
       stores.push(store);
 
       return store;
@@ -147,14 +147,14 @@ await test('publication failure after database commit resumes without losing lat
   writeFileSync(resolve(f.root, 'external'), 'blocks destination directory');
   await assert.rejects(migrateConfig(f));
   assert.ok(existsSync(resolve(f.storage, '.config-migration.json')));
-  const store = new SettingsStore(f.storage);
+  const store = SettingsStore.legacy(f.storage);
   store.save(42, { 'ghosts.enabled': false });
   store.close();
   unlinkSync(resolve(f.root, 'external'));
   await migrateConfig(f);
   assert.ok(existsSync(f.output));
   assert.ok(!existsSync(resolve(f.storage, '.config-migration.json')));
-  const reopened = new SettingsStore(f.storage, true);
+  const reopened = SettingsStore.legacy(f.storage, true);
   assert.equal(reopened.read(42)['ghosts.enabled'], false);
   reopened.close();
 });
@@ -260,7 +260,7 @@ await test('settings CLI dry runs do not create locks or a preference database',
   await run([...args, '--dry-run'], () => {});
   assert.deepEqual(snapshot(f.root), before);
   await run(args, () => {});
-  const store = new SettingsStore(f.storage, true);
+  const store = SettingsStore.legacy(f.storage, true);
   assert.equal(store.read(42)['ghosts.enabled'], true);
   store.close();
   await run(['--config', f.output, 'settings', 'reset', '--user', '42', 'ghosts.enabled'], () => {});
@@ -270,7 +270,7 @@ await test('settings CLI dry runs do not create locks or a preference database',
 await test('preference conflicts fail even in dry run and leave existing settings intact', async (t) => {
   const f = fixture(t);
   addRiders(f.storage);
-  const store = new SettingsStore(f.storage);
+  const store = SettingsStore.legacy(f.storage);
   store.save(42, { 'ghosts.enabled': false });
   store.close();
   const before = snapshot(f.root);
@@ -281,15 +281,15 @@ await test('preference conflicts fail even in dry run and leave existing setting
 
 await test('settings persist rider overrides across reopen and reject newer schemas', (t) => {
   const f = fixture(t);
-  const store = new SettingsStore(f.storage);
+  const store = SettingsStore.legacy(f.storage);
   store.save(42, { 'ghosts.enabled': true, 'uploads.strava.method': 'free' });
   store.close();
-  const reopened = new SettingsStore(f.storage);
+  const reopened = SettingsStore.legacy(f.storage);
   assert.deepEqual(reopened.read(42), { 'ghosts.enabled': true, 'uploads.strava.method': 'free' });
   assert.deepEqual(reopened.read(43), {});
   reopened.db.exec('PRAGMA user_version=2');
   reopened.close();
-  assert.throws(() => new SettingsStore(f.storage), /Unsupported/);
+  assert.throws(() => SettingsStore.legacy(f.storage), /Unsupported/);
 });
 
 await test('account recovery uses config storage and honors an explicit storage override', async (t) => {

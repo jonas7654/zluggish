@@ -65,6 +65,7 @@ jobs:
       - uses: docker/setup-buildx-action@v4
       - run: docker buildx build --platform ${{ matrix.platform }} -f server/Dockerfile --target server --load -t zluggish:test .
       - run: docker run --rm -i --platform ${{ matrix.platform }} --read-only --tmpfs /tmp --tmpfs /usr/src/app/zluggish/storage --entrypoint node zluggish:test --input-type=module < server/scripts/smoke-container.mjs
+      - run: docker run --rm -i --platform ${{ matrix.platform }} --read-only --tmpfs /tmp --entrypoint node zluggish:test --input-type=module < server/scripts/smoke-storage.mjs
 
   launcher-browser:
     runs-on: ubuntu-26.04

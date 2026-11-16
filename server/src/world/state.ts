@@ -75,6 +75,9 @@ export class World {
 
   simulation: Simulation | undefined;
 
+  /** Ride recovery follows each session start and end. */
+  sessions: { login: (id: bigint) => void; logout: (id: bigint, reason: string) => void } | undefined;
+
   readonly personal = new Map<bigint, Map<bigint, PlayerState>>();
 
   readonly phones = new Map<bigint, ServerToClient>();
@@ -95,6 +98,17 @@ export class World {
 
   readonly histories = new Map<bigint, PlayerState[]>();
 
+  private readonly generations = new Map<bigint, number>();
+
+  /** Each login and logout starts a new session generation; stale loads compare it. */
+  generation(playerId: bigint) {
+    return this.generations.get(playerId) ?? 0;
+  }
+
+  private advance(playerId: bigint) {
+    this.generations.set(playerId, this.generation(playerId) + 1);
+  }
+
   active(playerId: number | bigint) {
     const state = this.online.get(BigInt(playerId));
 
@@ -108,11 +122,15 @@ export class World {
 
     this.relays.set(playerId, relay);
     this.histories.delete(playerId);
+    this.advance(playerId);
+    this.sessions?.login(playerId);
 
     return relay;
   }
 
   logout(playerId: bigint, reason = 'logout') {
+    this.advance(playerId);
+    this.sessions?.logout(playerId, reason);
     this.lifecycle.end(playerId, reason);
     this.simulation?.logout(playerId);
     const wasOnline = this.online.delete(playerId);

@@ -1,14 +1,15 @@
 import type { RepositoryContext } from '#src/context';
 import type { Connections } from '#src/repositories/connections.repository';
 import { BaseService } from '#src/services/base.service';
+import { UploadsService } from '#src/services/uploads.service';
 
 export class ConnectionsService extends BaseService {
-  constructor(context: RepositoryContext) {
+  constructor(private readonly context: RepositoryContext) {
     super(context.accounts.repositories);
   }
 
-  file(...args: Parameters<Connections['file']>) {
-    return this.connectionsRepository.file(...args);
+  has(...args: Parameters<Connections['has']>) {
+    return this.connectionsRepository.has(...args);
   }
 
   read(...args: Parameters<Connections['read']>) {
@@ -20,6 +21,7 @@ export class ConnectionsService extends BaseService {
   }
 
   remove(...args: Parameters<Connections['remove']>) {
-    return this.connectionsRepository.remove(...args);
+    this.connectionsRepository.remove(...args);
+    new UploadsService(this.context).revoke(args[0]);
   }
 }

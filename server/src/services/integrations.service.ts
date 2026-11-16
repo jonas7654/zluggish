@@ -1,7 +1,6 @@
 import type { Rider } from '#src/repositories/accounts.repository';
 import type { BrowserSession } from '#src/services/browser-session.service';
 import type { GarminClient, MfaState } from 'garminconnect-js';
-import { resolve } from 'node:path';
 import type { RepositoryContext } from '#src/context';
 import type { FitnessRepository } from '#src/repositories/fitness.repository';
 import { officialRelay } from '#src/repositories/zwift.repository';
@@ -26,7 +25,6 @@ export class IntegrationsService extends BaseService {
   */
   async authorizeGarmin(key: string, browser: BrowserSession, rider: Rider, code?: string) {
     const identity = this.context.accounts.identityOf(rider);
-    const folder = resolve(this.context.profiles.folder(rider.player_id), 'garth');
 
     for (const [id, entry] of this.garminAttempts) if (entry.expires < Date.now()) this.garminAttempts.delete(id);
     let attempt: GarminAttempt;
@@ -43,7 +41,7 @@ export class IntegrationsService extends BaseService {
         identity,
         credentials,
         expires: Date.now() + 300_000,
-        client: this.garminRepository.garminClient(folder, this.context.config.integrations.garmin.domain, false),
+        client: this.garminRepository.garminClient(null, this.context.config.integrations.garmin.domain),
       };
       this.garminAttempts.set(key, attempt);
     } else {
@@ -89,7 +87,10 @@ export class IntegrationsService extends BaseService {
       }
 
       if (!current()) throw new Error('Expired authorization');
-      this.garminRepository.saveAuthorization(folder, attempt.client);
+      await this.garminRepository.saveAuthorization(
+        this.garminRepository.tokenStore(this.riderDocuments, rider.player_id),
+        attempt.client,
+      );
       this.garminAttempts.delete(key);
 
       return 'authorized';
@@ -112,7 +113,7 @@ export class IntegrationsService extends BaseService {
       current?.[1] !== credentials[1]
     )
       throw new Error('Expired authorization');
-    this.stravaRepository.writeToken(resolve(this.context.profiles.folder(rider.player_id), 'strava_token.txt'), token);
+    this.riderDocuments.put(rider.player_id, 'strava_token.txt', this.stravaRepository.serializeToken(token));
   }
 
   deletePowerCurve(...values: Parameters<FitnessRepository['deletePowerCurve']>) {

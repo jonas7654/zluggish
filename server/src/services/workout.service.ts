@@ -87,8 +87,7 @@ export class WorkoutsService extends BaseService {
 
     const available = [];
 
-    if (this.filesRepository.existsSync(this.connectionsRepository.file(id, 'intervals')))
-      available.push('intervals-icu');
+    if (this.connectionsRepository.has(id, 'intervals')) available.push('intervals-icu');
 
     if (settings.workouts.trainingpeaks.bridgeFolder) available.push('trainingpeaks');
 
