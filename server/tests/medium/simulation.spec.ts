@@ -51,7 +51,7 @@ await test('simulation playback stops, resumes and removes deleted pacers on rel
 
 await test('ghost regroup before lazy loading preserves independent playback and loading states', async (t) => {
   const f = runtimeFixture(t);
-  const rider = await f.accounts.create('Ghost Rider', '', true);
+  const rider = await f.accounts.create('Ghost Rider', 'test-password', true);
   f.settings.save(rider.player_id, { 'ghosts.enabled': true });
   let now = 100;
   const simulation = new Simulation(f, () => now);

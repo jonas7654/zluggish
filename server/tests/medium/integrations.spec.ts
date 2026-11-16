@@ -42,7 +42,7 @@ function browser(app: ReturnType<typeof createApp>) {
       const response1 = await client.request('/login/');
       const picker = await response1.text();
       csrf = inputValue(picker, 'csrf_token') ?? '';
-      await client.form('/login/', { player_id: String(player) });
+      await client.form('/login/', { player_id: String(player), step: 'password', password: 'test-password' });
 
       // Signing in starts a fresh browser session with its own CSRF token.
       const response2 = await client.request(`/user/${username}/`);
@@ -56,7 +56,7 @@ function browser(app: ReturnType<typeof createApp>) {
 
 await test('Strava credentials are stored encrypted, never echoed, and removal is allow-listed', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Strava Rider', '', true);
+  const user = await f.accounts.create('Strava Rider', 'test-password', true);
   const client = browser(f.app);
   await client.signIn(user.player_id, user.username);
 
@@ -137,7 +137,7 @@ function stubFetch(t: TestContext) {
 
 await test('Intervals.icu upload pairs the planned workout and removes only that workout', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Interval Rider', '', true);
+  const user = await f.accounts.create('Interval Rider', 'test-password', true);
   new Connections(f.config.storageDir).save(user.player_id, 'intervals', ['42', 'key']);
   const folder = f.profiles.folder(user.player_id);
   const cached = resolve(f.config.storageDir, 'tp-workouts/intervalsicu');
@@ -197,7 +197,7 @@ await test('Intervals.icu upload pairs the planned workout and removes only that
 
 await test('an expired Strava token is refreshed before upload and one failing service does not stop the rest', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Upload Rider', '', true);
+  const user = await f.accounts.create('Upload Rider', 'test-password', true);
   const folder = f.profiles.folder(user.player_id);
   mkdirSync(folder, { recursive: true });
   writeFileSync(resolve(folder, 'strava_token.txt'), '1\nsecret\nold\nrefresh\n1\n');
@@ -231,8 +231,8 @@ await test('an expired Strava token is refreshed before upload and one failing s
 
 await test('only administrators can control restarts and bot reloads', async (t) => {
   const f = runtimeFixture(t);
-  const admin = await f.accounts.create('Owner', '', true);
-  const other = await f.accounts.create('Other', '', false);
+  const admin = await f.accounts.create('Owner', 'test-password', true);
+  const other = await f.accounts.create('Other', 'test-password', false);
   f.world.online.set(77n, create(PlayerStateSchema, { id: 77n }));
 
   const queued = () => f.world.updates.get(77n)?.length ?? 0;
@@ -259,7 +259,7 @@ await test('only administrators can control restarts and bot reloads', async (t)
 
 await test('per-rider variants override the base set and unknown names stay explicit', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Variant Rider', '', true);
+  const user = await f.accounts.create('Variant Rider', 'test-password', true);
 
   writeFileSync(
     resolve(f.profiles.folder(user.player_id), 'variants.txt'),
@@ -320,7 +320,7 @@ await test('launcher assets are served safely and game assets redirect to the CD
 
 await test('the mobile aggregate composes goals, activities, events and invitations', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Mobile Rider', '', true);
+  const user = await f.accounts.create('Mobile Rider', 'test-password', true);
 
   const response = await f.app.request(
     '/relay/worlds/1/aggregate/mobile?goalCount=2&activityCount=2&eventCount=1&eventSport=CYCLING&pendingEventInviteCount=1&acceptedEventInviteCount=1',
@@ -351,7 +351,7 @@ await test('the mobile aggregate composes goals, activities, events and invitati
 
 await test('Strava authorization only completes for the browser that started it', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('OAuth Rider', '', true);
+  const user = await f.accounts.create('OAuth Rider', 'test-password', true);
   const client = browser(f.app);
   await client.signIn(user.player_id, user.username);
   new Connections(f.config.storageDir).save(user.player_id, 'strava', ['55', 'secret']);

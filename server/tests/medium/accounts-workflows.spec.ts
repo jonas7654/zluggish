@@ -19,17 +19,25 @@ import { test } from 'node:test';
 import { z } from 'zod';
 
 function browser(app: ReturnType<typeof createApp>) {
-  let cookie = '';
+  // A small cookie jar: the session cookie and per-rider remember cookies live side by side.
+  const jar = new Map<string, string>();
   let csrf = '';
 
   const client = {
+    jar,
     async request(path: string, init: RequestInit = {}) {
       const headers = new Headers(init.headers);
-      headers.set('Cookie', cookie);
+      headers.set('Cookie', Array.from(jar, ([name, value]) => `${name}=${value}`).join('; '));
       const response = await app.request(path, { ...init, headers });
-      const set = response.headers.getSetCookie().at(-1);
 
-      if (set) cookie = set.split(';', 1)[0] ?? '';
+      for (const set of response.headers.getSetCookie()) {
+        const pair = set.split(';', 1)[0] ?? '';
+        const name = pair.slice(0, pair.indexOf('='));
+        const value = pair.slice(pair.indexOf('=') + 1);
+
+        if (value && !/max-age=0/i.test(set)) jar.set(name, value);
+        else jar.delete(name);
+      }
 
       return response;
     },
@@ -51,7 +59,7 @@ function browser(app: ReturnType<typeof createApp>) {
   return client;
 }
 
-await test('first-owner setup and passwordless rider selection are real HTTP flows', async (t) => {
+await test('first-owner setup requires a password and sign-in is a real HTTP flow', async (t) => {
   const f = runtimeFixture(t);
   const client = browser(f.app);
 
@@ -79,9 +87,23 @@ await test('first-owner setup and passwordless rider selection are real HTTP flo
 
   assert.equal(rejected.status, 400);
 
-  const response = await client.request('/riders/add/', {
+  const passwordless = await client.request('/riders/add/', {
     method: 'POST',
     body: new URLSearchParams({ csrf_token: csrf, display_name: 'Alex Rider' }),
+  });
+
+  assert.equal(passwordless.status, 200);
+  assert.match(await passwordless.text(), /Choose a password for this rider\./);
+  assert.equal(f.accounts.get(1), null);
+
+  const response = await client.request('/riders/add/', {
+    method: 'POST',
+    body: new URLSearchParams({
+      csrf_token: csrf,
+      display_name: 'Alex Rider',
+      password: 'owner-password',
+      confirm_password: 'owner-password',
+    }),
   });
 
   assert.equal(response.status, 302);
@@ -90,15 +112,22 @@ await test('first-owner setup and passwordless rider selection are real HTTP flo
   assert.equal(f.accounts.get(1)?.is_admin, 1);
   assert.equal(existsSync(resolve(f.accounts.storage, 'setup-token.txt')), false);
   await client.picker();
-  const response3 = await client.form('/login/', { player_id: '1' });
+
+  const response3 = await client.form('/login/', {
+    player_id: '1',
+    step: 'password',
+    password: 'owner-password',
+  });
+
   assert.equal(response3.status, 302);
   const response4 = await client.request('/api/profiles/me');
   assert.equal(response4.status, 200);
 });
 
-await test('choosing a protected rider asks for its password on a separate step', async (t) => {
+await test('choosing a rider asks for the password unless this computer remembers it', async (t) => {
   const f = runtimeFixture(t);
   const rider = await f.accounts.create('Alex Rider', 'first', true);
+  const remembered = `zluggish_remember_${rider.player_id}`;
   const client = browser(f.app);
   const picker = await client.picker();
   assert.equal(inputValue(picker, 'password'), undefined);
@@ -109,37 +138,73 @@ await test('choosing a protected rider asks for its password on a separate step'
   assert.match(unlock, /<title>Alex Rider<\/title>/);
   assert.equal(inputValue(unlock, 'step'), 'password');
   assert.match(unlock, /name="password"/);
+  assert.match(unlock, /name="remember"/);
 
   const wrong = await client.form('/login/', {
     player_id: String(rider.player_id),
     password: 'nope',
     step: 'password',
+    remember: 'on',
   });
 
   assert.equal(wrong.status, 200);
   assert.match(await wrong.text(), /Wrong password\. Try again\./);
+  assert.equal(client.jar.has(remembered), false);
   const profile = await client.request('/api/profiles/me');
   assert.equal(profile.status, 401);
 
-  const right = await client.form('/login/', {
+  const forgotten = await client.form('/login/', {
     player_id: String(rider.player_id),
     password: 'first',
     step: 'password',
   });
 
+  assert.equal(forgotten.status, 302);
+  assert.equal(client.jar.has(remembered), false);
+
+  await client.picker();
+
+  const right = await client.form('/login/', {
+    player_id: String(rider.player_id),
+    password: 'first',
+    step: 'password',
+    remember: 'on',
+  });
+
   assert.equal(right.status, 302);
+  assert.ok(client.jar.get(remembered));
+  assert.ok(!client.jar.get(remembered)?.includes('first'));
+
+  // Back on the rider list, choosing the remembered rider signs in without the password.
+  await client.picker();
+  const again = await client.form('/login/', { player_id: String(rider.player_id) });
+  assert.equal(again.status, 302);
+
+  // A remembered token only signs in its own rider, and only until it expires.
+  const token = client.jar.get(remembered) ?? '';
+  const other = await f.accounts.create('Other Rider', 'second');
+  assert.equal(f.sessions.remembered(token, other.player_id), null);
+  assert.equal(f.sessions.remembered(token, rider.player_id, Date.now() + 91 * 86_400_000), null);
+  assert.equal(f.sessions.remembered(`${f.accounts.identityOf(rider)}|forged`, rider.player_id), null);
+
+  // A password change revokes every remembered login for the rider.
+  await f.accounts.changePassword(rider.player_id, 'changed');
+  await client.picker();
+  const revoked = await client.form('/login/', { player_id: String(rider.player_id) });
+  assert.equal(revoked.status, 200);
+  assert.match(await revoked.text(), /name="password"/);
 });
 
 await test('distinct riders launch and refresh independently; password change revokes existing tokens', async (t) => {
   const f = runtimeFixture(t);
   const a = await f.accounts.create('Alex Rider', 'first', true);
-  const b = await f.accounts.create('Alex Rider', '', false);
+  const b = await f.accounts.create('Alex Rider', 'test-password', false);
   const one = browser(f.app);
   const two = browser(f.app);
 
   for (const [client, user, password] of [
     [one, a, 'first'],
-    [two, b, ''],
+    [two, b, 'test-password'],
   ] satisfies [ReturnType<typeof browser>, typeof a, string][]) {
     await client.picker();
 
@@ -183,10 +248,10 @@ await test('folder collisions, failed duplicate username and unsafe names preser
   const f = runtimeFixture(t);
   mkdirSync(resolve(f.accounts.storage, '7'));
 
-  const user = await f.accounts.create('<script>evil</script>', '', true, 'local@example.test');
+  const user = await f.accounts.create('<script>evil</script>', 'test-password', true, 'local@example.test');
 
   assert.equal(user.player_id, 8);
-  await assert.rejects(f.accounts.create('Duplicate', '', false, user.username));
+  await assert.rejects(f.accounts.create('Duplicate', 'test-password', false, user.username));
   assert.equal(existsSync(resolve(f.accounts.storage, '9')), false);
   const html = await browser(f.app).picker();
   assert.match(html, /&lt;script(?:&gt;|>)/);
@@ -195,7 +260,7 @@ await test('folder collisions, failed duplicate username and unsafe names preser
 
 await test('active riders cannot launch twice or replace their profile', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Active', '', true);
+  const user = await f.accounts.create('Active', 'test-password', true);
   f.world.receive(
     BigInt(user.player_id),
     create(PlayerStateSchema, {
@@ -206,7 +271,7 @@ await test('active riders cannot launch twice or replace their profile', async (
   );
   const client = browser(f.app);
   await client.picker();
-  await client.form('/login/', { player_id: String(user.player_id) });
+  await client.form('/login/', { player_id: String(user.player_id), step: 'password', password: 'test-password' });
   const response7 = await client.request('/ride');
   assert.equal(response7.status, 409);
   const imports = new ImportsService(f.accounts, f.world);
@@ -282,7 +347,7 @@ await test('native login and HTTP login share one relay owner with protobuf econ
 
 await test('existing Zluggish database is renamed without losing riders', async (t) => {
   const f = runtimeFixture(t);
-  const rider = await f.accounts.create('Existing Rider', '', true);
+  const rider = await f.accounts.create('Existing Rider', 'test-password', true);
   f.accounts.close();
   const current = resolve(f.accounts.storage, 'zluggish.db');
   const legacy = resolve(f.accounts.storage, 'zwift-offline.db');
@@ -298,11 +363,11 @@ await test('existing Zluggish database is renamed without losing riders', async 
 
 await test('account migration publishes the renamed database and preserves riders', async (t) => {
   const f = runtimeFixture(t);
-  const rider = await f.accounts.create('Migrated Rider', '', true);
-  const oldScrypt = await f.accounts.create('Scrypt Rider', '');
+  const rider = await f.accounts.create('Migrated Rider', 'test-password', true);
+  const oldScrypt = await f.accounts.create('Scrypt Rider', 'test-password');
   const currentRider = await f.accounts.create('Current Rider', 'current-password');
   const currentHash = currentRider.pass_hash;
-  const passwordless = await f.accounts.create('Passwordless Rider', '');
+  const passwordless = await f.accounts.create('Passwordless Rider', 'test-password');
   f.accounts.db
     .prepare('UPDATE user SET pass_hash=? WHERE player_id=?')
     .run(pythonFixtures.sha256Hash, rider.player_id);
@@ -347,7 +412,7 @@ await test('account migration publishes the renamed database and preserves rider
 
 await test('login and both TCP config endpoints advertise configured ports', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Port Rider', '', true);
+  const user = await f.accounts.create('Port Rider', 'test-password', true);
 
   for (const port of [f.config.network.tcp.port, 4025]) {
     const app = createApp(

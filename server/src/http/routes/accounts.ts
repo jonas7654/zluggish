@@ -1,8 +1,11 @@
-import { checkbox, field, form as makeForm, hidden, model, secret } from '#src/http/launcher/models';
+import type { LauncherPage } from '#src/dtos/launcher.dto';
+import { checkbox, field, form as makeForm, hidden, model } from '#src/http/launcher/models';
 import { launcherPage } from '#src/http/launcher/render';
 import { browserJson, launcherRedirect } from '#src/http/launcher/results';
 import { climbSchema, createUserSchema } from '#src/dtos/accounts.dto';
 import type { HttpRuntime as Runtime, RuntimeEnv } from '#src/http/runtime';
+import type { Rider } from '#src/repositories/accounts.repository';
+import { REMEMBER_SECONDS } from '#src/services/browser-session.service';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import type { Context, Hono } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
@@ -22,12 +25,12 @@ function riderName(user: { first_name: string; last_name: string }) {
   return `${user.first_name} ${user.last_name}`.trim();
 }
 
-// The password step shown after choosing a protected rider.
-function unlockPage(
-  c: Context<RuntimeEnv>,
-  user: { player_id: number; first_name: string; last_name: string },
-  error = '',
-) {
+function rememberCookie(playerId: number) {
+  return `zluggish_remember_${playerId}`;
+}
+
+// The password step after choosing a rider this computer does not remember.
+function unlockPage(c: Context<RuntimeEnv>, user: Rider, error = '') {
   return model(
     c,
     'unlock',
@@ -45,12 +48,23 @@ function unlockPage(
             autocomplete: 'current-password',
             autofocus: true,
           }),
+          checkbox('remember', 'Remember password'),
         ],
         'Sign in',
-        { primary: true },
+        { primary: true, transient: true },
       ),
     ],
-    { message: error, failed: !!error, links: [{ href: '/login/', label: 'Choose another rider' }] },
+    {
+      message: error,
+      failed: !!error,
+      // Only riders migrated from legacy password hashes lack a password; the CLI sets one.
+      paragraphs: user.pass_hash
+        ? []
+        : [
+            `This rider has no password yet. Set one with: accounts recover --user ${user.player_id} --password-file PATH`,
+          ],
+      back: { href: '/login/', label: 'Choose another rider' },
+    },
   );
 }
 
@@ -155,13 +169,32 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
       const user = id.success ? accounts.get(id.data) : null;
       const password = z.string().catch('').parse(form.password);
-      const unlocking = form.step === 'password';
+      const step = form.step === 'password';
+      let signedIn: Rider | null = null;
 
-      // Choosing a protected rider opens its password step instead of failing.
-      if (user?.pass_hash && !unlocking) return launcherPage(c, runtime, unlockPage(c, user));
+      if (user && !step) {
+        // Choosing a rider signs in at once when this computer remembers them; otherwise it opens their password step.
+        signedIn = sessions.remembered(getCookie(c, rememberCookie(user.player_id)) ?? '', user.player_id);
 
-      if (user && (!user.pass_hash || (await accounts.verify(user, password)))) {
+        if (!signedIn) return launcherPage(c, runtime, unlockPage(c, user));
+      } else if (user && (await accounts.verify(user, password))) signedIn = user;
+
+      if (signedIn) {
+        const user = signedIn;
+
         if (sessions.browsers.get(c.get('browserId')) !== session) throw new HTTPException(401);
+        const secure = c.req.url.startsWith('https:');
+
+        // Set before the session cookie: clients and tests read the session from the last Set-Cookie header.
+        if (!step || form.remember === 'on')
+          setCookie(c, rememberCookie(user.player_id), sessions.remember(user), {
+            httpOnly: true,
+            sameSite: 'Strict',
+            secure,
+            path: '/login/',
+            maxAge: REMEMBER_SECONDS,
+          });
+        else deleteCookie(c, rememberCookie(user.player_id), { path: '/login/' });
         sessions.end(c.get('browserId'));
         const fresh = sessions.open();
         sessions.transition(fresh.session, { type: 'login', identity: runtime.services.accounts.identityOf(user) });
@@ -183,7 +216,7 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
       runtime.world.lifecycle.diagnostic('auth.login_failed', 'Login rejected', true);
 
-      if (user && unlocking) return launcherPage(c, runtime, unlockPage(c, user, 'Wrong password. Try again.'));
+      if (user && step) return launcherPage(c, runtime, unlockPage(c, user, 'Wrong password. Try again.'));
       error = 'That rider no longer exists. Choose another rider.';
     }
 
@@ -208,7 +241,6 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
                 )
                   ? `/download/${user.player_id}/avatarLarge.jpg`
                   : null,
-                locked: !!user.pass_hash,
               },
             },
           ),
@@ -229,14 +261,17 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       const form = await csrf(c, runtime);
       const password = z.string().catch('').parse(form.password);
 
-      if (password === z.string().catch('').parse(form.confirm_password)) {
+      if (!password) error = 'Choose a password for this rider.';
+      else if (password === z.string().catch('').parse(form.confirm_password)) {
         await accounts.create(z.string().parse(form.display_name), password, first);
 
         return launcherRedirect(c, '/login/');
-      }
-
-      error = 'Passwords did not match.';
+      } else error = 'Passwords did not match.';
     }
+
+    const extra: Partial<LauncherPage> = { message: error, failed: !!error };
+
+    if (!first) extra.back = { href: '/login/', label: 'Back to riders' };
 
     return launcherPage(
       c,
@@ -251,9 +286,10 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
             '/riders/add/',
             [
               field('display_name', 'Name', { value: first ? 'zluggish' : '', maxLength: 100, required: true }),
-              secret('password', 'Optional password'),
+              field('password', 'Password', { type: 'password', required: true, autocomplete: 'new-password' }),
               field('confirm_password', 'Confirm password', {
                 type: 'password',
+                required: true,
                 matches: 'password',
                 autocomplete: 'new-password',
               }),
@@ -262,7 +298,7 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
             { primary: true },
           ),
         ],
-        { message: error, failed: !!error, links: first ? [] : [{ href: '/login/', label: 'Cancel' }] },
+        extra,
       ),
     );
   });
@@ -362,6 +398,7 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
             : []),
         ],
         {
+          back: { href: '/login/', label: 'Choose another rider' },
           uploads: runtime.services.uploads.status(user.player_id).slice(0, 100),
           paragraphs: [
             'Check the provider before retrying a failed upload: it may have received the activity before the connection failed.',
@@ -393,9 +430,10 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
       if (!sessions.current(c.get('browserId'), c.get('browser'), accounts.identityOf(user)))
         throw new HTTPException(401);
-      const password = form.remove_password === 'on' ? null : z.string().min(1).parse(form.password);
+      // Every rider keeps a password; it can be changed but not removed.
+      const password = z.string().min(1).parse(form.password);
 
-      if (password !== null && password !== form.confirm_password) throw new HTTPException(400);
+      if (password !== form.confirm_password) throw new HTTPException(400);
 
       await accounts.changePassword(user.player_id, password);
       sessions.end(c.get('browserId'));
@@ -424,17 +462,15 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
                     }),
                   ]
                 : []),
-              checkbox('remove_password', 'Remove password'),
               field('password', 'New password', {
                 type: 'password',
                 required: true,
-                when: { field: 'remove_password', value: false },
                 autocomplete: 'new-password',
               }),
               field('confirm_password', 'Confirm password', {
                 type: 'password',
+                required: true,
                 matches: 'password',
-                when: { field: 'remove_password', value: false },
                 autocomplete: 'new-password',
               }),
             ],
@@ -443,7 +479,7 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
         ],
         {
           paragraphs: [
-            'Removing the password allows anyone with server access to select this rider. Saving ends your session.',
+            'Saving ends your session and makes every computer that remembers this password ask for it again.',
           ],
         },
       ),

@@ -13,7 +13,7 @@ import { test } from 'node:test';
 
 await test('segment records preserve sport and distinguish the latest effort from the fastest', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Record Rider', '', true);
+  const user = await f.accounts.create('Record Rider', 'test-password', true);
   const headers = { Authorization: `Bearer ${f.sessions.tokens(user, f.tokens).access_token}` };
   const segmentId = 9_223_372_036_854_775_807n;
   f.world.receive(

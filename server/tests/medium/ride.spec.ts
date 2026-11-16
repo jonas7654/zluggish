@@ -30,7 +30,7 @@ await test(
   { timeout: 10_000 },
   async (t) => {
     const f = runtimeFixture(t);
-    const user = await f.accounts.create('Reconnect Rider', '');
+    const user = await f.accounts.create('Reconnect Rider', 'test-password');
     const player = BigInt(user.player_id);
     const key = Buffer.alloc(16, 8);
     f.world.login(player, key);
@@ -359,7 +359,7 @@ await test(
 
 await test('activity create, save and restart preserve ownership, FIT bytes and progress', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Saving Rider', '', true);
+  const user = await f.accounts.create('Saving Rider', 'test-password', true);
   const token = f.sessions.tokens(user, f.tokens).access_token;
   const headers = { Authorization: `Bearer ${token}` };
 

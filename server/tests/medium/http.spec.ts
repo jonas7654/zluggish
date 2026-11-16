@@ -62,7 +62,7 @@ await test('malformed binary input fails without a stack trace', async () => {
 
 await test('malformed protobuf and missing required fields return 400 without changing stored data', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Invalid Input', '', true);
+  const user = await f.accounts.create('Invalid Input', 'test-password', true);
   const headers = { Authorization: `Bearer ${f.sessions.tokens(user, f.tokens).access_token}` };
 
   for (const path of ['/api/segment-results', `/api/profiles/${user.player_id}/in-game-fields`, '/api/users/login']) {
@@ -84,7 +84,7 @@ await test('malformed protobuf and missing required fields return 400 without ch
 
 await test('unexpected failures are logged while responses omit error details', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Broken Profile', '', true);
+  const user = await f.accounts.create('Broken Profile', 'test-password', true);
   new AssetFiles().writeDurable(resolve(f.profiles.folder(user.player_id), 'profile.bin'), new Uint8Array([255]));
   const logged = t.mock.method(console, 'error', () => {});
 

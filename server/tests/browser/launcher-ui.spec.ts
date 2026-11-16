@@ -29,15 +29,15 @@ async function browserFixture(t: TestContext) {
   return { ...f, origin, browser };
 }
 
-async function signIn(page: Page, origin: string, id: number, password = '') {
+async function signIn(page: Page, origin: string, id: number, password = 'test-password', remember = false) {
   await page.goto(`${origin}/login/`);
   await page.locator(`form:has(input[name=player_id][value="${id}"]) button`).click();
+  await page.getByLabel('Password', { exact: true }).fill(password);
 
-  if (password) {
-    await page.getByLabel('Password', { exact: true }).fill(password);
-    await page.getByRole('button', { name: 'Sign in' }).click();
-  }
-
+  if (remember) await page.getByLabel('Remember password', { exact: true }).check();
+  // A sign-in password is not a setting, so the form must not report unsaved changes.
+  assert.equal(await page.getByText('Unsaved changes').count(), 0);
+  await page.getByRole('button', { name: 'Sign in' }).click();
   await page.waitForURL('**/user/**');
 }
 
@@ -59,7 +59,7 @@ for (const javaScriptEnabled of [true, false]) {
     await page.goto(`${f.origin}/login/`);
     await page.waitForURL('**/riders/add/');
     await page.getByLabel('Name', { exact: true }).fill('New Browser Rider');
-    await page.getByLabel('Optional password').fill('browser-password');
+    await page.getByLabel('Password', { exact: true }).fill('browser-password');
     await page.getByLabel('Confirm password').fill('browser-password');
     await page.getByRole('button', { name: 'Create rider' }).click();
     await page.waitForURL('**/login/');
@@ -68,7 +68,13 @@ for (const javaScriptEnabled of [true, false]) {
     await page.getByLabel('Password', { exact: true }).fill('wrong');
     await page.getByRole('button', { name: 'Sign in' }).click();
     await page.getByText('Wrong password. Try again.', { exact: true }).first().waitFor();
-    await signIn(page, f.origin, rider.player_id, 'browser-password');
+    await signIn(page, f.origin, rider.player_id, 'browser-password', true);
+
+    // The back button returns to the rider list without signing out; the remembered rider needs no password.
+    await page.getByRole('link', { name: 'Choose another rider' }).click();
+    await page.waitForURL('**/login/');
+    await page.getByRole('button', { name: 'New Browser Rider' }).click();
+    await page.waitForURL('**/user/**');
     // Inspect the native request while preventing the browser's external protocol handler.
     let posted = '';
     await page.route('**/start-zwift', async (route) => {
@@ -92,7 +98,7 @@ for (const javaScriptEnabled of [true, false]) {
 
 await test('preferences keep drafts on failures, block double submits and lock on session expiry', async (t) => {
   const f = await browserFixture(t);
-  const rider = await f.accounts.create('Preferences Rider', '', true);
+  const rider = await f.accounts.create('Preferences Rider', 'test-password', true);
   f.settings.save(rider.player_id, { 'uploads.strava.method': 'free' });
   const context = await f.browser.newContext();
   const page = await context.newPage();
@@ -147,7 +153,7 @@ await test('preferences keep drafts on failures, block double submits and lock o
 
 await test('connections preserve blank saved secrets and show conditional fields and Garmin MFA', async (t) => {
   const f = await browserFixture(t);
-  const rider = await f.accounts.create('Connected Rider', '', true);
+  const rider = await f.accounts.create('Connected Rider', 'test-password', true);
   const context = await f.browser.newContext();
   const page = await context.newPage();
   await signIn(page, f.origin, rider.player_id);
@@ -177,7 +183,7 @@ await test('connections preserve blank saved secrets and show conditional fields
 
 await test('import review requires source confirmation and cancel bypasses validation', async (t) => {
   const f = await browserFixture(t);
-  const rider = await f.accounts.create('Import Rider', '', true);
+  const rider = await f.accounts.create('Import Rider', 'test-password', true);
   f.accounts.repository.updateImportedProfile(rider.player_id, 'Import', 'Rider', 123);
   const context = await f.browser.newContext();
   const page = await context.newPage();
@@ -212,7 +218,7 @@ await test('import review requires source confirmation and cancel bypasses valid
 
 await test('upload polling pauses while hidden and stops when all jobs are terminal', async (t) => {
   const f = await browserFixture(t);
-  const rider = await f.accounts.create('Uploading Rider', '', true);
+  const rider = await f.accounts.create('Uploading Rider', 'test-password', true);
   let terminal = false;
 
   const status = t.mock.method(f.services.uploads, 'status', () => [
@@ -249,8 +255,8 @@ await test('upload polling pauses while hidden and stops when all jobs are termi
 
 await test('a rider switch discards drafts and ignores a late save response', async (t) => {
   const f = await browserFixture(t);
-  const rider = await f.accounts.create('First Rider', '', true);
-  const other = await f.accounts.create('Second Rider', '');
+  const rider = await f.accounts.create('First Rider', 'test-password', true);
+  const other = await f.accounts.create('Second Rider', 'test-password');
   const context = await f.browser.newContext();
   const page = await context.newPage();
   await signIn(page, f.origin, rider.player_id);
@@ -280,7 +286,7 @@ await test('a rider switch discards drafts and ignores a late save response', as
 
 await test('plain forms save settings and connections, review imports, confirm maintenance and change passwords', async (t) => {
   const f = await browserFixture(t);
-  const rider = await f.accounts.create('Plain Rider', '', true);
+  const rider = await f.accounts.create('Plain Rider', 'test-password', true);
   t.mock.method(f.services.workouts, 'syncWorkoutsAutomatically', () => Promise.resolve());
   const context = await f.browser.newContext({ javaScriptEnabled: false });
   const page = await context.newPage();
@@ -344,16 +350,13 @@ await test('plain forms save settings and connections, review imports, confirm m
   await page.getByLabel('I confirm: Reload server bots?').check();
   await submit('Reload bots');
   await visit('reset');
+  await page.getByLabel('Current password').fill('test-password');
   await page.getByLabel('New password').fill('new-local-password');
   await page.getByLabel('Confirm password').fill('new-local-password');
   await submit('Save');
   await page.waitForURL('**/login/');
   await signIn(page, f.origin, rider.player_id, 'new-local-password');
   await visit('reset');
-  await page.getByLabel('Current password').fill('new-local-password');
-  await page.getByLabel('Remove password', { exact: true }).check();
-  await submit('Save');
-  await page.waitForURL('**/login/');
-  assert.equal(f.accounts.get(rider.player_id)?.pass_hash, null);
+  assert.equal(await page.getByLabel('Remove password', { exact: true }).count(), 0);
   await context.close();
 });

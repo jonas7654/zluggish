@@ -282,7 +282,7 @@
         name={button.name}
         value={button.value}
         formnovalidate={button.skipValidation}
-        >{#if model.rider}<span class="avatar" data-locked={model.rider.locked || undefined}
+        >{#if model.rider}<span class="avatar"
             >{#if model.rider.photo}<img src={model.rider.photo} alt="" />{:else}{model.rider.initials}{/if}</span
           >{/if}{pending ? 'Submitting…' : button.label}</button
       >
@@ -298,7 +298,7 @@
         : 'disabled'}.
     </p>
   {/if}
-  <p aria-live="polite">{failed ? '' : message || (dirty ? 'Unsaved changes' : '')}</p>
+  <p aria-live="polite">{failed ? '' : message || (dirty && !model.transient ? 'Unsaved changes' : '')}</p>
 </form>
 
 <style>

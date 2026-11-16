@@ -67,7 +67,13 @@ await test('Calendar clears pending map and climb selections for the launching c
 
     const response1 = await request('/login/');
     assert.equal(response1.status, 200);
-    const response2 = await form('/login/', { player_id: String(f.rider.player_id) });
+
+    const response2 = await form('/login/', {
+      player_id: String(f.rider.player_id),
+      step: 'password',
+      password: 'test-password',
+    });
+
     assert.equal(response2.status, 302);
     const response3 = await request(`/settings/${f.rider.username}/`);
     assert.equal(response3.status, 200);

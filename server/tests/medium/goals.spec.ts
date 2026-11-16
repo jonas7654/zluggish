@@ -7,8 +7,8 @@ import { test } from 'node:test';
 await test('weekly and monthly goals mirror the selected metric for legacy clients', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.UTC(2026, 10, 12, 12) });
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Goal Rider', '', true);
-  const other = await f.accounts.create('Other Rider', '');
+  const user = await f.accounts.create('Goal Rider', 'test-password', true);
+  const other = await f.accounts.create('Other Rider', 'test-password');
 
   const headers = {
     Authorization: `Bearer ${f.sessions.tokens(user, f.tokens).access_token}`,

@@ -26,7 +26,9 @@ export interface LauncherForm {
   method?: 'paid' | 'free';
   /** The page's main action, highlighted in Zwift orange. */
   primary?: boolean;
-  rider?: { initials: string; photo: string | null; locked: boolean };
+  /** Inputs are not saved settings (such as a sign-in password), so the form never reports unsaved changes. */
+  transient?: boolean;
+  rider?: { initials: string; photo: string | null };
 }
 
 export interface UploadJob {
@@ -53,6 +55,8 @@ export interface LauncherPage {
   csrf: string;
   forms: LauncherForm[];
   links?: { href: string; label: string }[];
+  /** Shown as a back button beside the title; it navigates and never signs out. */
+  back?: { href: string; label: string };
   paragraphs?: string[];
   message?: string;
   failed?: boolean;

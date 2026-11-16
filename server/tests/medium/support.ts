@@ -12,8 +12,8 @@ export async function mediumFixture(t: TestContext) {
 
   t.after(() => assert.equal(network.mock.callCount(), 0, 'External providers must be explicitly mocked'));
   const f = runtimeFixture(t);
-  const rider = await f.accounts.create('Medium Rider', '', true);
-  const other = await f.accounts.create('Other Rider', '');
+  const rider = await f.accounts.create('Medium Rider', 'test-password', true);
+  const other = await f.accounts.create('Other Rider', 'test-password');
   const headers = (user = rider) => ({ Authorization: `Bearer ${f.sessions.tokens(user, f.tokens).access_token}` });
 
   const request = (path: string, init: RequestInit = {}, user = rider) =>
@@ -58,7 +58,13 @@ export async function mediumBrowser(f: Awaited<ReturnType<typeof mediumFixture>>
 
   const picker = await request('/login/');
   assert.equal(picker.status, 200);
-  const selected = await form('/login/', { player_id: String(rider.player_id) });
+
+  const selected = await form('/login/', {
+    player_id: String(rider.player_id),
+    step: 'password',
+    password: 'test-password',
+  });
+
   assert.equal(selected.status, 302);
   // Reading the import form obtains the new session's token without triggering workout sync.
   const profile = await request(`/profile/${rider.username}/`);
