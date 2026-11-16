@@ -150,7 +150,12 @@ try {
     (
       await uiRequest('/riders/add/', {
         method: 'POST',
-        body: new URLSearchParams({ csrf_token: setupToken, display_name: 'Container Rider' }),
+        body: new URLSearchParams({
+          csrf_token: setupToken,
+          display_name: 'Container Rider',
+          password: 'container-password',
+          confirm_password: 'container-password',
+        }),
       })
     ).status,
     302,
@@ -161,7 +166,12 @@ try {
   assert.ok(playerId);
   const selected = await uiRequest('/login/', {
     method: 'POST',
-    body: new URLSearchParams({ csrf_token: token(pickerHtml), player_id: playerId }),
+    body: new URLSearchParams({
+      csrf_token: token(pickerHtml),
+      player_id: playerId,
+      step: 'password',
+      password: 'container-password',
+    }),
   });
   assert.equal(selected.status, 302);
   const dashboard = await uiRequest(selected.headers.get('Location'));
@@ -180,6 +190,15 @@ try {
     const asset = await uiRequest(path);
     assert.equal(asset.status, 200);
     assert.match(asset.headers.get('content-type'), mime);
+
+    // Every file the stylesheet references (fonts, logo, background) must be bundled and served.
+    if (path.endsWith('.css'))
+      for (const [, reference] of (await asset.text()).matchAll(/url\(["']?([^"')]+)["']?\)/g)) {
+        if (reference.startsWith('data:')) continue;
+        const url = new URL(reference, `http://127.0.0.1:24443${path}`);
+        const bundled = await uiRequest(url.pathname);
+        assert.equal(bundled.status, 200, `${reference} from ${path}`);
+      }
   }
 
   child.kill('SIGTERM');

@@ -3,6 +3,9 @@ WORKDIR /usr/src/app/zluggish/server
 RUN corepack enable && corepack prepare pnpm@12.18.0 --activate
 COPY server/package.json server/pnpm-lock.yaml server/pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
+# The launcher stylesheet bundles the logo and the blurred world background from outside server/.
+COPY media ../media
+COPY assets/cdn/style ../assets/cdn/style
 COPY server/ .
 RUN pnpm build && pnpm prune --prod
 
