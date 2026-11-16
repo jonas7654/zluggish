@@ -80,7 +80,7 @@ const loadError = z
   })
   .catch({ name: 'Error', message: '', stack: '' });
 
-/** Retain runtime messages and stack frames to locate failures in configuration and imports. */
+/** Report the runtime message and first operator source location without dependency stacks. */
 function describeLoadError({ name, code, message, stack }: z.infer<typeof loadError>, path: string) {
   const escaped = path.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
   const position = new RegExp(String.raw`${escaped}:(\d+):(\d+)`).exec(`${message}\n${stack}`);
@@ -96,12 +96,11 @@ function describeLoadError({ name, code, message, stack }: z.infer<typeof loadEr
 
   if (undefinedName) return `'${undefinedName}' is not defined${where}`;
 
-  const frames = stack
+  const frame = stack
     .split('\n')
-    .filter((line) => /^\s+at /.test(line))
-    .join('\n');
+    .find((line) => /^\s+at /.test(line) && line.includes(`${dirname(path)}/`) && !line.includes('/node_modules/'));
 
-  return `${name}${where}${message ? `: ${message}` : ''}${frames ? `\n${frames}` : ''}`;
+  return `${name}${where}${message ? `: ${message}` : ''}${frame ? `\n${frame.trim()}` : ''}`;
 }
 
 export async function loadConfig(options: LoadOptions = {}): Promise<LoadedConfig> {

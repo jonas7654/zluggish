@@ -26,7 +26,11 @@ if (values.config !== undefined) options.path = values.config;
 
 if (values['storage-dir'] !== undefined) options.storageDir = values['storage-dir'];
 
-const { config } = await loadConfig(prepareContainerConfig(options));
+const { config } = await loadConfig(prepareContainerConfig(options)).catch((error: unknown) => {
+  if (!(error instanceof ConfigError)) throw error;
+  console.error(`ConfigError: ${error.message}`);
+  process.exit(1);
+});
 
 if (existsSync(resolve(config.storageDir, '.config-migration.json')))
   throw new ConfigError('Interrupted config migration; resume config migrate before starting');

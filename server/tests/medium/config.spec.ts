@@ -123,6 +123,8 @@ await test('runtime TypeErrors identify the config or imported file and original
       assert.ok(error instanceof Error);
       assert.match(error.message, /TypeError.*Cannot read properties of undefined/);
       assert.ok(error.message.includes(`${failingPath}:2:`), error.message);
+      assert.doesNotMatch(error.message, /node_modules|at loadConfig/);
+      assert.ok(error.message.split('\n').length <= 2, error.message);
 
       return true;
     });
@@ -261,6 +263,7 @@ await test('invalid real config files stop the server before creating runtime st
       assert.equal(result.signal, null);
       assert.equal(result.status, 1, result.stderr);
       assert.match(result.stderr, expected);
+      assert.doesNotMatch(result.stderr, /at loadConfig|Node\.js v|node_modules/);
       assert.doesNotMatch(result.stdout, /Zluggish server:/);
       assert.equal(existsSync(storage), false, 'configuration must fail before runtime creates storage');
       assert.deepEqual(readdirSync(root), source === null ? [] : ['zluggish.config.ts']);

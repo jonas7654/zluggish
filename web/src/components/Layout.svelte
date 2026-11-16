@@ -21,10 +21,12 @@
 
 <svelte:head><title>{title}</title></svelte:head>
 <div class="bar">
-  <span class="logo" aria-hidden="true"></span>
-  <span class="wordmark">zluggish</span>
-  <span class="version">v{version}</span>
+  <a class="brand" href="/" aria-label="Zluggish home">
+    <span class="logo" aria-hidden="true"></span>
+    <span class="wordmark">zluggish</span>
+  </a>
   {#if actions}{@render actions()}{/if}
+  <span class="version">v{version}</span>
 </div>
 <main data-page={page}>
   <header>
@@ -43,6 +45,12 @@
     background: rgb(26 36 50 / 0.82);
     -webkit-backdrop-filter: blur(10px);
     backdrop-filter: blur(10px);
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    text-decoration: none;
   }
   .logo {
     width: 3rem;
