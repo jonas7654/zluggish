@@ -85,8 +85,6 @@
   let errorScope = $state('');
   let fieldErrors = $state<Record<string, string[]>>({});
   let conflict = $state<Rider | null>(null);
-  let confirmation = $state(false);
-  let confirmedUntil = $state(0);
   let pending = $state<Pending | null>(null);
   let operation = crypto.randomUUID();
 
@@ -211,8 +209,6 @@
       if (response.status === 409 && scope && (url === scope || url.startsWith(`${scope}/`)))
         conflict = await api(scope);
 
-      if (body.message === 'Password confirmation necessary.') confirmation = true;
-
       if (response.status === 401 && rider) {
         rider = null;
         go('/sign-in');
@@ -282,7 +278,6 @@
 
   async function loadRiders() {
     riders = (await api('/api/manage/riders')).riders;
-    confirmation = false;
   }
 
   async function loadServer() {
@@ -381,8 +376,6 @@
     key = '';
     complete = true;
 
-    // The password typed during setup counts as the first management confirmation.
-    if (setup) confirmedUntil = Date.now() + 900_000;
     go(setup ? '/manage' : '/');
     await enter();
   }
@@ -392,7 +385,6 @@
     await api('/api/setup');
     rider = null;
     riders = [];
-    confirmedUntil = 0;
     go('/sign-in');
   }
 
@@ -627,8 +619,8 @@
     </nav>{/if}
 {/snippet}
 
-<div class="app" class:management={manage && administrator}>
-  <Layout {title} page={manage ? 'manage' : 'account'} {version} actions={bar}>
+<div class="app">
+  <Layout {title} page={manage ? 'manage' : 'account'} {version} actions={bar} onhome={() => { void navigate('/'); }}>
     {#if message}<p class="notice" class:failed role={failed ? 'alert' : 'status'}>{message}</p>{/if}
 
     {#if loading}<p role="status">Loading…</p>
@@ -783,40 +775,9 @@
       <nav class="sub" aria-label="Manage">
         {@render link('/manage', 'Riders', path !== '/manage/server')}
         {@render link('/manage/server', 'Server', path === '/manage/server')}
-        {#if confirmedUntil > 0 && !confirmation}<span class="deadline"
-            >Management access until {time(confirmedUntil)}</span
-          >{/if}
       </nav>
 
-      {#if confirmation}
-        <form
-          class="panel confirm narrow"
-          onsubmit={(e) => {
-            e.preventDefault();
-            void run(async () => {
-              const body = await api('/api/session/confirm', 'POST', { password: currentPassword });
-              currentPassword = '';
-              confirmedUntil = body.confirmedUntil;
-              await enter();
-            }, 'confirm');
-          }}
-        >
-          <h2>Confirm your password to manage the server.</h2>
-          <p>Access lasts 15 minutes from now. Your unsaved changes stay in place.</p>
-          <TextField
-            id="confirm-password"
-            label="Password"
-            password
-            bind:value={currentPassword}
-            autocomplete="current-password"
-            required
-            errors={errors('confirm', 'password')}
-          />
-          <button class="primary" disabled={busy}>Confirm</button>
-        </form>
-      {/if}
-
-      <div inert={confirmation} class:dimmed={confirmation}>
+      <div>
         {#if path === '/manage/server'}
           <div class="columns">
             <section class="panel">
@@ -1540,20 +1501,6 @@
 {/if}
 
 <style>
-  /* Management: a wider column, a darker world for dense lists, and the orange edge under the bar. */
-  :global(body:has(.management))::before {
-    background:
-      linear-gradient(rgb(14 20 30 / 0.72), rgb(14 20 30 / 0.86)),
-      url('../../../assets/cdn/style/background.jpg') center / cover no-repeat;
-  }
-  .management :global(.bar) {
-    border-bottom: 3px solid var(--orange);
-    padding-inline: max(1.5rem, calc((100% - 72rem) / 2));
-  }
-  .management :global(main) {
-    max-width: 72rem;
-  }
-
   .top {
     display: flex;
     align-items: center;
@@ -1571,12 +1518,6 @@
   }
   .sub {
     align-items: baseline;
-  }
-  .deadline {
-    margin-left: auto;
-    color: var(--muted);
-    font-size: 0.8125rem;
-    font-variant-numeric: tabular-nums;
   }
 
   button.link {
@@ -1653,9 +1594,6 @@
   .empty {
     color: var(--muted);
     padding: 1rem 0;
-  }
-  .dimmed {
-    opacity: 0.35;
   }
 
   .actions {
@@ -2007,9 +1945,6 @@
   }
 
   @media (max-width: 500px) {
-    .management :global(.bar) {
-      padding-inline: 1rem;
-    }
     /* The bar wraps: brand on the first line, navigation on the second. */
     .app :global(.bar) {
       flex-wrap: wrap;

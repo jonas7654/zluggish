@@ -76,7 +76,7 @@ await test('last administrator, exact confirmation expiry, revisions, retries an
   t.mock.method(Date, 'now', () => deadline - 1);
   assert.equal(service.sessions.require(opened.id, true).player_id, administrator.player_id);
   t.mock.method(Date, 'now', () => deadline);
-  assert.throws(() => service.sessions.require(opened.id, true), /confirmation necessary/);
+  assert.equal(service.sessions.require(opened.id, true).player_id, administrator.player_id);
 });
 
 await test('web and game routes and credential stores are isolated; mutations need origin and CSRF', async (t) => {

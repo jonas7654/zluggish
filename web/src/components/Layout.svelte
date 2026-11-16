@@ -7,6 +7,7 @@
     back,
     version,
     actions,
+    onhome,
     children,
   }: {
     title: string;
@@ -15,13 +16,19 @@
     version: string;
     /** Navigation at the end of the bar. The game app has none. */
     actions?: Snippet | undefined;
+    onhome?: (() => void) | undefined;
     children: Snippet;
   } = $props();
 </script>
 
 <svelte:head><title>{title}</title></svelte:head>
 <div class="bar">
-  <a class="brand" href="/" aria-label="Zluggish home">
+  <a class="brand" href="/" aria-label="Zluggish home" onclick={(event) => {
+    if (onhome && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
+      event.preventDefault();
+      onhome();
+    }
+  }}>
     <span class="logo" aria-hidden="true"></span>
     <span class="wordmark">zluggish</span>
   </a>

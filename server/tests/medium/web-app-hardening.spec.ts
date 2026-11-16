@@ -175,7 +175,7 @@ await test('bot commands run only from the management area, once per operation',
   );
 });
 
-await test('a lapsed confirmation records a server operation as not run, and a retry never dispatches', async (t) => {
+await test('administrators can dispatch after the old confirmation deadline; retries dispatch only once', async (t) => {
   const f = runtimeFixture(t);
   const service = f.services.management;
 
@@ -208,12 +208,12 @@ await test('a lapsed confirmation records a server operation as not run, and a r
     return Promise.resolve();
   };
 
-  await assert.rejects(service.serverOperation(opened.id, 'reload-bots', input, lapse, dispatch), /confirmation/);
+  const result = await service.serverOperation(opened.id, 'reload-bots', input, lapse, dispatch);
+  assert.equal(result.ok, true);
   opened.session.confirmedUntil = Date.now() + 900_000;
   const retry = await service.serverOperation(opened.id, 'reload-bots', input, flush, dispatch);
-  assert.equal(retry.ok, false);
-  assert.match(retry.message!, /did not run/);
-  assert.equal(reloads, 0);
+  assert.equal(retry.ok, true);
+  assert.equal(reloads, 1);
 });
 
 await test('ride completion rejects malformed ride identities with 400', async (t) => {

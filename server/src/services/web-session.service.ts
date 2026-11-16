@@ -66,15 +66,12 @@ export class WebSessionsService extends BaseService {
     return rider;
   }
 
-  require(id: string, manage = false, confirm = true) {
+  require(id: string, manage = false, _confirm = true) {
     const rider = this.rider(id);
 
     if (!rider) throw new ApplicationError(401, 'Sign in again.');
 
     if (manage && rider.role !== 'administrator') throw new ApplicationError(403, 'Administrator role required.');
-
-    if (manage && confirm && this.sessions.get(id)!.confirmedUntil <= Date.now())
-      throw new ApplicationError(403, 'Password confirmation necessary.');
 
     return rider;
   }
