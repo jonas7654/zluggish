@@ -80,6 +80,11 @@
     onfail?.(text);
   }
 
+  function clearMessage() {
+    failed = false;
+    message = '';
+  }
+
   function focusError() {
     const first =
       form.querySelector<HTMLElement>('[aria-invalid="true"]') ??
@@ -222,7 +227,7 @@
               onblur={() => (touched[field.name] = true)}
               onchange={() => {
                 serverErrors = {};
-                message = '';
+                clearMessage();
                 onchange(field.name, String(draft[field.name]));
               }}
             >
@@ -240,7 +245,7 @@
               onchange={() => {
                 touched[field.name] = true;
                 serverErrors = {};
-                message = '';
+                clearMessage();
               }}
             />
           {:else if field.type === 'file'}
@@ -273,7 +278,7 @@
               onblur={() => (touched[field.name] = true)}
               oninput={() => {
                 delete serverErrors[field.name];
-                message = '';
+                clearMessage();
               }}
             />
           {/if}
