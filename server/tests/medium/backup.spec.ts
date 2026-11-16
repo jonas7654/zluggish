@@ -19,6 +19,10 @@ const fit = readFileSync(new URL('../fixtures/ride.fit', import.meta.url));
 
 /** A storage directory with one completed activity and one pending delivery, backed up. */
 async function backedUp(t: TestContext) {
+  const cleanup: (() => Promise<void>)[] = [];
+  t.after(async () => {
+    for (const close of cleanup) await close();
+  });
   const f = await mediumFixture(t);
   f.services.documents.put(f.rider.player_id, 'runalyze_token.txt', 'token');
 
@@ -43,16 +47,16 @@ async function backedUp(t: TestContext) {
   t.after(() => rmSync(backup, { recursive: true, force: true }));
   backupStorage(f.config.storageDir, backup, null);
 
-  return { f, backup };
+  return { f, backup, cleanup };
 }
 
-function reopen(t: TestContext, f: Awaited<ReturnType<typeof mediumFixture>>) {
+function reopen(cleanup: (() => Promise<void>)[], f: Awaited<ReturnType<typeof mediumFixture>>) {
   const accounts = new AccountsService(f.config.storageDir);
   const context = { ...f, accounts, settings: accounts.repositories.settingsRepository };
   const uploads = new UploadsService(context);
   const jobs = new JobsService(context);
   uploads.registerJobs(jobs);
-  t.after(async () => {
+  cleanup.push(async () => {
     await jobs.close();
     accounts.close();
   });
@@ -61,7 +65,7 @@ function reopen(t: TestContext, f: Awaited<ReturnType<typeof mediumFixture>>) {
 }
 
 await test('a restored backup sends no delivery that was sent after the backup', async (t) => {
-  const { f, backup } = await backedUp(t);
+  const { f, backup, cleanup } = await backedUp(t);
   const sends = t.mock.method(globalThis, 'fetch', () => Promise.resolve(new Response(null, { status: 200 })));
   await f.services.jobs.drain();
   assert.equal(sends.mock.callCount(), 1);
@@ -69,7 +73,7 @@ await test('a restored backup sends no delivery that was sent after the backup',
   f.accounts.close();
 
   restoreStorage(f.config.storageDir, backup, null);
-  const restored = reopen(t, f);
+  const restored = reopen(cleanup, f);
   restored.uploads.start();
   restored.jobs.start();
   await restored.jobs.drain();
@@ -129,7 +133,7 @@ await test('a changed backup file stops the restore before it changes storage', 
 
 for (const step of ['marked', 'prepared', 'published', 'copied'] as const)
   await test(`a restore stopped after the ${step} step blocks startup until it runs again`, async (t) => {
-    const { f, backup } = await backedUp(t);
+    const { f, backup, cleanup } = await backedUp(t);
     const sends = t.mock.method(globalThis, 'fetch', () => Promise.resolve(new Response(null, { status: 200 })));
     f.accounts.close();
 
@@ -143,7 +147,7 @@ for (const step of ['marked', 'prepared', 'published', 'copied'] as const)
 
     assert.throws(() => openDatabase(f.config.storageDir), /restore did not finish/);
     restoreStorage(f.config.storageDir, backup, null);
-    const restored = reopen(t, f);
+    const restored = reopen(cleanup, f);
     restored.jobs.start();
     await restored.jobs.drain();
     assert.equal(sends.mock.callCount(), 0);
