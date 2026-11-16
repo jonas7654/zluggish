@@ -23,9 +23,6 @@ export class MetricsService extends BaseService {
   }
 
   report() {
-    this.context.world.lifecycle.log.info('metrics.summary', 'Persistence and latency metrics', {
-      metrics: metrics.summary(),
-    });
     metrics.reset();
   }
 
