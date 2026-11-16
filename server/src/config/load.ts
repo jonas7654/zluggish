@@ -71,6 +71,37 @@ export function prepareContainerConfig(options: LoadOptions): LoadOptions {
   return { ...options, path };
 }
 
+const loadError = z
+  .object({
+    name: z.string().catch('Error'),
+    code: z.string().optional().catch(undefined),
+    message: z.string().catch(''),
+    stack: z.string().catch(''),
+  })
+  .catch({ name: 'Error', message: '', stack: '' });
+
+/** Loader exceptions can quote source lines, environment values or secrets, so only safe
+parts are reported: where the problem is, the parser's grammar message, a missing import's
+name, or an undefined identifier.
+*/
+function describeLoadError({ name, code, message, stack }: z.infer<typeof loadError>, path: string) {
+  const escaped = path.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
+  const position = new RegExp(String.raw`${escaped}:(\d+):(\d+)`).exec(`${message}\n${stack}`);
+  const where = position ? ` at line ${position[1]}, column ${position[2]}` : '';
+  const missing = /Cannot find (?:module|package) '([^']+)'/.exec(message)?.[1];
+
+  if (code === 'MODULE_NOT_FOUND' || code === 'ERR_MODULE_NOT_FOUND')
+    return `cannot find the import ${missing ? `'${missing}'` : 'it names'}${where}`;
+  const parse = /^ParseError: ([^\n]+)/.exec(message)?.[1]?.trim();
+
+  if (parse) return `syntax error${where}: ${parse}`;
+  const undefinedName = name === 'ReferenceError' ? /^(\S+) is not defined$/.exec(message)?.[1] : undefined;
+
+  if (undefinedName) return `'${undefinedName}' is not defined${where}`;
+
+  return `${name}${where}; check module syntax and imports`;
+}
+
 export async function loadConfig(options: LoadOptions = {}): Promise<LoadedConfig> {
   const env = options.env ?? process.env;
   const path = selectConfigPath(options.path, env);
@@ -121,8 +152,7 @@ export async function loadConfig(options: LoadOptions = {}): Promise<LoadedConfi
   } catch (error) {
     if (error instanceof ConfigError) throw error;
 
-    // Loader exceptions can include source lines, environment values or secrets.
-    throw new ConfigError(`Cannot evaluate ${path}; check module syntax and imports`);
+    throw new ConfigError(`Cannot evaluate ${path}: ${describeLoadError(loadError.parse(error), path)}`);
   }
 
   const relative = (p: string) => (p && !isAbsolute(p) ? resolve(dirname(path), p) : p);

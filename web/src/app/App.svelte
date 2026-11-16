@@ -91,6 +91,7 @@
   // Setup and sign-in.
   let mode = $state<'new' | 'existing'>('new');
   let key = $state('');
+  let keyAccepted = $state(false);
   let username = $state('');
   let password = $state('');
   let confirmPassword = $state('');
@@ -332,6 +333,22 @@
     };
   }
 
+  /** Checks the setup key alone, so a wrong key costs one field instead of the whole form. */
+  async function checkKey() {
+    try {
+      await api('/api/setup/key', 'POST', { key });
+      keyAccepted = true;
+    } catch (error) {
+      if (!(error instanceof Error) || error.message !== 'Setup refused.') throw error;
+      fieldErrors = { key: ['This key does not match. Copy it again from the server console.'] };
+    }
+  }
+
+  function changeKey() {
+    keyAccepted = false;
+    fieldErrors = {};
+  }
+
   async function signIn() {
     if (!complete && mode === 'new' && password !== confirmPassword) {
       fieldErrors = { confirm: ['Passwords do not match.'] };
@@ -346,6 +363,14 @@
           username,
           password,
           ...(mode === 'new' && { first_name: first, last_name: last }),
+        }).catch((error) => {
+          // The key stops working when the server restarts, so ask for the new one.
+          if (error instanceof Error && error.message === 'Setup refused.' && mode === 'new') {
+            keyAccepted = false;
+            fieldErrors = { key: ['The server no longer accepts this key. Enter the key from the server console.'] };
+          }
+
+          throw error;
         });
 
     const setup = !complete;
@@ -617,31 +642,39 @@
           class="narrow"
           onsubmit={(e) => {
             e.preventDefault();
-            void run(signIn, 'sign-in');
+            void run(complete || keyAccepted ? signIn : checkKey, 'sign-in');
           }}
         >
           {#if !complete}
             <p class="lead">
               Create the first administrator for this server. Find the setup key in the server console.
             </p>
-            <div class="choice" role="radiogroup" aria-label="Setup method">
-              <label class:checked={mode === 'new'}
-                ><input type="radio" bind:group={mode} value="new" /> Create a new rider</label
-              >
-              <label class:checked={mode === 'existing'}
-                ><input type="radio" bind:group={mode} value="existing" /> Use an existing rider</label
-              >
-            </div>
-            <TextField
-              id="setup-key"
-              label="Setup key"
-              bind:value={key}
-              required
-              maxlength={200}
-              hint="Case, spaces and hyphens do not matter."
-              errors={errors('sign-in', 'key')}
-            />
-            {#if mode === 'new'}
+            {#if keyAccepted}
+              <div class="accepted" role="status">
+                <span><span class="tick" aria-hidden="true">✓</span> Setup key accepted</span>
+                <button type="button" class="link" onclick={changeKey}>Change key</button>
+              </div>
+              <div class="choice" role="radiogroup" aria-label="Setup method">
+                <label class:checked={mode === 'new'}
+                  ><input type="radio" bind:group={mode} value="new" /> Create a new rider</label
+                >
+                <label class:checked={mode === 'existing'}
+                  ><input type="radio" bind:group={mode} value="existing" /> Use an existing rider</label
+                >
+              </div>
+            {:else}
+              <TextField
+                id="setup-key"
+                label="Setup key"
+                bind:value={key}
+                required
+                maxlength={200}
+                autocomplete="off"
+                hint="Case, spaces and hyphens do not matter."
+                errors={errors('sign-in', 'key')}
+              />
+            {/if}
+            {#if keyAccepted && mode === 'new'}
               <TextField
                 id="setup-first"
                 label="First name"
@@ -659,6 +692,7 @@
               />
             {/if}
           {/if}
+          {#if complete || keyAccepted}
           <TextField
             id="sign-in-login"
             label="Login name"
@@ -689,7 +723,10 @@
               errors={errors('sign-in', 'confirm')}
             />
           {/if}
-          <button class="primary" disabled={busy}>{complete ? 'Sign in' : 'Complete setup'}</button>
+          {/if}
+          <button class="primary" disabled={busy}
+            >{complete ? 'Sign in' : keyAccepted ? 'Complete setup' : 'Check key'}</button
+          >
         </form>
       {/if}
     {:else if manage && administrator}
@@ -1587,6 +1624,20 @@
     background: rgb(255 90 70 / 0.14);
   }
 
+  .accepted {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.25rem 1rem;
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--line);
+  }
+  .tick {
+    color: var(--orange);
+    font-weight: 700;
+  }
   .choice {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));

@@ -158,7 +158,22 @@ await test('invalid real config files stop the server before creating runtime st
     ['undefined export', 'export default undefined;', /<root>/],
     ['null export', 'export default null;', /<root>|Cannot evaluate/],
     ['array export', 'export default [];', /<root>/],
-    ['invalid syntax', 'export default {', /Cannot evaluate/],
+    ['invalid syntax', 'export default {', /Cannot evaluate .*: syntax error at line 1, column \d+/],
+    [
+      'syntax error keeps secrets out',
+      "export default {\n  network: { host: '127.0.0.1' }\n  secret: 'hunter2',\n};",
+      /^(?!.*hunter2).*syntax error at line 3, column 2: Unexpected token, expected ","/s,
+    ],
+    [
+      'missing import',
+      "import x from './missing-file';\nexport default { x };",
+      /cannot find the import '\.\/missing-file'/,
+    ],
+    [
+      'undefined name',
+      "const secret = 'hunter2';\nexport default { network: { host: undefinedThing } };",
+      /^(?!.*hunter2).*'undefinedThing' is not defined at line 2, column \d+/s,
+    ],
     ['async factory', 'export default async () => ({});', /Async configuration/],
     ['missing peloton ID', 'export default { pelotons: [{ pacer: 1 }] };', /pelotons\.0\.id/],
     ['missing pacer', "export default { pelotons: [{ id: 'group' }] };", /pelotons\.0\.pacer/],

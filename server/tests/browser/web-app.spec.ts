@@ -35,7 +35,12 @@ for (const existing of [false, true])
         errors.push(error.message);
       });
       await page.goto(origin + '/setup');
+      await page.getByLabel('Setup key').fill('wrong-key');
+      await page.getByRole('button', { name: 'Check key' }).click();
+      await page.getByText('This key does not match.').waitFor();
       await page.getByLabel('Setup key').fill(key);
+      await page.getByRole('button', { name: 'Check key' }).click();
+      await page.getByText('Setup key accepted').waitFor();
 
       if (existing) await page.getByLabel('Use an existing rider').check();
       else {

@@ -72,7 +72,7 @@ export function createWebApp(runtime: HttpRuntime) {
         throw new ApplicationError(400, 'JSON required.');
     }
 
-    if (['/api/setup', '/api/session', '/api/session/confirm'].includes(c.req.path) && c.req.method === 'POST') {
+    if (['/api/setup', '/api/setup/key', '/api/session', '/api/session/confirm'].includes(c.req.path) && c.req.method === 'POST') {
       const now = Date.now();
 
       for (const [key, value] of attempts) if (value.until <= now) attempts.delete(key);
@@ -102,6 +102,12 @@ export function createWebApp(runtime: HttpRuntime) {
     const rider = await management.setup(await c.req.json(), unchanged(c));
 
     return login(c, rider, true);
+  });
+  app.post('/api/setup/key', async (c) => {
+    const input = z.strictObject({ key: z.string().max(200) }).parse(await c.req.json());
+    management.checkSetupKey(input.key);
+
+    return c.json({ ok: true });
   });
   app.post('/api/session', async (c) => {
     const input = credentials.parse(await c.req.json());

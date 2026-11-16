@@ -73,6 +73,11 @@ export class ManagementService extends BaseService {
     return this.setupDigest !== null && this.cryptoRepository.timingSafeEqual(digest, this.setupDigest);
   }
 
+  /** Lets the setup form check the key before asking for account details. */
+  checkSetupKey(key: string) {
+    if (this.store.complete() || !this.keyValid(key)) throw new ApplicationError(403, 'Setup refused.');
+  }
+
   async passwordTask<T>(work: () => Promise<T>) {
     if (this.passwordWork >= 4) throw new ApplicationError(503, 'Try again shortly.');
     this.passwordWork++;
