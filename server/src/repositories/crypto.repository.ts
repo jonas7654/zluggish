@@ -117,6 +117,10 @@ export class CryptoRepository {
     return createHash('sha1').update(data).digest();
   }
 
+  pkceChallenge(verifier: string) {
+    return createHash('sha256').update(verifier).digest('base64url');
+  }
+
   signToken(data: string) {
     return createHmac('sha256', 'nosecret').update(data).digest('base64url');
   }

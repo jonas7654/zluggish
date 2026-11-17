@@ -2,6 +2,7 @@ import { calendarLabels, mapChoices } from '#src/http/game/calendar';
 import { checkbox, field, form as makeForm, hidden, model } from '#src/http/game/models';
 import { gamePage } from '#src/http/game/render';
 import { browserJson, gameRedirect } from '#src/http/game/results';
+import { oidcSpikeEnabled } from '#src/http/routes/oidc-spike';
 import { climbSchema } from '#src/dtos/accounts.dto';
 import type { HttpRuntime as Runtime, RuntimeEnv } from '#src/http/runtime';
 import type { User } from '#src/repositories/accounts.repository';
@@ -179,29 +180,34 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       c,
       'login',
       'Who’s riding?',
-      accounts
-        .list()
-        .filter((user) => user.enabled)
-        .map((user) =>
-          makeForm(
-            `rider-${user.player_id}`,
-            '/login/',
-            [hidden('player_id', String(user.player_id))],
-            riderName(user),
-            {
-              user: {
-                initials: `${user.first_name.charAt(0)}${user.last_name.charAt(0)}`.toUpperCase(),
-                photo: runtime.services.files.exists(
-                  resolve(runtime.services.profiles.folder(user.player_id), 'avatarLarge.jpg'),
-                )
-                  ? `/download/${user.player_id}/avatarLarge.jpg`
-                  : null,
-                // Riders created without an email get a placeholder username that means nothing to people.
-                email: user.username.endsWith('@local.invalid') ? null : user.username,
+      [
+        ...accounts
+          .list()
+          .filter((user) => user.enabled)
+          .map((user) =>
+            makeForm(
+              `rider-${user.player_id}`,
+              '/login/',
+              [hidden('player_id', String(user.player_id))],
+              riderName(user),
+              {
+                user: {
+                  initials: `${user.first_name.charAt(0)}${user.last_name.charAt(0)}`.toUpperCase(),
+                  photo: runtime.services.files.exists(
+                    resolve(runtime.services.profiles.folder(user.player_id), 'avatarLarge.jpg'),
+                  )
+                    ? `/download/${user.player_id}/avatarLarge.jpg`
+                    : null,
+                  // Riders created without an email get a placeholder username that means nothing to people.
+                  email: user.username.endsWith('@local.invalid') ? null : user.username,
+                },
               },
-            },
+            ),
           ),
-        ),
+        ...(oidcSpikeEnabled()
+          ? [makeForm('oidc-spike', '/auth/oidc-spike', [], 'Test SSO sign-in (spike)', { navigation: true })]
+          : []),
+      ],
       {
         message:
           error ||

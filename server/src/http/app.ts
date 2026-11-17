@@ -4,6 +4,7 @@ import { ApplicationError } from '#src/errors';
 import { parseProtobuf } from '#src/http/protobuf';
 import { rideCompletionRoutes } from '#src/http/routes/ride-completion';
 import { accountRoutes, authenticated } from '#src/http/routes/accounts';
+import { oidcSpikeRoutes } from '#src/http/routes/oidc-spike';
 import { activityRoutes } from '#src/http/routes/activities';
 import { assetRoutes } from '#src/http/routes/assets';
 import { eventRoutes } from '#src/http/routes/events';
@@ -77,6 +78,7 @@ export function createGameApp(metadata: PublicMetadata, runtime?: Runtime) {
   if (runtime) {
     rideCompletionRoutes(app, runtime);
     accountRoutes(app, runtime);
+    oidcSpikeRoutes(app, runtime);
     profileRoutes(app, runtime);
     relayRoutes(app, runtime);
     activityRoutes(app, runtime);
