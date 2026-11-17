@@ -51,7 +51,7 @@ docker compose -f docker/docker-compose.yml up --build
 You should see output similar to:
 
 ```sh
-zluggish-1  | Zluggish server: https://0.0.0.0:443
+zluggish-1  | 2026-11-17T11:40:23.126Z INFO server.ready Zluggish is ready
 ```
 
 The server image also includes the full admin CLI, with no Node or pnpm installation needed on the host:

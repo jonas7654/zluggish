@@ -208,7 +208,7 @@ await test('web connections keep saved secrets, show Garmin MFA and run workout 
   const context = await f.browser.newContext();
   const page = await context.newPage();
   await webSignIn(page, f, rider);
-  await page.goto(`${f.webOrigin}/settings`);
+  await page.goto(`${f.webOrigin}/integrations`);
   await page.getByRole('button', { name: /^Strava/ }).click();
   const strava = page.locator('form').filter({ has: page.getByLabel('Client ID') });
   await strava.getByLabel('Client ID').fill('123');
@@ -228,6 +228,8 @@ await test('web connections keep saved secrets, show Garmin MFA and run workout 
   await page.getByText('Session cookie saved.', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Test session' }).click();
   await page.getByText('Session is valid.', { exact: true }).waitFor();
+  await page.keyboard.press('Escape');
+  await page.getByRole('dialog').waitFor({ state: 'hidden' });
 
   await page.getByRole('button', { name: /^Garmin/ }).click();
   const garmin = page.locator('form').filter({ has: page.getByLabel('Email') });
@@ -237,6 +239,8 @@ await test('web connections keep saved secrets, show Garmin MFA and run workout 
   await page.getByText('Credentials saved.', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Authorize', exact: true }).click();
   await page.getByLabel('Verification code').waitFor();
+  await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click();
+  await page.getByRole('dialog').waitFor({ state: 'hidden' });
 
   await page.getByRole('button', { name: /^Intervals\.icu/ }).click();
   const intervals = page.locator('form').filter({ has: page.getByLabel('Athlete ID') });
@@ -263,7 +267,7 @@ await test('web upload list polls while uploads run, pauses while hidden and ret
   const page = await context.newPage();
   await page.clock.install();
   await webSignIn(page, f, rider);
-  await page.goto(`${f.webOrigin}/settings`);
+  await page.goto(`${f.webOrigin}/integrations`);
   await page.getByText('Activity 1: strava — pending', { exact: true }).waitFor();
   const initial = status.mock.callCount();
   await page.evaluate(() => {
@@ -291,3 +295,42 @@ await test('web upload list polls while uploads run, pauses while hidden and ret
   assert.deepEqual(retry.mock.calls[0]?.arguments, [rider.player_id, false]);
   await context.close();
 });
+
+for (const app of ['webapp', 'launcher']) {
+  await test(`${app} reports outages and recovers without losing input`, async (t) => {
+    const f = await browserFixture(t);
+    const page = await f.browser.newPage();
+    page.setDefaultTimeout(7000);
+    const rider = await f.accounts.create('Outage Rider', 'test-password', 'outage');
+
+    if (app === 'webapp') await webSignIn(page, f, rider);
+    else {
+      await page.goto(`${f.origin}/login/`);
+      await page.locator(`form:has(input[name=player_id][value="${rider.player_id}"]) button`).click();
+    }
+
+    const field = page.getByLabel(app === 'webapp' ? 'First name' : 'Password', { exact: true });
+    await field.fill(app === 'webapp' ? 'Unsaved' : 'draft-password');
+    await page.route('**/health', (route) =>
+      route.fulfill({ status: 503, contentType: 'text/html', body: '<!DOCTYPE html>Unavailable' }),
+    );
+    if (app === 'webapp') {
+      await page.route('**/api/me/profile', (route) =>
+        route.fulfill({ status: 502, contentType: 'text/html', body: '<!DOCTYPE html>Bad gateway' }),
+      );
+      await page.getByRole('button', { name: 'Save profile', exact: true }).click();
+    } else {
+      await page.route('**/login/', (route) =>
+        route.fulfill({ status: 502, contentType: 'text/html', body: '<!DOCTYPE html>Bad gateway' }),
+      );
+      await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+    }
+    await page.getByText('Unable to connect to the server.', { exact: true }).waitFor();
+    assert.equal(await field.inputValue(), app === 'webapp' ? 'Unsaved' : 'draft-password');
+    assert.equal(await page.getByText(/Unexpected token/).count(), 0);
+    await page.unroute('**/health');
+    await page.getByRole('button', { name: 'Retry now' }).click();
+    await page.getByText('Connection restored.', { exact: true }).waitFor();
+    assert.equal(await field.inputValue(), app === 'webapp' ? 'Unsaved' : 'draft-password');
+  });
+}

@@ -480,3 +480,42 @@ await test('setup lists only safe rider fields after checking the key and select
   const finished = await check(key);
   assert.equal(finished.status, 403);
 });
+
+await test('administrator profile edits affect the selected user and require administrator access', async (t) => {
+  const f = runtimeFixture(t);
+  const service = f.services.management;
+  const owner = await service.setup({
+    mode: 'new',
+    key: service.issueSetupKey()!,
+    username: 'owner',
+    first_name: 'Owner',
+    last_name: 'Rider',
+    password: 'test-password',
+  });
+  const rider = await f.accounts.create('Selected Rider', 'test-password', 'selected');
+  const admin = service.sessions.create(f.accounts.identityOf(owner), Date.now() + 900_000);
+  const regular = service.sessions.create(f.accounts.identityOf(rider));
+  const before = service.ownProfile(admin.id);
+  const selected = service.ownProfile(admin.id, rider.player_id);
+  const input = {
+    revision: selected.user.revision,
+    operation: crypto.randomUUID(),
+    username: 'selected@example.com',
+    first_name: 'Edited',
+    last_name: 'Rider',
+    birthday: '1990-02-03',
+  };
+  assert.throws(() => service.ownProfile(regular.id, owner.player_id));
+  assert.throws(() => service.editOwnProfile(regular.id, input, owner.player_id));
+  const edited = service.editOwnProfile(admin.id, input, rider.player_id);
+  assert.equal(edited.user.player_id, rider.player_id);
+  assert.equal(f.profiles.get(rider.player_id).firstName, 'Edited');
+  assert.equal(f.profiles.get(rider.player_id).dob, '02/03/1990');
+  assert.deepEqual(service.ownProfile(admin.id), before);
+  service.saveAvatar(admin.id, Uint8Array.from([0xff, 0xd8, 0xff, 0xd9]), rider.player_id);
+  assert.equal(service.ownProfile(admin.id).avatar, null);
+  assert.ok(service.ownProfile(admin.id, rider.player_id).avatar);
+  assert.throws(() => service.removeAvatar(regular.id, owner.player_id));
+  service.removeAvatar(admin.id, rider.player_id);
+  assert.equal(service.ownProfile(admin.id, rider.player_id).avatar, null);
+});

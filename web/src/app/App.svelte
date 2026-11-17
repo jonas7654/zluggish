@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { requestJson, ConnectionError } from '../lib/connection';
   import ProfileData from './ProfileData.svelte';
   import Connections from './Connections.svelte';
   import Activities from './Activities.svelte';
@@ -90,6 +91,11 @@
   let first = $state('');
   let last = $state('');
 
+  const profileId = $derived(Number(/^\/profile\/(\d+)$/.exec(path)?.[1] ?? 0));
+  const profileBase = $derived(profileId ? `/api/manage/users/${profileId}` : '/api/me');
+  let profileUser = $state<User | null>(null);
+  let profileAvatar = $state<number | null>(null);
+
   // Profile.
   let birthday = $state('');
 
@@ -116,9 +122,6 @@
   let newLogin = $state('');
   let newPassword = $state('');
   let newConfirm = $state('');
-  let editFirst = $state('');
-  let editLast = $state('');
-  let editLogin = $state('');
   let targetPassword = $state('');
   let targetConfirm = $state('');
   let userSettings = $state<UserSettings | null>(null);
@@ -176,9 +179,11 @@
                       ? 'Export'
                       : path === '/zwift'
                         ? 'Zwift connection'
-                        : path === '/settings'
-                          ? 'Settings'
-                          : 'Profile',
+                        : path === '/integrations'
+                          ? 'Integrations'
+                          : path === '/settings'
+                            ? 'Settings'
+                            : 'Profile',
   );
 
   const initials = (r: User) => `${r.first_name.charAt(0)}${r.last_name.charAt(0)}`.toUpperCase();
@@ -191,15 +196,13 @@
     if (data instanceof Blob) headers.set('Content-Type', data.type);
     else if (!(data instanceof FormData)) headers.set('Content-Type', 'application/json');
 
-    const response = await fetch(url, {
+    const { response, body } = await requestJson(url, {
       method,
       headers,
       ...(data !== undefined && {
         body: data instanceof FormData || data instanceof Blob ? data : JSON.stringify(data),
       }),
     });
-
-    const body = await response.json();
 
     if (body.csrf) csrf = body.csrf;
 
@@ -270,7 +273,8 @@
     if (title === 'Profile' || avatar === undefined) await loadProfile();
 
     if (!manage) {
-      if (path === '/settings') await loadSettings();
+      // Integrations reads the saved Strava method and TrainingPeaks folder from the same settings.
+      if (path === '/settings' || path === '/integrations') await loadSettings();
 
       return;
     }
@@ -281,7 +285,7 @@
     if (path === '/manage/server') await loadServer();
 
     if (selected) {
-      select(selected);
+      select();
       await loadDetail(selected);
     }
   }
@@ -331,8 +335,12 @@
   }
 
   function applyProfile(body: { user: User; birthday: string; avatar: number | null }) {
-    user = body.user;
-    avatar = body.avatar;
+    profileUser = body.user;
+    profileAvatar = body.avatar;
+    if (!profileId) {
+      user = body.user;
+      avatar = body.avatar;
+    }
     first = body.user.first_name;
     last = body.user.last_name;
     username = body.user.username;
@@ -375,13 +383,14 @@
   function uploadPhoto(file: File | undefined) {
     if (!file) return;
     void run(async () => {
-      avatar = (await api('/api/me/avatar', 'PUT', await squarePhoto(file))).avatar;
+      profileAvatar = (await api(`${profileBase}/avatar`, 'PUT', await squarePhoto(file))).avatar;
+      if (!profileId) avatar = profileAvatar;
       done('Restart Zwift for the changes to take effect.');
     });
   }
 
   async function loadProfile() {
-    applyProfile(await api('/api/me/profile'));
+    applyProfile(await api(`${profileBase}/profile`));
   }
 
   async function loadSettings() {
@@ -389,10 +398,7 @@
     applySettings(settings!);
   }
 
-  function select(target: User) {
-    editFirst = target.first_name;
-    editLast = target.last_name;
-    editLogin = target.username;
+  function select() {
     targetPassword = '';
     targetConfirm = '';
     userSettings = null;
@@ -408,7 +414,7 @@
 
   async function openUser(target: User) {
     go(`/manage/users/${target.player_id}`);
-    select(target);
+    select();
     window.scrollTo(0, 0);
     await loadDetail(target);
   }
@@ -591,20 +597,6 @@
     done(`${name(created)} can now sign in.`);
   }
 
-  async function saveUser() {
-    if (!selected) return;
-    await api(`/api/manage/users/${selected.player_id}`, 'PATCH', {
-      revision: conflict?.revision ?? selected.revision,
-      operation,
-      username: editLogin,
-      first_name: editFirst,
-      last_name: editLast,
-    });
-    conflict = null;
-    await loadUsers();
-    done('User saved.');
-  }
-
   function openPassword() {
     currentPassword = '';
     password = '';
@@ -723,7 +715,8 @@
 
       try {
         user = (await api('/api/me')).user;
-      } catch {
+      } catch (error) {
+        if (error instanceof ConnectionError) throw error;
         if (!['/sign-in', '/setup'].includes(path)) go('/sign-in');
 
         return;
@@ -782,6 +775,7 @@
       {@render link('/activities', 'Activities', title === 'Activities')}
       {@render link('/import', 'Import', path === '/import' || path === '/import/local' || path === '/zwift')}
       {@render link('/export', 'Export', path === '/export')}
+      {@render link('/integrations', 'Integrations', path === '/integrations')}
       {@render link('/settings', 'Settings', path === '/settings')}
       {#if administrator}
         <p class="group">Manage</p>
@@ -1231,9 +1225,16 @@
         {:else if selectedId}
           {#if selected}
             <section class="panel summary" aria-label="Account">
-              <Avatar initials={initials(selected)} />
+              <Avatar
+                initials={initials(selected)}
+                photo={selected.avatar ? `/api/manage/users/${selected.player_id}/avatar?v=${selected.avatar}` : null}
+              />
               <div>
-                <p class="login">{selected.username}</p>
+                <p class="login">{name(selected)}</p>
+                <p>{selected.username}</p>
+                <button type="button" disabled={busy} onclick={() => navigate(`/profile/${selected.player_id}`)}
+                  >Edit profile</button
+                >
                 <p class="facts">
                   <span class="chip muted num">Player ID {selected.player_id}</span>
                   {@render chips(selected)}
@@ -1277,46 +1278,10 @@
             {/if}
 
             <div class="columns">
-              <form
-                class="panel"
-                onsubmit={(e) => {
-                  e.preventDefault();
-                  void run(saveUser, 'edit');
-                }}
-              >
-                <h2>Name and login</h2>
-                {#if selected.connected}<p class="muted">Names can change only while the user is not riding.</p>{/if}
-                <div class="pair">
-                  <TextField
-                    id="edit-first"
-                    label="First name"
-                    bind:value={editFirst}
-                    required
-                    maxlength={50}
-                    errors={errors('edit', 'first_name')}
-                  />
-                  <TextField
-                    id="edit-last"
-                    label="Last name"
-                    bind:value={editLast}
-                    maxlength={50}
-                    errors={errors('edit', 'last_name')}
-                  />
-                </div>
-                <TextField
-                  id="edit-login"
-                  label="Login name"
-                  bind:value={editLogin}
-                  required
-                  maxlength={254}
-                  errors={errors('edit', 'username')}
-                />
-                <button disabled={busy || selected.connected}>Save user</button>
-              </form>
-
               {#if selected.player_id !== user.player_id}
                 <form
                   class="panel"
+                  class:password-needed={!selected.has_password}
                   onsubmit={(e) => {
                     e.preventDefault();
                     ask('password');
@@ -1506,7 +1471,6 @@
               chat to bring them back to you.
             </p>
           </section>
-          <Connections {api} bind:stravaMethod bind:bridgeFolder saved={preferences(settings)} save={saveSettings} />
           <section class="panel narrow curves" aria-labelledby="curves-title">
             <h2 id="curves-title">Power curves</h2>
             <p class="muted">
@@ -1525,6 +1489,10 @@
             >
           </section>
         {/if}
+      {:else if path === '/integrations'}
+        {#if settings}
+          <Connections {api} bind:stravaMethod bind:bridgeFolder saved={preferences(settings)} save={saveSettings} />
+        {/if}
       {:else}
         <form
           class="panel narrow"
@@ -1532,8 +1500,8 @@
             e.preventDefault();
             void run(async () => {
               applyProfile(
-                await api('/api/me/profile', 'PATCH', {
-                  revision: user!.revision,
+                await api(`${profileBase}/profile`, 'PATCH', {
+                  revision: profileUser!.revision,
                   operation,
                   username,
                   first_name: first,
@@ -1550,7 +1518,7 @@
               type="button"
               class="portrait"
               class:dropping
-              aria-label={avatar ? 'Change avatar' : 'Choose an avatar'}
+              aria-label={profileAvatar ? 'Change avatar' : 'Choose an avatar'}
               disabled={busy}
               onclick={() => avatarInput?.click()}
               ondragover={(e) => {
@@ -1563,20 +1531,21 @@
                 dropping = false;
                 uploadPhoto(e.dataTransfer?.files[0]);
               }}
-              ><Avatar initials={initials(user)} photo={avatar ? `/api/me/avatar?v=${avatar}` : null} /><span
-                class="change"
-                aria-hidden="true">{avatar ? 'Change' : 'Choose'}</span
-              ></button
+              ><Avatar
+                initials={initials(profileUser ?? user)}
+                photo={profileAvatar ? `${profileBase}/avatar?v=${profileAvatar}` : null}
+              /><span class="change" aria-hidden="true">{profileAvatar ? 'Change' : 'Choose'}</span></button
             >
             <div>
               <button type="button" disabled={busy} onclick={() => avatarInput?.click()}>Choose an avatar</button
-              >{#if avatar}<button
+              >{#if profileAvatar}<button
                   type="button"
                   class="danger"
                   disabled={busy}
                   onclick={() =>
                     void run(async () => {
-                      avatar = (await api('/api/me/avatar', 'DELETE')).avatar;
+                      profileAvatar = (await api(`${profileBase}/avatar`, 'DELETE')).avatar;
+                      if (!profileId) avatar = profileAvatar;
                       done('Restart Zwift for the changes to take effect.');
                     })}>Remove</button
                 >{/if}
@@ -1630,9 +1599,12 @@
           />
           <div class="actions">
             <button class="primary" disabled={busy}>Save profile</button>
-            <button type="button" bind:this={changeButton} disabled={busy} onclick={openPassword}
-              >Change password</button
-            >
+            {#if !profileId}<button type="button" bind:this={changeButton} disabled={busy} onclick={openPassword}
+                >Change password</button
+              >{/if}
+            {#if profileId}<button type="button" onclick={() => navigate(`/manage/users/${profileId}`)}
+                >Back to user settings</button
+              >{/if}
           </div>
         </form>
       {/if}
@@ -1824,6 +1796,9 @@
     margin: 0 0 1rem;
     -webkit-backdrop-filter: blur(8px);
     backdrop-filter: blur(8px);
+  }
+  .password-needed {
+    outline: 2px solid var(--orange);
   }
   .narrow {
     max-width: 34rem;

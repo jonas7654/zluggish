@@ -25,6 +25,28 @@
   } = $props();
 
   let filenames = $state<string[]>([]);
+  const exportDetails: Record<string, { title: string; description: string }> = {
+    'profile.bin': {
+      title: 'Rider profile and progress',
+      description: 'Your rider details, avatar and equipped gear, XP, Drops, and lifetime activity totals.',
+    },
+    'achievements.bin': {
+      title: 'Achievements',
+      description: 'Your earned achievement badges and completion records.',
+    },
+    'user_storage.bin': {
+      title: 'Game settings and bike upgrades',
+      description: 'Your in-game preferences, garage selections, bike customizations, and bike upgrade progress.',
+    },
+    'streaks.bin': {
+      title: 'Riding streaks',
+      description: 'Your current and best riding streaks, with their distance, elevation, and calorie totals.',
+    },
+    'economy_config.txt': {
+      title: 'Level and reward rules',
+      description: 'The cycling and running level tables, including XP thresholds, Drops rewards, and unlocks.',
+    },
+  };
   let review = $state<Review | null>(null);
   let connection = $state<Connection | null>(null);
   let username = $state('');
@@ -82,9 +104,15 @@
 
 {#if path === '/export'}
   <section class="panel">
-    <p>Download your user data.</p>
+    <h2>Export your user data</h2>
+    <p>Download individual files to back up your data or transfer it to another Zluggish server using Import.</p>
+    <p class="export-help">For all available profile data, download every file. The .bin files are binary data; economy_config.txt contains JSON.</p>
     {#each filenames as filename (filename)}
-      <p><a href={`/api/me/export/${encodeURIComponent(filename)}`} download={filename}>Download {filename}</a></p>
+      <div class="export-file">
+        <h3>{exportDetails[filename]?.title ?? filename}</h3>
+        {#if exportDetails[filename]}<p>{exportDetails[filename].description}</p>{/if}
+        <a href={`/api/me/export/${encodeURIComponent(filename)}`} download={filename}>Download {filename}</a>
+      </div>
     {:else}
       <p>No files available to export.</p>
     {/each}
@@ -237,6 +265,24 @@
 {/if}
 
 <style>
+  .export-help {
+    color: var(--muted);
+  }
+  .export-file {
+    padding: 1rem 0;
+    border-top: 1px solid var(--line);
+  }
+  .export-file h3 {
+    margin: 0;
+    font-size: 1rem;
+  }
+  .export-file p {
+    margin: 0.5rem 0;
+    color: var(--muted);
+  }
+  .export-file a {
+    overflow-wrap: anywhere;
+  }
   .import-options {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));

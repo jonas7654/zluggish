@@ -9,6 +9,21 @@ const provider = z.enum(['strava', 'garmin', 'intervals']);
 const credentials = z.strictObject({ username: z.string().trim().min(1).max(500), secret: z.string().max(10_000) });
 const workoutProviders = { intervals: 'intervals-icu', trainingpeaks: 'trainingpeaks' } as const;
 
+const credential = z.enum([
+  'strava/api',
+  'strava/authorization',
+  'strava/cookie',
+  'garmin/credentials',
+  'garmin/authorization',
+]);
+
+/** Credentials stored as rider documents. Removing the Garmin OAuth1 token also removes its OAuth2 token. */
+const tokens = {
+  'strava/authorization': 'strava_token.txt',
+  'strava/cookie': 'strava4_session.txt',
+  'garmin/authorization': 'garth/oauth1_token.json',
+} as const;
+
 export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
   const { management, connections, documents, integrations, uploads, workouts, files, profiles } = runtime.services;
   const sessions = management.sessions;
@@ -76,6 +91,17 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
 
     return c.json({ ok: true });
   });
+  // One stored credential, so a rider can drop the session cookie and keep the API, or the reverse.
+  app.delete('/api/me/connections/:provider/:credential', (c) => {
+    const player = sessions.require(c.get('sessionId')).player_id;
+    const name = credential.parse(`${c.req.param('provider')}/${c.req.param('credential')}`);
+
+    if (name === 'strava/api') connections.remove(player, 'strava');
+    else if (name === 'garmin/credentials') connections.remove(player, 'garmin');
+    else uploads.disconnect(player, tokens[name]);
+
+    return c.json({ ok: true });
+  });
   app.post('/api/me/connections/garmin/authorize', async (c) => {
     const id = c.get('sessionId');
     const user = sessions.require(id);
@@ -123,7 +149,7 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
     const client = connections.read(user.player_id, 'strava');
 
     if (!client) throw new ApplicationError(400, 'Save Strava API credentials first.');
-    const redirect = new URL('/settings', runtime.config.network.web.publicUrl ?? c.req.url).href;
+    const redirect = new URL('/integrations', runtime.config.network.web.publicUrl ?? c.req.url).href;
     const state = sessions.token();
     sessions.find(id)!.stravaState = state;
 

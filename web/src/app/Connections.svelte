@@ -25,6 +25,15 @@
 
   type UploadJob = { activity_id: number; provider: string; state: string };
 
+  type Credential =
+    | 'strava/api'
+    | 'strava/authorization'
+    | 'strava/cookie'
+    | 'garmin/credentials'
+    | 'garmin/authorization';
+
+  type Stored = { id: Credential; label: string; detail: string; effect: string };
+
   let connections = $state<Record<Provider, Connection> | null>(null);
   let secrets = $state<Record<Provider, string>>({ strava: '', garmin: '', intervals: '' });
   let cookie = $state('');
@@ -37,6 +46,11 @@
   let jobs = $state<UploadJob[]>([]);
   let confirmUnknown = $state(false);
   let open = $state<Integration | null>(null);
+  let removing = $state<Credential | null>(null);
+  let dialog = $state<HTMLDialogElement>();
+
+  /** Set on press, so dragging a text selection out of a field does not close the dialog on release. */
+  let pressedBackdrop = false;
 
   const integrations: { name: Integration; title: string }[] = [
     { name: 'strava', title: 'Strava' },
@@ -93,8 +107,86 @@
   }
 
   function choose(name: Integration) {
-    open = open === name ? null : name;
+    open = name;
+    removing = null;
     message = '';
+  }
+
+  /** Escape, the close button and the backdrop all end here, so the page never shows a message meant for the dialog. */
+  function closed() {
+    open = null;
+    removing = null;
+    message = '';
+  }
+
+  // The Strava callback opens the dialog before connections load, so it waits until there is something to show.
+  $effect(() => {
+    if (open && connections && dialog && !dialog.open) dialog.showModal();
+  });
+
+  /** What the server holds for a provider, each removable on its own, and what stops working without it. */
+  function stored(name: 'strava' | 'garmin', connection: Connection) {
+    const items: Stored[] = [];
+
+    if (name === 'strava') {
+      if (connection.saved)
+        items.push({
+          id: 'strava/api',
+          label: 'API application',
+          detail: 'Client ID and secret',
+          effect: 'Authorizing again needs the client ID and secret.',
+        });
+
+      if (connection.authorized)
+        items.push({
+          id: 'strava/authorization',
+          label: 'Authorization',
+          detail: 'Access granted to your API application',
+          effect: 'API uploads stop until you authorize again.',
+        });
+
+      if (connection.cookie)
+        items.push({
+          id: 'strava/cookie',
+          label: 'Session cookie',
+          detail: '_strava4_session',
+          effect: 'Session cookie uploads stop until you save a new cookie.',
+        });
+
+      return items;
+    }
+
+    if (connection.saved)
+      items.push({
+        id: 'garmin/credentials',
+        label: 'Email and password',
+        detail: 'Garmin Connect sign-in',
+        effect: 'Authorizing again needs your email and password.',
+      });
+
+    if (connection.authorized)
+      items.push({
+        id: 'garmin/authorization',
+        label: 'Authorization',
+        detail: 'Sign-in tokens from Garmin Connect',
+        effect: 'Garmin uploads stop until you authorize again.',
+      });
+
+    return items;
+  }
+
+  function removeCredential(item: Stored) {
+    void run(async () => {
+      await api(`/api/me/connections/${item.id}`, 'DELETE');
+      removing = null;
+
+      if (item.id.startsWith('garmin/')) {
+        mfa = false;
+        code = '';
+      }
+
+      message = `${item.label} removed.`;
+    });
   }
 
   function saveCredentials(name: Provider) {
@@ -141,6 +233,7 @@
   function disconnect(name: Provider) {
     void run(async () => {
       await api(`/api/me/connections/${name}`, 'DELETE');
+      removing = null;
 
       if (name === 'garmin') {
         mfa = false;
@@ -189,7 +282,7 @@
       if (query.has('state')) {
         const authorizationCode = query.get('code');
         const state = query.get('state') ?? '';
-        history.replaceState(null, '', '/settings');
+        history.replaceState(null, '', '/integrations');
         open = 'strava';
 
         if (!authorizationCode) throw new Error('Strava authorization canceled.');
@@ -235,23 +328,62 @@
   >
 {/snippet}
 
+{#snippet storedList(name: 'strava' | 'garmin')}
+  {@const items = stored(name, connections![name])}
+  {#if items.length}
+    <h4>Saved on this server</h4>
+    <ul class="stored">
+      {#each items as item (item.id)}
+        <li>
+          <span class="what"><strong>{item.label}</strong><small>{item.detail}</small></span>
+          {#if removing === item.id}
+            <!-- svelte-ignore a11y_no_noninteractive_element_interactions (Escape keeps the credential) -->
+            <div
+              class="confirm"
+              role="group"
+              aria-label={`Remove ${item.label}`}
+              onkeydown={(event) => {
+                if (event.key !== 'Escape') return;
+                // Cancelling the keydown stops the dialog closing too, so Escape backs out one step at a time.
+                event.preventDefault();
+                removing = null;
+              }}
+            >
+              <p>Remove the {item.label.toLowerCase()}? {item.effect}</p>
+              <button
+                class="danger"
+                disabled={busy}
+                {@attach (node) => node.focus()}
+                onclick={() => removeCredential(item)}>Remove</button
+              >
+              <button class="quiet" disabled={busy} onclick={() => (removing = null)}>Keep</button>
+            </div>
+          {:else}
+            <button class="quiet" disabled={busy} onclick={() => (removing = item.id)}
+              >Remove<span class="visually-hidden"> {item.label.toLowerCase()}</span></button
+            >
+          {/if}
+        </li>
+      {/each}
+    </ul>
+  {/if}
+{/snippet}
+
 <section class="integrations" aria-labelledby="integrations-title">
   <h2 id="integrations-title">Integrations</h2>
   <p class="lead">Send finished rides to the apps you train with, and bring planned workouts into Zwift.</p>
-  {#if message && where === 'integration' && !open}<p class="notice" class:failed role={failed ? 'alert' : 'status'}>
+  {#if message && where === 'integration' && (!open || !connections)}<p
+      class="notice"
+      class:failed
+      role={failed ? 'alert' : 'status'}
+    >
       {message}
     </p>{/if}
   {#if connections}
     <div class="tiles">
       {#each integrations as integration (integration.name)}
         {@const current = status(integration.name, connections)}
-        <button
-          type="button"
-          class="tile"
-          aria-expanded={open === integration.name}
-          aria-controls="integration-detail"
-          onclick={() => choose(integration.name)}
-        >
+        <button type="button" class="tile" aria-haspopup="dialog" onclick={() => choose(integration.name)}>
           <span class="box" class:on={current.connected} aria-hidden="true">
             {#if current.connected}<svg viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7" /></svg>{/if}
           </span>
@@ -260,112 +392,134 @@
         </button>
       {/each}
     </div>
+  {/if}
+</section>
 
-    {#if open}
-      <div class="detail" id="integration-detail" role="region" aria-labelledby="integration-title">
-        <h3 id="integration-title">{integrations.find((item) => item.name === open)!.title}</h3>
-        {#if message && where === 'integration'}<p class="notice" class:failed role={failed ? 'alert' : 'status'}>
-            {message}
-          </p>{/if}
+<!-- One dialog serves every integration; it opens over the dimmed settings page and closes back to the tiles. -->
+<dialog
+  class="integration"
+  aria-labelledby="integration-title"
+  bind:this={dialog}
+  onclose={closed}
+  onpointerdown={(event) => (pressedBackdrop = event.target === dialog)}
+  onclick={(event) => {
+    if (pressedBackdrop && event.target === dialog) dialog?.close();
+  }}
+>
+  {#if open && connections}
+    {@const current = status(open, connections)}
+    <header>
+      <span class="box" class:on={current.connected} aria-hidden="true">
+        {#if current.connected}<svg viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7" /></svg>{/if}
+      </span>
+      <h3 id="integration-title" class="name">{integrations.find((item) => item.name === open)!.title}</h3>
+      <span class="state">{current.text}</span>
+      <button type="button" class="close" aria-label="Close" onclick={() => dialog?.close()}
+        ><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17" /></svg></button
+      >
+    </header>
+    <div class="body">
+      {#if message && where === 'integration'}<p class="notice" class:failed role={failed ? 'alert' : 'status'}>
+          {message}
+        </p>{/if}
 
-        {#if open === 'strava'}
-          <p class="muted">Upload finished rides to Strava, through your own API application or a browser session.</p>
-          <label for="strava-method">Upload method</label>
-          <select id="strava-method" bind:value={stravaMethod} disabled={busy} onchange={saveMethod}>
-            <option value="paid">Strava API application</option>
-            <option value="free">Browser session cookie</option>
-          </select>
-          {#if stravaMethod === 'paid'}
-            {@render credentials('strava')}
-            <p class="muted">Set your Strava API application's callback domain to this website's hostname.</p>
-            <div class="actions">
-              <button disabled={busy || !connections.strava.saved} onclick={() => authorize('strava')}>Authorize</button
-              >
-              {@render disconnectButton('strava')}
-            </div>
-          {:else}
-            <form
-              onsubmit={(event) => {
-                event.preventDefault();
-                void run(async () => {
-                  await api('/api/me/connections/strava/cookie', 'PUT', { cookie });
-                  cookie = '';
-                  message = 'Session cookie saved.';
-                });
-              }}
-            >
-              <TextField
-                id="strava-cookie"
-                label="_strava4_session"
-                bind:value={cookie}
-                password
-                required
-                maxlength={10000}
-                hint={connections.strava.cookie
-                  ? 'A session cookie is saved. Paste a new one to replace it.'
-                  : 'Copy it from your browser while signed in to Strava. Treat it like a password.'}
-              />
-              <button disabled={busy}>Save session cookie</button>
-            </form>
-            <div class="actions">
-              <button
-                disabled={busy || !connections.strava.cookie}
-                onclick={() =>
-                  void run(async () => {
-                    const { valid } = await api<{ valid: boolean }>('/api/me/connections/strava/test', 'POST', {});
-                    message = valid ? 'Session is valid.' : 'Session is not valid. Update the cookie.';
-                  })}>Test session</button
-              >
-              {@render disconnectButton('strava')}
-            </div>
-          {/if}
-        {:else if open === 'garmin'}
-          <p class="muted">Upload finished rides to Garmin Connect.</p>
-          {@render credentials('garmin')}
-          {#if mfa}<TextField id="garmin-code" label="Verification code" bind:value={code} maxlength={32} />{/if}
+      {#if open === 'strava'}
+        <p class="muted">Upload finished rides to Strava, through your own API application or a browser session.</p>
+        <label for="strava-method">Upload method</label>
+        <select id="strava-method" bind:value={stravaMethod} disabled={busy} onchange={saveMethod}>
+          <option value="paid">Strava API application</option>
+          <option value="free">Browser session cookie</option>
+        </select>
+        {#if stravaMethod === 'paid'}
+          {@render credentials('strava')}
+          <p class="muted">Set your Strava API application's callback domain to this website's hostname.</p>
           <div class="actions">
-            <button disabled={busy || !connections.garmin.saved} onclick={() => authorize('garmin')}
-              >{mfa ? 'Verify Garmin' : 'Authorize'}</button
-            >
-            {@render disconnectButton('garmin')}
-          </div>
-        {:else if open === 'intervals'}
-          <p class="muted">
-            Upload finished rides and bring your planned cycling workouts into Zwift. Find the athlete ID and API key
-            under Developer Settings on Intervals.icu.
-          </p>
-          {@render credentials('intervals')}
-          <div class="actions">
-            <button disabled={busy || !connections.intervals.saved} onclick={() => sync('intervals')}
-              >Sync workouts</button
-            >
-            {@render disconnectButton('intervals')}
+            <button disabled={busy || !connections.strava.saved} onclick={() => authorize('strava')}>Authorize</button>
+            {@render disconnectButton('strava')}
           </div>
         {:else}
-          <p class="muted">
-            Import workouts you export from TrainingPeaks as .zwo files. The server reads them from this folder.
-          </p>
           <form
             onsubmit={(event) => {
               event.preventDefault();
               void run(async () => {
-                await save();
-                message = 'Export folder saved.';
+                await api('/api/me/connections/strava/cookie', 'PUT', { cookie });
+                cookie = '';
+                message = 'Session cookie saved.';
               });
             }}
           >
-            <TextField id="bridge-folder" label="Export folder" bind:value={bridgeFolder} maxlength={500} />
-            <button disabled={busy}>Save folder</button>
+            <TextField
+              id="strava-cookie"
+              label="_strava4_session"
+              bind:value={cookie}
+              password
+              required
+              maxlength={10000}
+              hint={connections.strava.cookie
+                ? 'A session cookie is saved. Paste a new one to replace it.'
+                : 'Copy it from your browser while signed in to Strava. Treat it like a password.'}
+            />
+            <button disabled={busy}>Save session cookie</button>
           </form>
           <div class="actions">
-            <button disabled={busy || !saved.bridgeFolder} onclick={() => sync('trainingpeaks')}>Import workouts</button
+            <button
+              disabled={busy || !connections.strava.cookie}
+              onclick={() =>
+                void run(async () => {
+                  const { valid } = await api<{ valid: boolean }>('/api/me/connections/strava/test', 'POST', {});
+                  message = valid ? 'Session is valid.' : 'Session is not valid. Update the cookie.';
+                })}>Test session</button
             >
+            {@render disconnectButton('strava')}
           </div>
         {/if}
-      </div>
-    {/if}
+        {@render storedList('strava')}
+      {:else if open === 'garmin'}
+        <p class="muted">Upload finished rides to Garmin Connect.</p>
+        {@render credentials('garmin')}
+        {#if mfa}<TextField id="garmin-code" label="Verification code" bind:value={code} maxlength={32} />{/if}
+        <div class="actions">
+          <button disabled={busy || !connections.garmin.saved} onclick={() => authorize('garmin')}
+            >{mfa ? 'Verify Garmin' : 'Authorize'}</button
+          >
+          {@render disconnectButton('garmin')}
+        </div>
+        {@render storedList('garmin')}
+      {:else if open === 'intervals'}
+        <p class="muted">
+          Upload finished rides and bring your planned cycling workouts into Zwift. Find the athlete ID and API key
+          under Developer Settings on Intervals.icu.
+        </p>
+        {@render credentials('intervals')}
+        <div class="actions">
+          <button disabled={busy || !connections.intervals.saved} onclick={() => sync('intervals')}
+            >Sync workouts</button
+          >
+          {@render disconnectButton('intervals')}
+        </div>
+      {:else}
+        <p class="muted">
+          Import workouts you export from TrainingPeaks as .zwo files. The server reads them from this folder.
+        </p>
+        <form
+          onsubmit={(event) => {
+            event.preventDefault();
+            void run(async () => {
+              await save();
+              message = 'Export folder saved.';
+            });
+          }}
+        >
+          <TextField id="bridge-folder" label="Export folder" bind:value={bridgeFolder} maxlength={500} />
+          <button disabled={busy}>Save folder</button>
+        </form>
+        <div class="actions">
+          <button disabled={busy || !saved.bridgeFolder} onclick={() => sync('trainingpeaks')}>Import workouts</button>
+        </div>
+      {/if}
+    </div>
   {/if}
-</section>
+</dialog>
 
 {#if connections}
   <section class="detail uploads" aria-labelledby="uploads-title">
@@ -398,13 +552,13 @@
 {/if}
 
 <style>
-  /* Panels match the settings panel above: 34rem of content plus padding. */
+  /* Panels match the settings panels: 34rem of content plus padding. */
   .detail {
     max-width: 34rem;
   }
   .integrations {
     max-width: 36.5rem;
-    margin: 2rem 0 1rem;
+    margin: 0 0 1rem;
   }
   .lead {
     margin: 0 0 1rem;
@@ -436,10 +590,6 @@
     border-color: rgb(255 255 255 / 0.45);
     background: var(--glass-raised);
   }
-  button.tile[aria-expanded='true'] {
-    border-color: var(--orange);
-    background: var(--glass-raised);
-  }
   .box {
     grid-row: span 2;
     display: grid;
@@ -468,6 +618,7 @@
     font-weight: 800;
   }
   .state {
+    grid-column: 2;
     color: var(--muted);
     font-size: 0.8125rem;
     font-weight: 600;
@@ -481,13 +632,106 @@
     -webkit-backdrop-filter: blur(8px);
     backdrop-filter: blur(8px);
   }
-  .detail h3 {
-    margin: 0 0 0.25rem;
-    font-size: 1.125rem;
-    font-weight: 800;
+
+  /* The dialog rises over the dimmed page. Its header repeats the tile, so the tick lands where you are looking. */
+  dialog.integration {
+    width: min(36rem, calc(100vw - 2rem));
+    max-width: none;
+    max-height: calc(100dvh - 2rem);
+    box-sizing: border-box;
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: rgb(26 36 50 / 0.97);
+    color: var(--text);
+    box-shadow: 0 24px 64px rgb(0 0 0 / 0.5);
+    overflow: hidden;
   }
-  /* Forms sit inside the panel, so they drop their own glass. */
-  .detail form {
+  dialog.integration[open] {
+    display: flex;
+    flex-direction: column;
+    animation: rise 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  dialog.integration::backdrop {
+    background: rgb(8 12 18 / 0.6);
+    -webkit-backdrop-filter: blur(3px);
+    backdrop-filter: blur(3px);
+  }
+  :global(html:has(dialog.integration[open])) {
+    overflow: hidden;
+  }
+  header {
+    flex: none;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    column-gap: 0.8rem;
+    align-items: center;
+    padding: 1rem 1rem 1rem 1.25rem;
+    border-bottom: 1px solid var(--line);
+    background: rgb(62 78 98 / 0.35);
+  }
+  header .box {
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 5px;
+  }
+  header .box svg {
+    width: 1.1rem;
+    height: 1.1rem;
+    animation: tick 260ms cubic-bezier(0.3, 1.6, 0.5, 1);
+  }
+  header h3 {
+    margin: 0;
+    font-size: 1.25rem;
+    line-height: 1.2;
+  }
+  button.close {
+    grid-column: 3;
+    grid-row: 1 / span 2;
+    display: grid;
+    place-items: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    margin: 0;
+    padding: 0;
+    border: 2px solid rgb(255 255 255 / 0.7);
+    border-radius: 50%;
+  }
+  button.close:hover {
+    border-color: var(--orange);
+  }
+  button.close svg {
+    width: 1.3rem;
+    height: 1.3rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.4;
+    stroke-linecap: round;
+  }
+  .body {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 0.5rem 1.25rem 1.25rem;
+  }
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(0.75rem) scale(0.98);
+    }
+  }
+  @keyframes sheet {
+    from {
+      transform: translateY(100%);
+    }
+  }
+  @keyframes tick {
+    from {
+      transform: scale(0.4);
+    }
+  }
+
+  /* Forms sit inside the dialog, so they drop their own glass. */
+  .body form {
     margin: 0;
     padding: 0;
     background: none;
@@ -509,6 +753,77 @@
     border-color: var(--line);
     color: var(--muted);
   }
+  .body h4 {
+    margin: 1.25rem 0 0.4rem;
+    font-size: 0.9375rem;
+    font-weight: 800;
+  }
+
+  /* One row per stored credential; confirming a removal opens beneath it, naming what stops working. */
+  .stored {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .stored li {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0 0.75rem;
+    padding: 0.45rem 0;
+    border-top: 1px solid var(--line);
+  }
+  .stored li:last-child {
+    border-bottom: 1px solid var(--line);
+  }
+  .stored .what {
+    display: grid;
+    min-width: 0;
+  }
+  .stored small {
+    color: var(--muted);
+    font-size: 0.8125rem;
+  }
+  .stored li > button {
+    margin: 0;
+    padding: 0.3rem 0.8rem;
+    font-size: 0.75rem;
+  }
+  .confirm {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+    padding: 0.6rem 0.75rem;
+    border-left: 3px solid #ff6b57;
+    border-radius: 0 8px 8px 0;
+    background: rgb(255 90 70 / 0.12);
+  }
+  .confirm p {
+    flex: 1 1 100%;
+    margin: 0;
+  }
+  .confirm button {
+    margin: 0;
+  }
+  button.danger {
+    border-color: rgb(255 179 166 / 0.75);
+    color: var(--alarm);
+  }
+  button.danger:hover {
+    background: rgb(255 90 70 / 0.14);
+  }
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
   .uploads {
     margin-top: 2rem;
   }
@@ -531,6 +846,26 @@
   @media (max-width: 500px) {
     .detail {
       padding: 0.9rem;
+    }
+    /* On a phone the dialog is a sheet from the bottom edge, in reach of the thumb. */
+    dialog.integration {
+      width: 100%;
+      max-height: 92dvh;
+      margin: auto 0 0;
+      border-width: 1px 0 0;
+      border-radius: 16px 16px 0 0;
+    }
+    dialog.integration[open] {
+      animation-name: sheet;
+    }
+    .body {
+      padding: 0.25rem 1rem calc(1rem + env(safe-area-inset-bottom));
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    dialog.integration[open],
+    header .box svg {
+      animation: none;
     }
   }
 </style>

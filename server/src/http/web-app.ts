@@ -53,7 +53,9 @@ export function createWebApp(runtime: HttpRuntime) {
 
   app.use('*', async (c, next) => {
     const upload = c.req.method === 'POST' && c.req.path === '/api/me/import';
-    const avatar = c.req.method === 'PUT' && c.req.path === '/api/me/avatar';
+    const avatar =
+      c.req.method === 'PUT' &&
+      (c.req.path === '/api/me/avatar' || /^\/api\/manage\/users\/\d+\/avatar$/.test(c.req.path));
 
     return bodyLimit({ maxSize: upload ? 81 * 1024 * 1024 : avatar ? 2 * 1024 * 1024 : 64 * 1024 })(c, next);
   });
@@ -69,6 +71,8 @@ export function createWebApp(runtime: HttpRuntime) {
 
     if (durability.changes() !== before) await durability.flush();
   });
+  app.get('/health', (c) => c.json({ name: 'zluggish', version: packageVersion(), status: 'ok' }));
+
   app.use('/api/*', async (c, next) => {
     // This listener accepts only its own opaque session store. Bearer tokens are never used.
     const id = getCookie(c, cookie);
@@ -91,7 +95,8 @@ export function createWebApp(runtime: HttpRuntime) {
       if (
         !(c.req.method === 'POST' && c.req.path === '/api/me/import'
           ? c.req.header('Content-Type')?.startsWith('multipart/form-data;')
-          : c.req.method === 'PUT' && c.req.path === '/api/me/avatar'
+          : c.req.method === 'PUT' &&
+              (c.req.path === '/api/me/avatar' || /^\/api\/manage\/users\/\d+\/avatar$/.test(c.req.path))
             ? c.req.header('Content-Type') === 'image/jpeg'
             : c.req.header('Content-Type')?.startsWith('application/json'))
       )
@@ -264,6 +269,35 @@ export function createWebApp(runtime: HttpRuntime) {
     return c.json(management.publicUser(user));
   });
 
+  app.get('/api/manage/users/:id/profile', (c) =>
+    c.json(
+      management.ownProfile(c.get('sessionId'), z.coerce.number().int().positive().safe().parse(c.req.param('id'))),
+    ),
+  );
+  app.patch('/api/manage/users/:id/profile', async (c) =>
+    c.json(
+      management.editOwnProfile(
+        c.get('sessionId'),
+        await c.req.json(),
+        z.coerce.number().int().positive().safe().parse(c.req.param('id')),
+      ),
+    ),
+  );
+  app.put('/api/manage/users/:id/avatar', async (c) =>
+    c.json(
+      management.saveAvatar(
+        c.get('sessionId'),
+        new Uint8Array(await c.req.arrayBuffer()),
+        z.coerce.number().int().positive().safe().parse(c.req.param('id')),
+      ),
+    ),
+  );
+  app.delete('/api/manage/users/:id/avatar', (c) =>
+    c.json(
+      management.removeAvatar(c.get('sessionId'), z.coerce.number().int().positive().safe().parse(c.req.param('id'))),
+    ),
+  );
+
   app.get('/api/manage/users/:id/avatar', (c) => {
     const id = z.coerce.number().int().positive().safe().parse(c.req.param('id'));
     const path = management.avatarPath(id);
@@ -371,6 +405,8 @@ export function createWebApp(runtime: HttpRuntime) {
     '/setup',
     '/sign-in',
     '/settings',
+    '/profile/:id',
+    '/integrations',
     '/import',
     '/import/*',
     '/export',

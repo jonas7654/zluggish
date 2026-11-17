@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, type Snippet } from 'svelte';
+  import ConnectionBanner from './ConnectionBanner.svelte';
 
   let {
     title,
@@ -167,6 +168,7 @@
         ></a>{/if}
       <h1>{title}</h1>
     </header>{:else}<h1 class="hidden-heading">{title}</h1>{/if}
+  <ConnectionBanner />
   {@render children()}
 </main>
 

@@ -1,0 +1,96 @@
+import { writable } from 'svelte/store';
+
+export const connection = writable({ unavailable: false, checking: false, retryIn: 0 });
+export class ConnectionError extends Error {
+  constructor() {
+    super('Unable to connect to the server. Please try again once the connection is restored.');
+  }
+}
+
+let unavailable = false;
+let checking = false;
+let failures = 0;
+let retryAt = 0;
+
+function publish() {
+  connection.set({ unavailable, checking, retryIn: Math.max(0, Math.ceil((retryAt - Date.now()) / 1000)) });
+}
+
+function disconnected() {
+  if (!unavailable) retryAt = Date.now() + 1000;
+  unavailable = true;
+  publish();
+}
+
+/** Never retries a request: a lost mutation response may already have committed. */
+export async function request(url: string, init: RequestInit = {}) {
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...init,
+      signal: init.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
+    });
+  } catch (error) {
+    if (init.signal?.aborted) throw error;
+    disconnected();
+    throw new ConnectionError();
+  }
+
+  if (response.status >= 500) {
+    disconnected();
+    throw new ConnectionError();
+  }
+
+  return response;
+}
+
+export async function requestJson(url: string, init: RequestInit = {}) {
+  const response = await request(url, init);
+  try {
+    const body = await response.json();
+    if (body === null || typeof body !== 'object') throw new Error('Invalid response');
+    return { response, body };
+  } catch {
+    disconnected();
+    throw new ConnectionError();
+  }
+}
+
+export async function checkConnection() {
+  if (checking) return;
+  checking = true;
+  publish();
+  try {
+    const response = await fetch('/health', { cache: 'no-store', signal: AbortSignal.timeout(5000) });
+    const body = await response.json();
+    if (!response.ok || body.name !== 'zluggish' || body.status !== 'ok') throw new Error('Unavailable');
+    unavailable = false;
+    failures = 0;
+    retryAt = Date.now() + 30_000;
+  } catch {
+    unavailable = true;
+    retryAt = Date.now() + Math.min(30_000, 1000 * 2 ** Math.min(failures++, 5)) * (0.8 + Math.random() * 0.4);
+  } finally {
+    checking = false;
+    publish();
+  }
+}
+
+export function monitorConnection() {
+  const tick = () => {
+    publish();
+    if (Date.now() >= retryAt && !document.hidden) void checkConnection();
+  };
+  const resume = () => {
+    void checkConnection();
+  };
+  const interval = setInterval(tick, 1000);
+  window.addEventListener('online', resume);
+  window.addEventListener('focus', resume);
+  tick();
+  return () => {
+    clearInterval(interval);
+    window.removeEventListener('online', resume);
+    window.removeEventListener('focus', resume);
+  };
+}

@@ -371,8 +371,10 @@ export class ManagementService extends BaseService {
     });
   }
 
-  ownProfile(id: string) {
-    const user = this.sessions.require(id);
+  ownProfile(id: string, player?: number) {
+    const actor = this.sessions.require(id, player !== undefined);
+    const user = player === undefined ? actor : this.context.accounts.get(player);
+    if (!user) throw new ApplicationError(404, 'User not found.');
     const [month, day, year] = this.context.profiles.get(user.player_id).dob.split('/', 3);
 
     return {
@@ -394,8 +396,10 @@ export class ManagementService extends BaseService {
     return this.filesRepository.existsSync(path) ? Math.trunc(this.filesRepository.statSync(path).mtimeMs) : null;
   }
 
-  saveAvatar(id: string, image: Uint8Array) {
-    const user = this.sessions.require(id);
+  saveAvatar(id: string, image: Uint8Array, player?: number) {
+    const actor = this.sessions.require(id, player !== undefined);
+    const user = player === undefined ? actor : this.context.accounts.get(player);
+    if (!user) throw new ApplicationError(404, 'User not found.');
 
     if (image.length < 4 || image[0] !== 0xff || image[1] !== 0xd8 || image.at(-2) !== 0xff || image.at(-1) !== 0xd9)
       throw new ApplicationError(400, 'Choose a JPG or PNG image.');
@@ -404,8 +408,10 @@ export class ManagementService extends BaseService {
     return { avatar: this.avatarVersion(user.player_id) };
   }
 
-  removeAvatar(id: string) {
-    const user = this.sessions.require(id);
+  removeAvatar(id: string, player?: number) {
+    const actor = this.sessions.require(id, player !== undefined);
+    const user = player === undefined ? actor : this.context.accounts.get(player);
+    if (!user) throw new ApplicationError(404, 'User not found.');
     const path = this.avatarPath(user.player_id);
 
     if (this.filesRepository.existsSync(path)) this.filesRepository.unlinkSync(path);
@@ -413,15 +419,16 @@ export class ManagementService extends BaseService {
     return { avatar: null };
   }
 
-  editOwnProfile(id: string, raw: z.input<typeof ownProfileRequest>) {
+  editOwnProfile(id: string, raw: z.input<typeof ownProfileRequest>, targetPlayer?: number) {
     const input = ownProfileRequest.parse(raw);
 
     return this.store.transaction(() => {
-      const actor = this.sessions.require(id);
-      const player = actor.player_id;
-      const target = this.context.accounts.get(player)!;
-      const fingerprint = this.fingerprint(input);
-      const prior = this.store.operation(player, input.operation);
+      const actor = this.sessions.require(id, targetPlayer !== undefined);
+      const player = targetPlayer ?? actor.player_id;
+      const target = this.context.accounts.get(player);
+      if (!target) throw new ApplicationError(404, 'User not found.');
+      const fingerprint = this.fingerprint({ ...input, player });
+      const prior = this.store.operation(actor.player_id, input.operation);
 
       if (prior) {
         if (prior.fingerprint !== fingerprint || prior.action !== 'profile')
@@ -445,8 +452,8 @@ export class ManagementService extends BaseService {
       profile.dob = input.birthday.replace(/^(\d{4})-(\d{2})-(\d{2})$/, '$2/$3/$1');
       this.context.profiles.save(player, profile);
       this.store.update(player, { username: input.username }, false);
-      const result = this.ownProfile(id);
-      this.store.record(player, input.operation, 'profile', player, fingerprint, result);
+      const result = this.ownProfile(id, targetPlayer);
+      this.store.record(actor.player_id, input.operation, 'profile', player, fingerprint, result);
 
       return result;
     });

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
+  import { requestJson } from '../lib/connection';
   import type { Snippet } from 'svelte';
   import type { FormResult, GameForm, GamePageModel, GameSaved } from '../lib/game-app.dto';
   import { safeNavigation, validation, values, visible } from '../lib/forms.js';
@@ -132,7 +133,7 @@
     controller = new AbortController();
 
     try {
-      const response = await fetch(form.action, {
+      const { response, body: resultBody } = await requestJson(form.action, {
         method: 'POST',
         body,
         credentials: 'same-origin',
@@ -142,7 +143,7 @@
       });
 
       // SAFETY: this route's same-origin server wrapper owns the FormResult contract.
-      const result = (await response.json()) as FormResult<GameSaved>;
+      const result = resultBody as FormResult<GameSaved>;
 
       if (!alive || controller.signal.aborted || locked) return;
 

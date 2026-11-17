@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
+  import { request } from '../../lib/connection';
   import Layout from '../../components/Layout.svelte';
   import Form from '../../components/Form.svelte';
   import type { GamePageModel } from '../../lib/game-app.dto';
@@ -30,7 +31,7 @@
       controller = new AbortController();
 
       try {
-        const response = await fetch('/ui/status/session', {
+        const response = await request('/ui/status/session', {
           credentials: 'same-origin',
           headers: { Accept: 'application/json', 'X-Game-Context': current.csrf },
           signal: controller.signal,

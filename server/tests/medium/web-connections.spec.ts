@@ -57,7 +57,7 @@ await test('web connections require web authentication and CSRF, isolate riders 
   const authorization = await authorizationResponse.json();
   const url = new URL(authorization.url);
   assert.equal(url.origin, 'https://www.strava.com');
-  assert.equal(url.searchParams.get('redirect_uri'), 'https://web.example/settings');
+  assert.equal(url.searchParams.get('redirect_uri'), 'https://web.example/integrations');
   assert.notEqual(url.searchParams.get('state'), owner.session.csrf);
   assert.equal(
     await responseStatus(request('/api/me/connections/strava/authorize', 'POST', { code: 'code', state: 'wrong' })),
@@ -172,4 +172,60 @@ await test('web uploads, workout sync and Strava session tests stay with the sig
   assert.equal(f.services.workouts.provider(f.rider.player_id), 'trainingpeaks');
   assert.equal(f.services.workouts.provider(f.other.player_id), null);
   assert.equal(await responseStatus(web.request('/api/me/workouts/sync', 'POST', { provider: 'garmin' })), 400);
+});
+
+await test('web riders remove one stored credential and keep the rest', async (t) => {
+  const f = await mediumFixture(t);
+  const app = createWebApp(f);
+  const owner = f.services.management.sessions.create(f.accounts.identityOf(f.rider));
+  const { documents, connections } = f.services;
+
+  const remove = (path: string, csrf = owner.session.csrf) =>
+    responseStatus(
+      app.request(`https://web.example/api/me/connections/${path}`, {
+        method: 'DELETE',
+        headers: {
+          Cookie: `zluggish_web_session=${owner.id}`,
+          Origin: 'https://web.example',
+          'X-CSRF-Token': csrf,
+          'Content-Type': 'application/json',
+        },
+      }),
+    );
+
+  for (const rider of [f.rider, f.other]) {
+    connections.save(rider.player_id, 'strava', ['12345', 'client-secret']);
+    connections.save(rider.player_id, 'garmin', ['athlete', 'password']);
+    documents.put(rider.player_id, 'strava_token.txt', 'token');
+    documents.put(rider.player_id, 'strava4_session.txt', 'cookie');
+    documents.put(rider.player_id, 'garth/oauth1_token.json', '{}');
+    documents.put(rider.player_id, 'garth/oauth2_token.json', '{}');
+  }
+
+  const stored = () => [
+    connections.has(f.rider.player_id, 'strava'),
+    documents.has(f.rider.player_id, 'strava_token.txt'),
+    documents.has(f.rider.player_id, 'strava4_session.txt'),
+    connections.has(f.rider.player_id, 'garmin'),
+    documents.has(f.rider.player_id, 'garth/oauth1_token.json'),
+    documents.has(f.rider.player_id, 'garth/oauth2_token.json'),
+  ];
+
+  assert.equal(await remove('strava/cookie', 'wrong'), 403);
+  assert.equal(await remove('strava/cookie'), 200);
+  assert.deepEqual(stored(), [true, true, false, true, true, true]);
+  assert.equal(await remove('strava/authorization'), 200);
+  assert.deepEqual(stored(), [true, false, false, true, true, true]);
+  assert.equal(await remove('garmin/authorization'), 200);
+  assert.deepEqual(stored(), [true, false, false, true, false, false]);
+  assert.equal(await remove('strava/api'), 200);
+  assert.equal(await remove('garmin/credentials'), 200);
+  assert.deepEqual(stored(), [false, false, false, false, false, false]);
+  assert.equal(await remove('intervals/cookie'), 400);
+  assert.equal(await remove('strava/encryption_key'), 400);
+
+  // The other rider keeps every credential.
+  assert.equal(connections.has(f.other.player_id, 'strava'), true);
+  assert.equal(documents.has(f.other.player_id, 'strava4_session.txt'), true);
+  assert.equal(documents.has(f.other.player_id, 'garth/oauth2_token.json'), true);
 });
