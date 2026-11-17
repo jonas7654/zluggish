@@ -66,6 +66,7 @@ export function assetRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     gamePage(c, runtime, {
       kind: 'message',
       title: 'Loading Zwift...',
+      message: 'Enjoying Zluggish? Please star us on GitHub: zluggish.com',
       csrf: '',
       version: '',
       forms: [],
