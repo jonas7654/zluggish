@@ -91,6 +91,31 @@ await test('a stop during each delivery state never sends a delivery twice', asy
   assert.equal(sends.mock.callCount(), 1);
 });
 
+await test('a rider uploads a finished activity on request, and uploads it again only when confirmed', async (t) => {
+  const f = await mediumFixture(t);
+  const player = f.rider.player_id;
+  const id = await completed(f);
+  const sends = t.mock.method(globalThis, 'fetch', () => Promise.resolve(new Response(null, { status: 200 })));
+  const uploads = f.services.uploads;
+
+  // Nothing was connected when the activity finished, so it has no deliveries yet.
+  assert.deepEqual(uploads.forActivity(player, id), []);
+  assert.throws(() => uploads.request(player, id, 'runalyze', false), { status: 409 });
+
+  f.services.documents.put(player, 'runalyze_token.txt', 'token');
+  assert.deepEqual(uploads.forActivity(player, id), [{ provider: 'runalyze', state: null, error: null }]);
+  assert.throws(() => uploads.request(f.other.player_id, id, 'runalyze', false), { status: 404 });
+
+  await uploads.request(player, id, 'runalyze', false);
+  assert.equal(uploads.forActivity(player, id)[0]?.state, 'sent');
+  assert.throws(() => uploads.request(player, id, 'runalyze', false), { status: 409 });
+  assert.equal(sends.mock.callCount(), 1);
+
+  await uploads.request(player, id, 'runalyze', true);
+  assert.equal(uploads.forActivity(player, id)[0]?.state, 'sent');
+  assert.equal(sends.mock.callCount(), 2);
+});
+
 await test('a partial Zwift delivery keeps its remote activity and a retry uploads to it', async (t) => {
   const f = await mediumFixture(t);
   f.services.connections.save(f.rider.player_id, 'zwift', ['user', 'pass']);

@@ -54,6 +54,26 @@ You should see output similar to:
 zluggish-1  | 2026-11-17T11:40:23.126Z INFO server.ready Zluggish is ready
 ```
 
+### First-time setup
+
+The first administrator must prove access to the server using a setup key. When setup has not been completed and the web app is enabled, the server generates a key and prints it in the **Zluggish first-time setup** block in its startup output. Keep this key private: it authorizes creation of the first administrator.
+
+1. Start the server. Read the **Open:** address and **Setup key:** from the terminal, or retrieve them from the container logs:
+
+   ```sh
+   docker compose -f docker/docker-compose.yml logs zluggish
+   ```
+
+2. Open the printed setup address (by default, `http://<server-ip>:8080/setup`). Paste the key into **Setup key** and select **Check key**. Case, spaces and hyphens do not matter.
+3. After **Setup key accepted** appears, enter a name, login name and password to create a new user. When migrating, you can instead choose **Use an existing user**, select an enabled user with a password, and enter that user's password. Users without passwords need [CLI account recovery](server/README.md#recover-a-local-account) first.
+4. Select **Complete setup**. The chosen user becomes the first administrator and is signed in automatically. The setup key is invalidated; future sign-ins use the user's login name and password.
+5. Open **Manage → Users** and create the other users with passwords.
+6. Start Zwift, select your user in the game and sign in with the user's username and password. Android uses native credential login, so every user needs a password; there is no passwordless picker.
+
+The key works only until setup completes or the server stops. If the server restarts before setup completes, use the new key from the latest startup output. After setup completes, restarting does not issue another key; use [CLI account recovery](server/README.md#recover-a-local-account) if you lose administrator access.
+
+### Server configuration and CLI
+
 The server image also includes the full admin CLI, with no Node or pnpm installation needed on the host:
 
 ```sh
@@ -89,7 +109,7 @@ network: {
 },
 ```
 
-Next, [create the first administrator in the web app](#web-app), then connect the client.
+After completing [first-time setup](#first-time-setup), connect the client.
 
 ## Client configuration
 
@@ -269,13 +289,7 @@ The Runalyze adapter reads the user's existing `storage/<local-player-id>/runaly
 
 The web app is where users and administrators work with Zluggish. Use it only on a network that you trust: other devices on the network can read the passwords that users type unless you put it behind HTTPS.
 
-### First-time setup
-
-1. Start the server. Find the setup address and key in the terminal or with `docker compose -f docker/docker-compose.yml logs zluggish`.
-2. Open `http://<server-ip>:8080/setup` and enter the setup key. The key works until setup is complete or the server restarts.
-3. Create the first user, or, when migrating, choose an existing user that has a password. This user becomes the administrator.
-4. Open **Manage → Users** and create the other users with passwords.
-5. Start Zwift, select your user in the game and sign in with the user's username and password. Android uses native credential login, so every user needs a password; there is no passwordless picker.
+To create the first administrator, follow [First-time setup](#first-time-setup) under Server install.
 
 Behind a reverse proxy, set `network.web.publicUrl` to the address users open, for example `https://zluggish.example.com`. The web app then accepts requests only from that address, and an `https` URL marks sign-in cookies `Secure`. Set `network.web.enabled: false` to run without the web app.
 

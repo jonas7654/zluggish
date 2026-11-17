@@ -1,6 +1,8 @@
 import { ApplicationError } from '#src/errors';
 import type { AccountsService } from '#src/services/auth.service';
 import { BaseService } from '#src/services/base.service';
+import { createHash } from 'node:crypto';
+import { z } from 'zod';
 
 export interface WebSession {
   csrf: string;
@@ -25,13 +27,35 @@ export class WebSessionsService extends BaseService {
     return this.cryptoRepository.randomBytes(32).toString('base64url');
   }
 
+  private hash(id: string) {
+    return createHash('sha256').update(id).digest('hex');
+  }
+
+  /** A restart empties the map; a session found in the database is loaded back into it. */
+  private restore(id: string) {
+    const row = z
+      .object({ csrf: z.string(), identity: z.string(), expires: z.number() })
+      .nullable()
+      .parse(
+        this.accounts.db.prepare('SELECT csrf, identity, expires FROM web_session WHERE id_hash = ?').get(this.hash(id)) ??
+          null,
+      );
+
+    if (!row) return undefined;
+    const session: WebSession = { ...row, confirmedUntil: 0 };
+    this.sessions.set(id, session);
+
+    return session;
+  }
+
   find(id: string | undefined) {
-    const session = id ? this.sessions.get(id) : undefined;
+    if (!id) return null;
+    const session = this.sessions.get(id) ?? this.restore(id);
 
     if (!session) return null;
 
     if (session.expires <= Date.now()) {
-      this.sessions.delete(id!);
+      this.end(id);
 
       return null;
     }
@@ -43,17 +67,23 @@ export class WebSessionsService extends BaseService {
     const now = Date.now();
 
     for (const [key, value] of this.sessions) if (value.expires <= now) this.sessions.delete(key);
+    this.accounts.db.prepare('DELETE FROM web_session WHERE expires <= ?').run(now);
 
     if (this.sessions.size >= 10_000) throw new ApplicationError(503, 'Too many web sessions');
     const id = this.token();
     const session: WebSession = { csrf: this.token(), identity, expires: now + 86_400_000, confirmedUntil };
     this.sessions.set(id, session);
+    this.accounts.db
+      .prepare('INSERT INTO web_session (id_hash, csrf, identity, expires) VALUES (?, ?, ?, ?)')
+      .run(this.hash(id), session.csrf, identity, session.expires);
 
     return { id, session };
   }
 
   end(id: string) {
     this.sessions.delete(id);
+
+    if (id) this.accounts.db.prepare('DELETE FROM web_session WHERE id_hash = ?').run(this.hash(id));
   }
 
   user(id: string) {
@@ -63,7 +93,7 @@ export class WebSessionsService extends BaseService {
     const user = this.accounts.identity(session.identity);
 
     // An identity change (password, role, enabled state, revocation) ends the session and its confirmation.
-    if (!user) this.sessions.delete(id);
+    if (!user) this.end(id);
 
     return user;
   }

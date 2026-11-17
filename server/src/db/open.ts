@@ -7,6 +7,7 @@ import {
   dropManagementAuditSQL,
   indexesSQL,
   storageSchemaSQL,
+  webSessionSQL,
 } from '#src/db/ddl';
 import { migrateStorage, resolvePendingMigration, STORAGE_VERSION, StorageFile } from '#src/migrations/storage';
 import { existsSync, mkdirSync, readdirSync, renameSync } from 'node:fs';
@@ -21,6 +22,7 @@ const migrations: { version: number; up: (db: DatabaseSync) => void }[] = [
   { version: 7, up: (db) => db.exec(indexesSQL) },
   { version: 8, up: (db) => db.exec(administratorSchemaSQL) },
   { version: 9, up: (db) => db.exec(dropManagementAuditSQL) },
+  { version: 10, up: (db) => db.exec(webSessionSQL) },
 ];
 
 /** The schema version this release writes. */

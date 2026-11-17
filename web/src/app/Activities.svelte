@@ -28,8 +28,23 @@
 
   type Detail = Summary & { imageIds: number[]; chart: Chart | null; chartPending: boolean };
 
-  let { path, api, go }: { path: string; api: <Body>(url: string) => Promise<Body>; go: (next: string) => void } =
-    $props();
+  type Provider = 'strava' | 'freeStrava' | 'garmin' | 'runalyze' | 'intervals' | 'zwift';
+
+  type Upload = {
+    provider: Provider;
+    state: 'pending' | 'sending' | 'sent' | 'failed' | 'ambiguous' | 'cancelled' | null;
+    error: string | null;
+  };
+
+  let {
+    path,
+    api,
+    go,
+  }: {
+    path: string;
+    api: <Body>(url: string, method?: string, data?: Record<string, string | boolean>) => Promise<Body>;
+    go: (next: string) => void;
+  } = $props();
 
   const worlds = new Map([
     [2, 'Richmond'],
@@ -51,6 +66,13 @@
   let detail = $state<Detail | null>(null);
   let failure = $state('');
   let chartWaitExpired = $state(false);
+
+  /** The open activity's deliveries, one per connected service. */
+  let uploads = $state<{ id: string; list: Upload[] } | null>(null);
+  let chooser = $state(false);
+  let chosen = $state<Provider[]>([]);
+  let sending = $state(false);
+  let uploadFailure = $state('');
 
   let page = $state(0);
   let showList = $state(false);
@@ -162,6 +184,108 @@
       ] as const
     ).filter(([, value]) => value > 0);
 
+  const services: Record<Provider, string> = {
+    strava: 'Strava',
+    freeStrava: 'Strava',
+    garmin: 'Garmin Connect',
+    runalyze: 'Runalyze',
+    intervals: 'Intervals.icu',
+    zwift: 'Zwift',
+  };
+
+  /** Only the Strava session cookie can attach images; every other service takes the FIT file alone. */
+  const contents = (provider: Provider, images: number) =>
+    images === 0
+      ? 'FIT file'
+      : provider === 'freeStrava'
+        ? `FIT file and ${images} ${images === 1 ? 'image' : 'images'}`
+        : 'FIT file only, no images';
+
+  const inFlight = (u: Upload) => u.state === 'pending' || u.state === 'sending';
+  const uploaded = (u: Upload) => u.state === 'sent' || u.state === 'ambiguous';
+
+  function progress(u: Upload) {
+    switch (u.state) {
+      case 'pending':
+        return 'Waiting';
+      case 'sending':
+        return 'Uploading…';
+      case 'sent':
+        return 'Uploaded';
+      case 'ambiguous':
+        return 'Result unknown';
+      case 'failed':
+        return u.error?.startsWith('strava_session') ? 'Session expired' : 'Failed';
+      case 'cancelled':
+        return 'Cancelled';
+      default:
+        return 'Not uploaded';
+    }
+  }
+
+  /** One sentence for the closed section, so the state is visible without opening the chooser. */
+  function summary(list: Upload[]) {
+    const names = (match: (u: Upload) => boolean) => {
+      const found = [...new Set(list.flatMap((u) => (match(u) ? [services[u.provider]] : [])))];
+
+      return found.length > 1 ? `${found.slice(0, -1).join(', ')} and ${found.at(-1)}` : found[0];
+    };
+
+    return [
+      names((u) => u.state === 'sent') && `Uploaded to ${names((u) => u.state === 'sent')}.`,
+      names(inFlight) && `Uploading to ${names(inFlight)}…`,
+      names((u) => u.state === 'failed') && `Upload to ${names((u) => u.state === 'failed')} failed.`,
+      names((u) => u.state === 'ambiguous') &&
+        `${names((u) => u.state === 'ambiguous')} may already have it; the last upload ended without an answer.`,
+    ]
+      .filter(Boolean)
+      .join(' ');
+  }
+
+  async function loadUploads(id: string) {
+    try {
+      const body = await api<{ uploads: Upload[] }>(`/api/me/activities/${id}/uploads`);
+
+      if (detail?.id === id) uploads = { id, list: body.uploads };
+    } catch {
+      /* The section stays as it was; the next open or poll tries again. */
+    }
+  }
+
+  function toggleChooser(list: Upload[]) {
+    chooser = !chooser;
+    uploadFailure = '';
+
+    // Services that do not have the activity yet start ticked; uploading again is a deliberate choice.
+    if (chooser) chosen = list.flatMap((u) => (uploaded(u) || inFlight(u) ? [] : [u.provider]));
+  }
+
+  async function upload(id: string, list: Upload[]) {
+    sending = true;
+    uploadFailure = '';
+    const failures: string[] = [];
+
+    for (const provider of chosen) {
+      const again = list.some((u) => u.provider === provider && uploaded(u));
+
+      try {
+        const body = await api<{ uploads: Upload[] }>(`/api/me/activities/${id}/uploads`, 'POST', { provider, again });
+
+        if (detail?.id === id) uploads = { id, list: body.uploads };
+      } catch (error) {
+        failures.push(
+          `${services[provider]}: ${error instanceof Error ? error.message : 'the upload could not start.'}`,
+        );
+      }
+    }
+
+    sending = false;
+    uploadFailure = failures.join(' ');
+
+    // The chooser stays open, so each row shows its upload on the way.
+    if (!failures.length) chosen = [];
+  }
+
   async function loadList(currentPage: number) {
     const version = ++requestVersion;
 
@@ -199,6 +323,30 @@
     void loadList(page);
   });
 
+  /** Derived, so the chart polls that replace `detail` do not close the chooser. */
+  const uploadable = $derived(detail?.fit ? detail.id : null);
+
+  $effect(() => {
+    const id = uploadable;
+    chooser = false;
+    uploadFailure = '';
+
+    if (id) void loadUploads(id);
+  });
+
+  // Deliveries run in the background, so the section refreshes while any is still on its way.
+  $effect(() => {
+    const id = uploads?.id;
+
+    if (!id || !uploads?.list.some(inFlight)) return;
+
+    const timer = setInterval(() => {
+      if (!document.hidden) void loadUploads(id);
+    }, 3000);
+
+    return () => clearInterval(timer);
+  });
+
   $effect(() => {
     const id = selectedId;
     failure = '';
@@ -213,6 +361,95 @@
     go(href);
   }
 </script>
+
+{#snippet uploader(a: Detail)}
+  <div class="inset upload">
+    <h3>Upload</h3>
+    {#if !a.endDate}
+      <p class="muted">Finish the activity in the game to upload it.</p>
+    {:else if uploads?.id !== a.id}
+      <p class="muted">Checking your connected services…</p>
+    {:else if uploads.list.length === 0}
+      <p class="muted">
+        Connect Strava, Garmin or Intervals.icu in <a href="/integrations" onclick={(e) => open(e, '/integrations')}
+          >Integrations</a
+        > to send activities there.
+      </p>
+    {:else}
+      {@const list = uploads.list}
+      <p class="muted" aria-live="polite">
+        {summary(list) ||
+          `Send this activity${a.imageIds.length ? ' and its images' : ''} to the services you have connected.`}
+      </p>
+      <button
+        type="button"
+        class="toggle"
+        aria-expanded={chooser}
+        aria-controls="upload-chooser"
+        onclick={() => toggleChooser(list)}>{chooser ? 'Close' : 'Upload to integrations'}</button
+      >
+      {#if chooser}
+        <form
+          id="upload-chooser"
+          class="chooser"
+          onsubmit={(event) => {
+            event.preventDefault();
+            void upload(a.id, list);
+          }}
+        >
+          <fieldset>
+            <legend class="visually-hidden">Services to upload to</legend>
+            <ul class="plain services">
+              {#each list as u (u.provider)}
+                <li class="service" class:sending={inFlight(u)} data-state={u.state ?? 'none'}>
+                  <label>
+                    <input type="checkbox" value={u.provider} bind:group={chosen} disabled={sending || inFlight(u)} />
+                    <span class="name">
+                      <strong>{services[u.provider]}</strong>
+                      <small>{contents(u.provider, a.imageIds.length)}</small>
+                    </span>
+                    <span class="state">{progress(u)}</span>
+                  </label>
+                  {#if inFlight(u)}<span class="bar" aria-hidden="true"></span>{/if}
+                </li>
+              {/each}
+            </ul>
+          </fieldset>
+          {#each list.filter((u) => chosen.includes(u.provider) && uploaded(u)) as u (u.provider)}
+            <p class="caution">
+              {services[u.provider]}
+              {u.state === 'sent' ? 'already has this activity' : 'may already have this activity'}. Uploading again can
+              create a duplicate there.
+            </p>
+          {/each}
+          {#if list.some((u) => u.state === 'failed' && u.error?.startsWith('strava_session'))}
+            <p class="caution">
+              Strava did not accept the saved session. Replace the cookie in <a
+                href="/integrations"
+                onclick={(e) => open(e, '/integrations')}>Integrations</a
+              >, then try again.
+            </p>
+          {/if}
+          {#if uploadFailure}<p class="error" role="alert">{uploadFailure}</p>{/if}
+          {#if chosen.length}
+            <button class="primary" disabled={sending}
+              >{sending
+                ? 'Starting upload…'
+                : chosen.length === 1
+                  ? `Upload to ${services[chosen[0]!]}`
+                  : `Upload to ${chosen.length} services`}</button
+            >
+          {/if}
+          {#if a.imageIds.length && !list.some((u) => u.provider === 'freeStrava')}
+            <p class="muted note">
+              Images go only to Strava when it is connected with a session cookie. Other services get the FIT file.
+            </p>
+          {/if}
+        </form>
+      {/if}
+    {/if}
+  </div>
+{/snippet}
 
 {#if failure}<p class="notice failed" role="alert">{failure}</p>{/if}
 
@@ -402,6 +639,8 @@
               </ul>
             </div>
           {/if}
+
+          {#if detail.fit}{@render uploader(detail)}{/if}
         {/if}
       </section>
     </div>
@@ -798,6 +1037,100 @@
     font-size: 0.8125rem;
   }
 
+  /* Upload: one quiet button; the chooser opens in place under it, one row per connected service. */
+  .upload .toggle {
+    margin-top: 0;
+  }
+  .upload .toggle[aria-expanded='true'] {
+    border-color: var(--line);
+  }
+  .chooser {
+    margin: 0.85rem 0 0;
+    padding: 0;
+    background: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .chooser fieldset {
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+  .services {
+    border-radius: 10px;
+    background: var(--well);
+    overflow: hidden;
+  }
+  .services li + li {
+    margin: 0;
+    border-top: 1px solid var(--line);
+  }
+  .service {
+    position: relative;
+  }
+  .service label {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.85rem;
+    margin: 0;
+    padding: 0.7rem 0.9rem;
+    color: var(--text);
+    cursor: pointer;
+  }
+  .service label:has(:disabled) {
+    cursor: default;
+  }
+  .service label:hover:not(:has(:disabled)) {
+    background: rgb(255 255 255 / 0.06);
+  }
+  .service .name small {
+    display: block;
+    color: var(--muted);
+    font-size: 0.8125rem;
+  }
+  .service .state {
+    color: var(--muted);
+    font-size: 0.8125rem;
+    white-space: nowrap;
+  }
+  .service[data-state='sent'] .state {
+    color: #a7f3c1;
+  }
+  .service[data-state='sent'] .state::before {
+    content: '✓ ';
+  }
+  .service[data-state='failed'] .state,
+  .service[data-state='ambiguous'] .state {
+    color: var(--alarm);
+  }
+  .service.sending .state {
+    color: var(--text);
+  }
+  /* The page's loading sweep, along the foot of the row that is on its way. */
+  .service .bar {
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    border-radius: 0;
+  }
+  .chooser .caution {
+    margin: 0.75rem 0 0;
+    padding: 0.5rem 0.75rem;
+    border-left: 3px solid var(--orange);
+    border-radius: 0 6px 6px 0;
+    background: rgb(226 86 12 / 0.12);
+    font-size: 0.875rem;
+  }
+  .chooser .error {
+    margin: 0.75rem 0 0;
+  }
+  .chooser .note {
+    margin: 0.75rem 0 0;
+    font-size: 0.8125rem;
+  }
+
   .visually-hidden {
     position: absolute;
     width: 1px;
@@ -810,6 +1143,12 @@
   @media (max-width: 500px) {
     .panel {
       padding: 0.9rem;
+    }
+    .service label {
+      grid-template-columns: auto minmax(0, 1fr);
+    }
+    .service .state {
+      grid-column: 2;
     }
     .headline dd {
       font-size: 1.125rem;

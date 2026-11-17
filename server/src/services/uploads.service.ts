@@ -1,8 +1,8 @@
-import { UploadProvider } from '#src/enum';
+import { UploadProvider, UploadState } from '#src/enum';
 import type { RemovableCredentialFile } from '#src/enum';
 import type { RepositoryContext as Runtime } from '#src/context';
 import { atomic, immediate } from '#src/db/transaction';
-import { DeliveryRefusedError, refused } from '#src/errors';
+import { ApplicationError, DeliveryRefusedError, refused } from '#src/errors';
 import type { Activity } from '#src/protocol/generated/activity_pb';
 import { ActivitySchema } from '#src/protocol/generated/activity_pb';
 import { PlayerProfileSchema } from '#src/protocol/generated/profile_pb';
@@ -99,6 +99,44 @@ export class UploadsService extends BaseService {
         })
         .parse(row),
     );
+  }
+
+  /** Each configured provider with this activity's delivery to it, if any. */
+  forActivity(player: number, activity: number) {
+    return this.configured(player).map((provider) => {
+      const delivery = this.uploadsRepository.get(activity, provider);
+
+      return { provider, state: delivery?.state ?? null, error: delivery?.last_error ?? null };
+    });
+  }
+
+  /** Upload a finished activity on the rider's request. A sent or ambiguous delivery uploads
+  again only with `again`: the provider may already hold the activity.
+  */
+  request(player: number, activity: number, provider: UploadProvider, again: boolean) {
+    immediate(this.repositories.db, () => {
+      const stored = this.activitiesRepository.fit(activity);
+
+      if (!stored || stored.player !== player) throw new ApplicationError(404, 'Activity not found.');
+
+      if (!stored.fit || !this.completionRepository.get(BigInt(activity)))
+        throw new ApplicationError(409, 'Only a finished activity with a FIT file can be uploaded.');
+
+      if (!this.configured(player).includes(provider))
+        throw new ApplicationError(409, 'Connect this service in Integrations first.');
+      const state = this.uploadsRepository.get(activity, provider)?.state;
+
+      if (state === 'pending' || state === 'sending') return;
+
+      if ((state === 'sent' || state === 'ambiguous') && !again)
+        throw new ApplicationError(409, 'This activity may already be there. Confirm to upload it again.');
+
+      if (state === undefined) this.uploadsRepository.insert(activity, provider);
+      else this.uploadsRepository.requeue(activity, provider, z.enum(UploadState).parse(state));
+      this.jobsRepository.enqueue('delivery', { activityId: activity, provider });
+    });
+
+    return this.drain();
   }
 
   /** Failed deliveries become pending. Ambiguous ones need explicit confirmation: the

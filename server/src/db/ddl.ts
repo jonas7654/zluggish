@@ -115,3 +115,10 @@ DELETE FROM rider_document WHERE name='encryption_key.bin';
 export const dropManagementAuditSQL = `
 DROP TABLE management_audit;
 `;
+
+// Version 10: web sessions survive restarts. Only a hash of the session id is stored.
+export const webSessionSQL = `
+CREATE TABLE web_session (
+ id_hash TEXT PRIMARY KEY, csrf TEXT NOT NULL, identity TEXT NOT NULL, expires INTEGER NOT NULL
+);
+`;

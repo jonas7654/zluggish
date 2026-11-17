@@ -37,6 +37,17 @@
   let connections = $state<Record<Provider, Connection> | null>(null);
   let secrets = $state<Record<Provider, string>>({ strava: '', garmin: '', intervals: '' });
   let cookie = $state('');
+  let cookieStatus = $state<'unchecked' | 'checking' | 'valid' | 'invalid' | 'error'>('unchecked');
+
+  async function testCookie() {
+    cookieStatus = 'checking';
+    try {
+      const { valid } = await api<{ valid: boolean }>('/api/me/connections/strava/test', 'POST', {});
+      cookieStatus = valid ? 'valid' : 'invalid';
+    } catch {
+      cookieStatus = 'error';
+    }
+  }
   let code = $state('');
   let mfa = $state(false);
   let busy = $state(false);
@@ -77,14 +88,18 @@
       name === 'strava'
         ? saved.stravaMethod === 'paid'
           ? Boolean(connection.authorized)
-          : Boolean(connection.cookie)
+          : Boolean(connection.cookie) && cookieStatus === 'valid'
         : name === 'garmin'
           ? Boolean(connection.authorized)
           : connection.saved;
 
     return {
       connected,
-      text: connected ? 'Connected' : connection.saved ? 'Credentials saved' : 'Not connected',
+      text: connected
+        ? 'Connected'
+        : name === 'strava' && saved.stravaMethod === 'free' && connection.cookie
+          ? cookieStatus === 'invalid' ? 'Session expired or invalid' : 'Session saved · Not verified'
+          : connection.saved ? 'Credentials saved' : 'Not connected',
     };
   }
 
@@ -178,6 +193,7 @@
   function removeCredential(item: Stored) {
     void run(async () => {
       await api(`/api/me/connections/${item.id}`, 'DELETE');
+      if (item.id === 'strava/cookie') cookieStatus = 'unchecked';
       removing = null;
 
       if (item.id.startsWith('garmin/')) {
@@ -233,6 +249,7 @@
   function disconnect(name: Provider) {
     void run(async () => {
       await api(`/api/me/connections/${name}`, 'DELETE');
+      if (name === 'strava') cookieStatus = 'unchecked';
       removing = null;
 
       if (name === 'garmin') {
@@ -438,6 +455,30 @@
             {@render disconnectButton('strava')}
           </div>
         {:else}
+          <details class="cookie-help">
+            <summary>How to get your Strava session cookie</summary>
+            <p class="muted">In Chrome or Edge:</p>
+            <ol>
+              <li>Open <a href="https://www.strava.com" target="_blank" rel="noreferrer">Strava</a> and sign in.</li>
+              <li>
+                Open Developer Tools with <kbd>⌘⌥I</kbd> on Mac or <kbd>Ctrl+Shift+I</kbd> on Windows/Linux.
+              </li>
+              <li>Select <strong>Application</strong>. If hidden, look under <strong>»</strong>.</li>
+              <li>
+                In the sidebar, expand <strong>Storage → Cookies</strong> and select
+                <strong>https://www.strava.com</strong>.
+              </li>
+              <li>
+                Find <code>_strava4_session</code> and copy its entire <strong>Value</strong>, without the cookie name
+                or quotes.
+              </li>
+              <li>Paste the value below and click <strong>Save session cookie</strong>. We'll test it automatically.</li>
+            </ol>
+            <p class="muted">
+              Treat the cookie like a password. Don't share it or paste it into chat. If the session test later fails,
+              repeat these steps to replace it.
+            </p>
+          </details>
           <form
             onsubmit={(event) => {
               event.preventDefault();
@@ -445,6 +486,7 @@
                 await api('/api/me/connections/strava/cookie', 'PUT', { cookie });
                 cookie = '';
                 message = 'Session cookie saved.';
+                await testCookie();
               });
             }}
           >
@@ -459,16 +501,29 @@
                 ? 'A session cookie is saved. Paste a new one to replace it.'
                 : 'Copy it from your browser while signed in to Strava. Treat it like a password.'}
             />
-            <button disabled={busy}>Save session cookie</button>
+            <button disabled={busy}>{cookieStatus === 'checking' ? 'Testing session…' : 'Save session cookie'}</button>
           </form>
+          {#if connections.strava.cookie || cookieStatus !== 'unchecked'}
+            <div class="cookie-status" class:valid={cookieStatus === 'valid'} class:invalid={cookieStatus === 'invalid' || cookieStatus === 'error'} role="status" aria-live="polite">
+              {#if cookieStatus === 'valid'}
+                <span class="cookie-check" aria-hidden="true">✓</span>
+                <span><strong>Strava session verified</strong><br />Your cookie works. Finished rides can upload to Strava.</span>
+              {:else if cookieStatus === 'checking'}
+                <span>Checking your session with Strava…</span>
+              {:else if cookieStatus === 'invalid'}
+                <span><strong>Session expired or invalid</strong><br />Copy a fresh cookie from Strava and save it again.</span>
+              {:else if cookieStatus === 'error'}
+                <span><strong>Couldn't verify your session</strong><br />Your cookie is saved. Try Test session again when Strava is reachable.</span>
+              {:else}
+                <span>Cookie saved. Use Test session to confirm it works with Strava.</span>
+              {/if}
+            </div>
+          {/if}
           <div class="actions">
             <button
               disabled={busy || !connections.strava.cookie}
               onclick={() =>
-                void run(async () => {
-                  const { valid } = await api<{ valid: boolean }>('/api/me/connections/strava/test', 'POST', {});
-                  message = valid ? 'Session is valid.' : 'Session is not valid. Update the cookie.';
-                })}>Test session</button
+                void run(testCookie)}>{cookieStatus === 'checking' ? 'Testing session…' : 'Test session'}</button
             >
             {@render disconnectButton('strava')}
           </div>
@@ -552,6 +607,50 @@
 {/if}
 
 <style>
+  .cookie-status {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 1rem;
+    padding: 0.9rem;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+  }
+  .cookie-status.valid {
+    color: #a7f3c1;
+    border-color: #4ade80;
+    background: rgb(34 197 94 / 0.12);
+  }
+  .cookie-status.invalid {
+    color: var(--alarm);
+    border-color: var(--alarm);
+  }
+  .cookie-check {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 6px;
+    background: #15803d;
+    color: white;
+    font-size: 1.5rem;
+    font-weight: 800;
+  }
+  .cookie-help {
+    margin: 1rem 0;
+  }
+  .cookie-help summary {
+    cursor: pointer;
+    font-weight: 600;
+  }
+  .cookie-help ol {
+    padding-left: 1.5rem;
+  }
+  .cookie-help li + li {
+    margin-top: 0.5rem;
+  }
+
   /* Panels match the settings panels: 34rem of content plus padding. */
   .detail {
     max-width: 34rem;

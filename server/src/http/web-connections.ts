@@ -1,6 +1,7 @@
 import type { Hono } from 'hono';
 import { resolve } from 'node:path';
 import { z } from 'zod';
+import { UploadProvider } from '#src/enum';
 import { ApplicationError } from '#src/errors';
 import type { HttpRuntime } from '#src/http/runtime';
 import type { WebEnv } from '#src/http/web-app';
@@ -195,6 +196,24 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
   app.get('/api/me/uploads', (c) =>
     c.json({ jobs: uploads.status(sessions.require(c.get('sessionId')).player_id).slice(0, 100) }),
   );
+  const activityId = z.coerce.number().int().positive().safe();
+  app.get('/api/me/activities/:id/uploads', (c) =>
+    c.json({
+      uploads: uploads.forActivity(sessions.require(c.get('sessionId')).player_id, activityId.parse(c.req.param('id'))),
+    }),
+  );
+  app.post('/api/me/activities/:id/uploads', async (c) => {
+    const player = sessions.require(c.get('sessionId')).player_id;
+    const id = activityId.parse(c.req.param('id'));
+
+    const input = z
+      .strictObject({ provider: z.enum(UploadProvider), again: z.boolean().default(false) })
+      .parse(await c.req.json());
+
+    void uploads.request(player, id, input.provider, input.again);
+
+    return c.json({ uploads: uploads.forActivity(player, id) });
+  });
   app.post('/api/me/uploads/retry', async (c) => {
     const player = sessions.require(c.get('sessionId')).player_id;
     const input = z.strictObject({ ambiguous: z.boolean().default(false) }).parse(await c.req.json());

@@ -124,7 +124,6 @@
   let newConfirm = $state('');
   let targetPassword = $state('');
   let targetConfirm = $state('');
-  let userSettings = $state<UserSettings | null>(null);
 
   // Server.
   let serverConfig = $state<{ rows: [string, string][] } | null>(null);
@@ -286,7 +285,6 @@
 
     if (selected) {
       select();
-      await loadDetail(selected);
     }
   }
 
@@ -401,22 +399,13 @@
   function select() {
     targetPassword = '';
     targetConfirm = '';
-    userSettings = null;
     conflict = null;
-  }
-
-  /** The user page shows everything at once: settings for anyone but yourself. */
-  async function loadDetail(target: User) {
-    if (target.player_id === user?.player_id) return;
-    userSettings = await api(`/api/manage/users/${target.player_id}/settings`);
-    applySettings(userSettings!);
   }
 
   async function openUser(target: User) {
     go(`/manage/users/${target.player_id}`);
     select();
     window.scrollTo(0, 0);
-    await loadDetail(target);
   }
 
   function settingsBody(current: UserSettings) {
@@ -1356,36 +1345,6 @@
                   </li>
                 </ul>
               </section>
-
-              {#if selected.player_id !== user.player_id}
-                {#if userSettings}
-                  <form
-                    class="panel"
-                    onsubmit={(e) => {
-                      e.preventDefault();
-                      void run(async () => {
-                        userSettings = await api(
-                          `/api/manage/users/${selected!.player_id}/settings`,
-                          'PATCH',
-                          settingsBody(userSettings!),
-                        );
-                        done('User settings saved.');
-                      }, 'user-settings');
-                    }}
-                  >
-                    <h2>Settings</h2>
-                    {@render settingsFields(userSettings)}
-                    <button disabled={busy}>Save settings</button>
-                  </form>
-                {/if}
-              {:else}
-                <section class="panel">
-                  <h2>Settings</h2>
-                  <p class="muted">
-                    Change your own settings on {@render link('/settings', 'the Settings page', false)}.
-                  </p>
-                </section>
-              {/if}
             </div>
           {:else if !busy}
             <p class="empty">This user does not exist. {@render link('/manage', 'Show all users', false)}</p>
@@ -1611,16 +1570,6 @@
     {/if}
   </Layout>
 </div>
-
-{#snippet settingsFields(current: UserSettings)}
-  <label class="check"><input type="checkbox" bind:checked={ghosts} /> Ride with ghosts</label>
-  <label for="strava-method">Strava upload method</label>
-  <select id="strava-method" bind:value={stravaMethod}>
-    <option value="paid">Strava API</option>
-    <option value="free">Session cookie</option>
-  </select>
-  <TextField id="bridge-folder" label="TrainingPeaks export folder" bind:value={bridgeFolder} maxlength={500} />
-{/snippet}
 
 {#if changing && user}
   <div class="scrim">
