@@ -6,13 +6,24 @@ on:
       - 'main'
     tags:
       - '*'
+  pull_request:
 
 permissions:
   contents: read
   packages: write
 
+# A new push to a pull request replaces its unfinished image build.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   docker:
+    # Fork pull requests get a read-only token and cannot push; merge queue branches are rebuilt on main anyway.
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+      !startsWith(github.head_ref, 'mergify/merge-queue/'))
     runs-on: ubuntu-26.04
     steps:
       - name: Checkout
@@ -38,6 +49,7 @@ jobs:
           images: ghcr.io/${{ github.repository_owner }}/zluggish
           tags: |
             type=ref,event=tag
+            type=ref,event=pr
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push
