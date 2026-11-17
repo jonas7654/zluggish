@@ -121,7 +121,7 @@ These commands require an existing local rider, identified by numeric `--user ID
 
 | Command                                        | Behavior                                                                                          |
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `settings show --user ID`                      | Print effective user settings as JSON, merging config defaults with saved overrides.             |
+| `settings show --user ID`                      | Print effective user settings as JSON, merging config defaults with saved overrides.              |
 | `settings set --user ID KEY VALUE [--dry-run]` | Validate and save one override. `VALUE` must be JSON. A dry run validates without saving.         |
 | `settings reset --user ID KEY [--dry-run]`     | Remove one override so the rider inherits the config default. A dry run validates without saving. |
 

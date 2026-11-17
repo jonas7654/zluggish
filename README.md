@@ -65,12 +65,12 @@ It uses the same mounted storage as the server. Stop the server before commands 
 The container creates `storage/zluggish.config.ts` on first startup if it does not exist. Edit this file to change settings, then recreate the container. For example:
 
 ```ts
-import { defineConfig } from "zluggish/config";
+import { defineConfig } from 'zluggish/config';
 
 export default defineConfig({
-  storageDir: "../storage",
-  server: { advertisedIp: "192.168.1.10" },
-  network: { host: "0.0.0.0", api: { port: 443, useCert: true } },
+  storageDir: '../storage',
+  server: { advertisedIp: '192.168.1.10' },
+  network: { host: '0.0.0.0', api: { port: 443, useCert: true } },
 });
 ```
 
@@ -288,7 +288,7 @@ Every user has these pages in the menu:
 | Profile      | View and edit your profile and avatar                                                               |
 | Activities   | Browse saved activities by month, see route, elevation and stats, download FIT files and images     |
 | Import       | Import profile data from local files or from your official Zwift account                            |
-| Export       | Download your user data                                                                            |
+| Export       | Download your user data                                                                             |
 | Power curves | Delete stored power curves and optionally recreate them from saved activities                       |
 | Settings     | Ghosts, Strava upload method, TrainingPeaks folder, and Connections (Strava, Garmin, Intervals.icu) |
 | Password     | Change your own password                                                                            |
@@ -304,14 +304,14 @@ Administrators also see **Users** and **Server** under **Manage**:
 
 For a separate server, set `server.advertisedIp` and allow the ports below on the local network. This enables private household riding, not access to Zwift's public multiplayer world.
 
-| Port | Protocol | Use                                 |
-| ---- | -------- | ----------------------------------- |
-| 80   | HTTP     | Zwift CDN only                      |
-| 443  | HTTPS    | Game app and Zwift API only         |
+| Port | Protocol | Use                                |
+| ---- | -------- | ---------------------------------- |
+| 80   | HTTP     | Zwift CDN only                     |
+| 443  | HTTPS    | Game app and Zwift API only        |
 | 8080 | HTTP     | Web app (users and administrators) |
-| 3025 | TCP      | Game connection                     |
-| 3024 | UDP      | Ride data                           |
-| 53   | UDP      | Optional DNS (`dns.enabled`)        |
+| 3025 | TCP      | Game connection                    |
+| 3024 | UDP      | Ride data                          |
+| 53   | UDP      | Optional DNS (`dns.enabled`)       |
 
 ## Password recovery
 
@@ -381,13 +381,13 @@ After the upgrade, you will need to set user passwords again. During [first-time
 - Or add a `pelotons` array to `zluggish.config.ts`. Each entry needs a stable `id` and a `pacer` (the folder name inside `storage/robopacers` or its player ID). Other fields have defaults:
 
 ```ts
-import { defineConfig } from "zluggish/config";
+import { defineConfig } from 'zluggish/config';
 
 export default defineConfig({
   pelotons: [
     {
-      id: "volcano-group",
-      pacer: "B - 3.3 WKG - Watopia - Volcano Climb",
+      id: 'volcano-group',
+      pacer: 'B - 3.3 WKG - Watopia - Volcano Climb',
       bots: 25,
       columns: 0,
       rowGap: 2.2,
@@ -400,19 +400,19 @@ export default defineConfig({
       maxDrop: 40,
       riders: [
         {
-          firstName: "Tadej",
-          lastName: "Pogacar",
+          firstName: 'Tadej',
+          lastName: 'Pogacar',
           countryCode: 705,
           isMale: true,
-          position: "front",
+          position: 'front',
           strength: 1.3,
         },
         {
-          firstName: "Ana",
-          lastName: "Lopez",
+          firstName: 'Ana',
+          lastName: 'Lopez',
           isMale: false,
           weight: 55,
-          position: "back",
+          position: 'back',
           strength: 0.85,
         },
       ],
@@ -491,16 +491,16 @@ webhook = YOUR_CHANNEL_WEBHOOK_URL
 Then configure operator settings, using a path relative to the config file (this example assumes `examples/zluggish.config.ts`):
 
 ```ts
-import { defineConfig } from "zluggish/config";
+import { defineConfig } from 'zluggish/config';
 
 export default defineConfig({
   integrations: {
     discord: {
       enabled: true,
-      credentialsFile: "../storage/discord.cfg",
-      channel: "123456789012345678", // Replace with your channel ID.
-      welcomeMessage: "Welcome!",
-      helpMessage: "Ride with us on the local server.",
+      credentialsFile: '../storage/discord.cfg',
+      channel: '123456789012345678', // Replace with your channel ID.
+      welcomeMessage: 'Welcome!',
+      helpMessage: 'Ride with us on the local server.',
       announcePlayers: true,
     },
   },

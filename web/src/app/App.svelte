@@ -1396,7 +1396,8 @@
                     e.preventDefault();
                     void run(() => openUser(r));
                   }}
-                  ><span class="identity"><UserRow
+                  ><span class="identity"
+                    ><UserRow
                       initials={initials(r)}
                       photo={r.avatar !== null ? `/api/manage/users/${r.player_id}/avatar?v=${r.avatar}` : null}
                       name={label(r)}

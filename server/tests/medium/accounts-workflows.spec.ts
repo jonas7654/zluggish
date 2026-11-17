@@ -64,10 +64,7 @@ await test('empty game app directs the operator to web setup and cannot register
   const client = browser(f.app);
   const picker = await client.request('/login/');
   assert.equal(picker.status, 200);
-  assert.match(
-    await picker.text(),
-    /No users are available\. Ask the administrator to create a user in the web app\./,
-  );
+  assert.match(await picker.text(), /No users are available\. Ask the administrator to create a user in the web app\./);
 
   const registration = [
     '/riders/add/',

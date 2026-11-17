@@ -54,11 +54,11 @@
   let page = $state(0);
   let showList = $state(false);
 
-  const ordered = $derived([...(activities ?? [])].sort(
-    (a, b) => (started(b)?.getTime() ?? -Infinity) - (started(a)?.getTime() ?? -Infinity),
-  ));
+  const ordered = $derived(
+    [...(activities ?? [])].sort((a, b) => (started(b)?.getTime() ?? -Infinity) - (started(a)?.getTime() ?? -Infinity)),
+  );
 
-  const selectedId = $derived(/^\/activities\/(\d+)$/.exec(path)?.[1] ?? (showList ? null : ordered[0]?.id ?? null));
+  const selectedId = $derived(/^\/activities\/(\d+)$/.exec(path)?.[1] ?? (showList ? null : (ordered[0]?.id ?? null)));
   let hasMore = $state(false);
   let requestVersion = 0;
 
@@ -167,7 +167,8 @@
       activities = body.activities;
       hasMore = body.hasMore;
     } catch (error) {
-      if (version === requestVersion) failure = error instanceof Error ? error.message : 'Activities could not be loaded.';
+      if (version === requestVersion)
+        failure = error instanceof Error ? error.message : 'Activities could not be loaded.';
     }
   }
 
@@ -222,7 +223,10 @@
             <h2 id="month-{month.key}">{month.label}</h2>
             <p class="totals">
               {month.activities.length}
-              {month.activities.length === 1 ? 'activity' : 'activities'}, {km(month.distance)}, {hours(month.time)}{#if page > 0 || hasMore} (on this page){/if}
+              {month.activities.length === 1 ? 'activity' : 'activities'}, {km(month.distance)}, {hours(
+                month.time,
+              )}{#if page > 0 || hasMore}
+                (on this page){/if}
             </p>
           </div>
           <ul class="plain">
