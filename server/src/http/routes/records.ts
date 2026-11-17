@@ -1,4 +1,5 @@
 import { routeCompletionStatsSchema, meetupStartSchema } from '#src/dtos/records.dto';
+import { gameUrls } from '#src/http/game/urls';
 import { parseProtobuf } from '#src/http/protobuf';
 import { authenticated } from '#src/http/routes/accounts';
 import type { HttpRuntime as Runtime, RuntimeEnv } from '#src/http/runtime';
@@ -408,7 +409,7 @@ export function recordRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
           avatarUrl: runtime.services.files.exists(
             resolve(runtime.services.profiles.folder(playerId), 'avatarLarge.jpg'),
           )
-            ? `https://us-or-rly101.zwift.com/download/${playerId}/avatarLarge.jpg`
+            ? gameUrls(runtime.config, `https://us-or-rly101.zwift.com/download/${playerId}/avatarLarge.jpg`)
             : '',
         }),
       });

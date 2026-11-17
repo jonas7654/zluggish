@@ -2,6 +2,7 @@ import { staticResponseSchema } from '#src/dtos/static.dto';
 
 import { packageRoot } from '#src/config/load';
 import { parseProtobuf } from '#src/http/protobuf';
+import { gameUrls } from '#src/http/game/urls';
 import { authenticated } from '#src/http/routes/accounts';
 import type { HttpRuntime as Runtime, RuntimeEnv } from '#src/http/runtime';
 import {
@@ -26,7 +27,9 @@ export function staticRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
       if (route.status === 204) return c.body(null, 204);
 
-      return c.body(route.mode === 'json' ? JSON.stringify(route.body) : String(route.body), route.status, {
+      const body = gameUrls(runtime.config, route.mode === 'json' ? JSON.stringify(route.body) : String(route.body));
+
+      return c.body(body, route.status, {
         'Content-Type': route.mode === 'json' ? 'application/json' : 'text/html; charset=utf-8',
       });
     });

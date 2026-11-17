@@ -5,6 +5,7 @@ import {
   playbackRecordSchema,
 } from '#src/dtos/social.dto';
 
+import { gameUrls } from '#src/http/game/urls';
 import { parseProtobuf } from '#src/http/protobuf';
 import { authenticated } from '#src/http/routes/accounts';
 import type { HttpRuntime as Runtime, RuntimeEnv } from '#src/http/runtime';
@@ -32,7 +33,7 @@ export function socialRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     const profile = runtime.services.profiles.get(id);
 
     const image = runtime.services.files.exists(resolve(runtime.services.profiles.folder(id), 'avatarLarge.jpg'))
-      ? `https://us-or-rly101.zwift.com/download/${id}/avatarLarge.jpg`
+      ? gameUrls(runtime.config, `https://us-or-rly101.zwift.com/download/${id}/avatarLarge.jpg`)
       : null;
 
     return {

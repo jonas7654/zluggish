@@ -233,6 +233,13 @@ export const configSchema = z
             host: listenerHost.nullable().default(null),
             port: z.number().int().safe().min(1).max(65_535).default(443),
             useCert: z.boolean().default(true),
+            /** The address clients patched away from us-or-rly101.zwift.com use; game URLs are handed out on it. */
+            publicUrl: z
+              .url({ protocol: /^https$/ })
+              .refine((value) => new URL(value).pathname === '/', 'Expected an origin without a path')
+              .transform((value) => new URL(value).origin)
+              .nullable()
+              .default(null),
           })
           .prefault({})
           .readonly(),

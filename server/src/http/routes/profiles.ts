@@ -1,4 +1,5 @@
 import { profileUpdateSchema } from '#src/dtos/profiles.dto';
+import { gameUrls } from '#src/http/game/urls';
 import { parseProtobuf } from '#src/http/protobuf';
 import { authenticated } from '#src/http/routes/accounts';
 import type { HttpRuntime as Runtime, RuntimeEnv } from '#src/http/runtime';
@@ -32,7 +33,7 @@ export function profileRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
   function avatar(id: number) {
     return runtime.services.files.exists(resolve(runtime.services.profiles.folder(id), 'avatarLarge.jpg'))
-      ? `https://us-or-rly101.zwift.com/download/${id}/avatarLarge.jpg`
+      ? gameUrls(runtime.config, `https://us-or-rly101.zwift.com/download/${id}/avatarLarge.jpg`)
       : null;
   }
 
@@ -67,7 +68,7 @@ export function profileRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       runtime.services.profiles.companionProfile(
         profile,
         runtime.services.files.exists(resolve(runtime.services.profiles.folder(Number(profile.id)), 'avatarLarge.jpg'))
-          ? `https://us-or-rly101.zwift.com/download/${profile.id}/avatarLarge.jpg`
+          ? gameUrls(runtime.config, `https://us-or-rly101.zwift.com/download/${profile.id}/avatarLarge.jpg`)
           : null,
       ),
     );

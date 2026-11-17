@@ -1,3 +1,4 @@
+import { gameUrls } from '#src/http/game/urls';
 import { parseProtobuf } from '#src/http/protobuf';
 import { authenticated } from '#src/http/routes/accounts';
 import type { HttpRuntime as Runtime, RuntimeEnv } from '#src/http/runtime';
@@ -106,7 +107,10 @@ export function activityRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     const fileId = fitness ? service.chartFile(activity.id) : null;
 
     if (fileId !== null) {
-      const url = `https://us-or-rly101.zwift.com/api/activities/${activity.id}/file/${fileId}`;
+      const url = gameUrls(
+        runtime.config,
+        `https://us-or-rly101.zwift.com/api/activities/${activity.id}/file/${fileId}`,
+      );
 
       return c.json({
         ...data,
@@ -196,7 +200,10 @@ export function activityRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       toBinary(
         ActivityMediaSaveResultSchema,
         create(ActivityMediaSaveResultSchema, {
-          uploadUrl: `https://us-or-rly101.zwift.com/uploads/media/${id}?token=${token.toString('base64url')}`,
+          uploadUrl: gameUrls(
+            runtime.config,
+            `https://us-or-rly101.zwift.com/uploads/media/${id}?token=${token.toString('base64url')}`,
+          ),
           expirationInMillis: BigInt(expires),
           signedHeaders: { 'Content-Type': { values: [body.contentType] } },
         }),

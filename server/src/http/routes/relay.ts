@@ -1,4 +1,5 @@
 import { eventFeedSchema } from '#src/dtos/relay.dto';
+import { gameUrls } from '#src/http/game/urls';
 import { parseProtobuf } from '#src/http/protobuf';
 import { authenticated, peerAddress } from '#src/http/routes/accounts';
 import type { HttpRuntime as Runtime, RuntimeEnv } from '#src/http/runtime';
@@ -87,7 +88,7 @@ export function relayRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     const response = create(LoginResponseSchema, {
       sessionState: 'abc',
       info: {
-        relayUrl: 'https://us-or-rly101.zwift.com/relay',
+        relayUrl: gameUrls(runtime.config, 'https://us-or-rly101.zwift.com/relay'),
         time: BigInt(Math.floor(Date.now() / 1000)),
         apis: {
           todaysplanUrl: 'https://whats.todaysplan.com.au',
@@ -308,7 +309,7 @@ export function relayRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       toBinary(
         PerSessionInfoSchema,
         create(PerSessionInfoSchema, {
-          relayUrl: 'https://us-or-rly101.zwift.com/relay',
+          relayUrl: gameUrls(runtime.config, 'https://us-or-rly101.zwift.com/relay'),
         }),
       ),
     ),
