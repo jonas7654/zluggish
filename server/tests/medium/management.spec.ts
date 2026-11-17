@@ -484,6 +484,7 @@ await test('setup lists only safe rider fields after checking the key and select
 await test('administrator profile edits affect the selected user and require administrator access', async (t) => {
   const f = runtimeFixture(t);
   const service = f.services.management;
+
   const owner = await service.setup({
     mode: 'new',
     key: service.issueSetupKey()!,
@@ -492,11 +493,13 @@ await test('administrator profile edits affect the selected user and require adm
     last_name: 'Rider',
     password: 'test-password',
   });
+
   const rider = await f.accounts.create('Selected Rider', 'test-password', 'selected');
   const admin = service.sessions.create(f.accounts.identityOf(owner), Date.now() + 900_000);
   const regular = service.sessions.create(f.accounts.identityOf(rider));
   const before = service.ownProfile(admin.id);
   const selected = service.ownProfile(admin.id, rider.player_id);
+
   const input = {
     revision: selected.user.revision,
     operation: crypto.randomUUID(),
@@ -505,6 +508,7 @@ await test('administrator profile edits affect the selected user and require adm
     last_name: 'Rider',
     birthday: '1990-02-03',
   };
+
   assert.throws(() => service.ownProfile(regular.id, owner.player_id));
   assert.throws(() => service.editOwnProfile(regular.id, input, owner.player_id));
   const edited = service.editOwnProfile(admin.id, input, rider.player_id);

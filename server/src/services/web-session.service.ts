@@ -1,7 +1,6 @@
 import { ApplicationError } from '#src/errors';
 import type { AccountsService } from '#src/services/auth.service';
 import { BaseService } from '#src/services/base.service';
-import { createHash } from 'node:crypto';
 import { z } from 'zod';
 
 export interface WebSession {
@@ -28,7 +27,7 @@ export class WebSessionsService extends BaseService {
   }
 
   private hash(id: string) {
-    return createHash('sha256').update(id).digest('hex');
+    return this.cryptoRepository.sha256(id);
   }
 
   /** A restart empties the map; a session found in the database is loaded back into it. */
@@ -37,11 +36,12 @@ export class WebSessionsService extends BaseService {
       .object({ csrf: z.string(), identity: z.string(), expires: z.number() })
       .nullable()
       .parse(
-        this.accounts.db.prepare('SELECT csrf, identity, expires FROM web_session WHERE id_hash = ?').get(this.hash(id)) ??
-          null,
+        this.accounts.db
+          .prepare('SELECT csrf, identity, expires FROM web_session WHERE id_hash = ?')
+          .get(this.hash(id)) ?? null,
       );
 
-    if (!row) return undefined;
+    if (!row) return;
     const session: WebSession = { ...row, confirmedUntil: 0 };
     this.sessions.set(id, session);
 

@@ -53,6 +53,7 @@ export function createWebApp(runtime: HttpRuntime) {
 
   app.use('*', async (c, next) => {
     const upload = c.req.method === 'POST' && c.req.path === '/api/me/import';
+
     const avatar =
       c.req.method === 'PUT' &&
       (c.req.path === '/api/me/avatar' || /^\/api\/manage\/users\/\d+\/avatar$/.test(c.req.path));

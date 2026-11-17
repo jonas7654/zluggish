@@ -227,7 +227,7 @@ await test('web connections keep saved secrets, show Garmin MFA and run workout 
   await page.getByRole('button', { name: 'Save session cookie' }).click();
   await page.getByText('Session cookie saved.', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Test session' }).click();
-  await page.getByText('Session is valid.', { exact: true }).waitFor();
+  await page.getByText('Strava session verified', { exact: true }).waitFor();
   await page.keyboard.press('Escape');
   await page.getByRole('dialog').waitFor({ state: 'hidden' });
 
@@ -314,6 +314,7 @@ for (const app of ['webapp', 'launcher']) {
     await page.route('**/health', (route) =>
       route.fulfill({ status: 503, contentType: 'text/html', body: '<!DOCTYPE html>Unavailable' }),
     );
+
     if (app === 'webapp') {
       await page.route('**/api/me/profile', (route) =>
         route.fulfill({ status: 502, contentType: 'text/html', body: '<!DOCTYPE html>Bad gateway' }),
@@ -325,6 +326,7 @@ for (const app of ['webapp', 'launcher']) {
       );
       await page.getByRole('button', { name: 'Sign in', exact: true }).click();
     }
+
     await page.getByText(/^Server connection lost\.\.\.retrying in \d+s$/).waitFor();
     assert.equal(await field.inputValue(), app === 'webapp' ? 'Unsaved' : 'draft-password');
     assert.equal(await page.getByText(/Unexpected token/).count(), 0);

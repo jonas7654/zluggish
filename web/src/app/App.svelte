@@ -335,10 +335,12 @@
   function applyProfile(body: { user: User; birthday: string; avatar: number | null }) {
     profileUser = body.user;
     profileAvatar = body.avatar;
+
     if (!profileId) {
       user = body.user;
       avatar = body.avatar;
     }
+
     first = body.user.first_name;
     last = body.user.last_name;
     username = body.user.username;
@@ -382,6 +384,7 @@
     if (!file) return;
     void run(async () => {
       profileAvatar = (await api(`${profileBase}/avatar`, 'PUT', await squarePhoto(file))).avatar;
+
       if (!profileId) avatar = profileAvatar;
       done('Restart Zwift for the changes to take effect.');
     });
@@ -706,6 +709,7 @@
         user = (await api('/api/me')).user;
       } catch (error) {
         if (error instanceof ConnectionError) throw error;
+
         if (!['/sign-in', '/setup'].includes(path)) go('/sign-in');
 
         return;
@@ -2100,9 +2104,6 @@
   }
   .wide {
     max-width: 44rem;
-  }
-  .wide input:not([type='checkbox']) {
-    max-width: none;
   }
   .columns > .panel {
     margin-bottom: 1rem;

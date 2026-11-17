@@ -254,7 +254,8 @@ export class StravaRepository {
     const session = cookieSession(cookie);
     const response = await session.request(selectUrl);
 
-    const valid = (await response.text()).includes(marker);
+    const body = await response.text();
+    const valid = body.includes(marker);
 
     if (valid) keepFresh(session, cookie, save);
 

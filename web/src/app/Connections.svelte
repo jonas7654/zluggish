@@ -41,6 +41,7 @@
 
   async function testCookie() {
     cookieStatus = 'checking';
+
     try {
       const { valid } = await api<{ valid: boolean }>('/api/me/connections/strava/test', 'POST', {});
       cookieStatus = valid ? 'valid' : 'invalid';
@@ -48,6 +49,7 @@
       cookieStatus = 'error';
     }
   }
+
   let code = $state('');
   let mfa = $state(false);
   let busy = $state(false);
@@ -98,8 +100,12 @@
       text: connected
         ? 'Connected'
         : name === 'strava' && saved.stravaMethod === 'free' && connection.cookie
-          ? cookieStatus === 'invalid' ? 'Session expired or invalid' : 'Session saved · Not verified'
-          : connection.saved ? 'Credentials saved' : 'Not connected',
+          ? cookieStatus === 'invalid'
+            ? 'Session expired or invalid'
+            : 'Session saved · Not verified'
+          : connection.saved
+            ? 'Credentials saved'
+            : 'Not connected',
     };
   }
 
@@ -193,6 +199,7 @@
   function removeCredential(item: Stored) {
     void run(async () => {
       await api(`/api/me/connections/${item.id}`, 'DELETE');
+
       if (item.id === 'strava/cookie') cookieStatus = 'unchecked';
       removing = null;
 
@@ -249,6 +256,7 @@
   function disconnect(name: Provider) {
     void run(async () => {
       await api(`/api/me/connections/${name}`, 'DELETE');
+
       if (name === 'strava') cookieStatus = 'unchecked';
       removing = null;
 
@@ -475,7 +483,9 @@
                 Find <code>_strava4_session</code> and copy its entire <strong>Value</strong>, without the cookie name
                 or quotes.
               </li>
-              <li>Paste the value below and click <strong>Save session cookie</strong>. We'll test it automatically.</li>
+              <li>
+                Paste the value below and click <strong>Save session cookie</strong>. We'll test it automatically.
+              </li>
             </ol>
             <p class="muted">
               Treat the cookie like a password. Don't share it or paste it into chat. If the session test later fails,
@@ -507,26 +517,37 @@
             <button disabled={busy}>{cookieStatus === 'checking' ? 'Testing session…' : 'Save session cookie'}</button>
           </form>
           {#if connections.strava.cookie || cookieStatus !== 'unchecked'}
-            <div class="cookie-status" class:valid={cookieStatus === 'valid'} class:invalid={cookieStatus === 'invalid' || cookieStatus === 'error'} role="status" aria-live="polite">
+            <div
+              class="cookie-status"
+              class:valid={cookieStatus === 'valid'}
+              class:invalid={cookieStatus === 'invalid' || cookieStatus === 'error'}
+              role="status"
+              aria-live="polite"
+            >
               {#if cookieStatus === 'valid'}
                 <span class="cookie-check" aria-hidden="true">✓</span>
-                <span><strong>Strava session verified</strong><br />Your cookie works. Finished rides can upload to Strava.</span>
+                <span
+                  ><strong>Strava session verified</strong><br />Your cookie works. Finished rides can upload to Strava.</span
+                >
               {:else if cookieStatus === 'checking'}
                 <span>Checking your session with Strava…</span>
               {:else if cookieStatus === 'invalid'}
-                <span><strong>Session expired or invalid</strong><br />Copy a fresh cookie from Strava and save it again.</span>
+                <span
+                  ><strong>Session expired or invalid</strong><br />Copy a fresh cookie from Strava and save it again.</span
+                >
               {:else if cookieStatus === 'error'}
-                <span><strong>Couldn't verify your session</strong><br />Your cookie is saved. Try Test session again when Strava is reachable.</span>
+                <span
+                  ><strong>Couldn't verify your session</strong><br />Your cookie is saved. Try Test session again when
+                  Strava is reachable.</span
+                >
               {:else}
                 <span>Cookie saved. Use Test session to confirm it works with Strava.</span>
               {/if}
             </div>
           {/if}
           <div class="actions">
-            <button
-              disabled={busy || !connections.strava.cookie}
-              onclick={() =>
-                void run(testCookie)}>{cookieStatus === 'checking' ? 'Testing session…' : 'Test session'}</button
+            <button disabled={busy || !connections.strava.cookie} onclick={() => void run(testCookie)}
+              >{cookieStatus === 'checking' ? 'Testing session…' : 'Test session'}</button
             >
             {@render disconnectButton('strava')}
           </div>

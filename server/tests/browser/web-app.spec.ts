@@ -104,7 +104,11 @@ for (const existing of [false, true])
 
       // A deep link loads the rider directly.
       await page.goto(page.url().replace(/\/manage.*$/, '/manage/users/2'));
-      await page.getByRole('heading', { name: 'Name and login' }).waitFor();
+      await page
+        .getByRole('region', { name: 'Account', exact: true })
+        .getByText('Second Rider', { exact: true })
+        .waitFor();
+      await page.getByRole('heading', { name: 'Access', exact: true }).waitFor();
       const gamePage = await browser.newPage();
       await gamePage.goto(`http://127.0.0.1:${gameAddress.port}/login/`);
       await gamePage.getByRole('button', { name: /Second Rider/ }).click();

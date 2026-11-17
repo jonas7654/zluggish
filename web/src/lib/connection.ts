@@ -1,6 +1,8 @@
 import { writable } from 'svelte/store';
+import { z } from 'zod';
 
 export const connection = writable({ unavailable: false, checking: false, retryIn: 0 });
+
 export class ConnectionError extends Error {
   constructor() {
     super('Unable to connect to the server. Please try again once the connection is restored.');
@@ -25,6 +27,7 @@ function disconnected() {
 /** Never retries a request: a lost mutation response may already have committed. */
 export async function request(url: string, init: RequestInit = {}) {
   let response: Response;
+
   try {
     response = await fetch(url, {
       ...init,
@@ -46,9 +49,12 @@ export async function request(url: string, init: RequestInit = {}) {
 
 export async function requestJson(url: string, init: RequestInit = {}) {
   const response = await request(url, init);
+
   try {
     const body = await response.json();
-    if (body === null || typeof body !== 'object') throw new Error('Invalid response');
+
+    z.record(z.string(), z.json()).parse(body);
+
     return { response, body };
   } catch {
     disconnected();
@@ -60,9 +66,11 @@ export async function checkConnection() {
   if (checking) return;
   checking = true;
   publish();
+
   try {
     const response = await fetch('/health', { cache: 'no-store', signal: AbortSignal.timeout(5000) });
     const body = await response.json();
+
     if (!response.ok || body.name !== 'zluggish' || body.status !== 'ok') throw new Error('Unavailable');
     unavailable = false;
     failures = 0;
@@ -79,15 +87,19 @@ export async function checkConnection() {
 export function monitorConnection() {
   const tick = () => {
     publish();
+
     if (Date.now() >= retryAt && !document.hidden) void checkConnection();
   };
+
   const resume = () => {
     void checkConnection();
   };
+
   const interval = setInterval(tick, 1000);
   window.addEventListener('online', resume);
   window.addEventListener('focus', resume);
   tick();
+
   return () => {
     clearInterval(interval);
     window.removeEventListener('online', resume);
