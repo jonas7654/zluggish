@@ -42,11 +42,33 @@ See Zwift's [official system requirements](https://support.zwift.com/en_us/suppo
 
 If you are upgrading from legacy zwift-offline, first follow [Migrating](#migrating).
 
-Clone this repository on the server, then run the [Docker Compose file](docker/docker-compose.yml) from the repository root.
+Create an empty directory on the server, for example `/etc/zluggish`, and add a `docker-compose.yml` file to it:
+
+```yaml
+services:
+  zluggish:
+    image: ghcr.io/zluggish/zluggish:latest
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ./storage:/usr/src/app/zluggish/storage
+    ports:
+      - 80:80
+      - 443:443
+      - 8080:8080
+      - 3024:3024/udp
+      - 3025:3025
+    restart: unless-stopped
+```
+
+Then start the server from that directory:
 
 ```sh
-docker compose -f docker/docker-compose.yml up --build
+docker compose up -d
 ```
+
+The `storage` folder next to `docker-compose.yml` is created on first startup and holds the configuration, users and activities. To update, run `docker compose pull && docker compose up -d`.
+
+To build from source instead, clone this repository and run `docker compose -f docker/docker-compose.yml up --build` from the repository root. That setup uses `storage` in the repository root.
 
 You should see output similar to:
 
@@ -61,7 +83,7 @@ The first administrator must prove access to the server using a setup key. When 
 1. Start the server. Read the **Open:** address and **Setup key:** from the terminal, or retrieve them from the container logs:
 
    ```sh
-   docker compose -f docker/docker-compose.yml logs zluggish
+   docker compose logs zluggish
    ```
 
 2. Open the printed setup address (by default, `http://<server-ip>:8080/setup`). Paste the key into **Setup key** and select **Check key**. Case, spaces and hyphens do not matter.
@@ -77,7 +99,7 @@ The key works only until setup completes or the server stops. If the server rest
 The server image also includes the full admin CLI, with no Node or pnpm installation needed on the host:
 
 ```sh
-docker compose -f docker/docker-compose.yml run --rm --no-deps zluggish zluggish --help
+docker compose run --rm --no-deps zluggish zluggish --help
 ```
 
 It uses the same mounted storage as the server. Stop the server before commands that change accounts, migrate config, or write user settings. See the [admin CLI guide](server/README.md) for commands and offline operation.

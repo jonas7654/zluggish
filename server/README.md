@@ -50,20 +50,22 @@ The TypeScript entry point also works with `pnpm --dir server cli --help`. Quote
 
 ## Run with Docker Compose
 
-The server image includes the `zluggish` admin command and all its dependencies. No Node or pnpm installation is needed on the host. Use the existing [Compose service](../docker/docker-compose.yml), which mounts the same storage and uses the same container configuration as the server:
+The server image includes the `zluggish` admin command and all its dependencies. No Node or pnpm installation is needed on the host. Run it through the [server's Compose service](../README.md#server-install) from the directory containing `docker-compose.yml`. It mounts the same storage and uses the same container configuration as the server:
 
 ```sh
-docker compose -f docker/docker-compose.yml run --rm --no-deps zluggish zluggish --help
-docker compose -f docker/docker-compose.yml run --rm --no-deps zluggish zluggish config validate
+docker compose run --rm --no-deps zluggish zluggish --help
+docker compose run --rm --no-deps zluggish zluggish config validate
 ```
 
 For offline changes, stop the server first, run the command, then restart after success:
 
 ```sh
-docker compose -f docker/docker-compose.yml stop zluggish
-docker compose -f docker/docker-compose.yml run --rm --no-deps zluggish zluggish accounts migrate
-docker compose -f docker/docker-compose.yml up -d zluggish
+docker compose stop zluggish
+docker compose run --rm --no-deps zluggish zluggish accounts migrate
+docker compose up -d zluggish
 ```
+
+From a source checkout, add `-f docker/docker-compose.yml` after `docker compose` and run from the repository root.
 
 Compose `run` does not publish service ports. All paths supplied to the CLI must be container paths; mount external configuration or password files into the container when needed. The default container config selects the mounted storage at `/usr/src/app/zluggish/storage`. The CLI selects an existing config in that storage automatically, matching server startup; before the first startup it uses the image default. For config migration, select an output path on a writable mount.
 
@@ -77,7 +79,7 @@ These commands require an image built with the integrated CLI. For a local sourc
 
 ## Configuration and common options
 
-Every example below uses `node server/dist/src/cli/bin.js`. You can replace that prefix with `pnpm --dir server cli` or `docker compose -f docker/docker-compose.yml run --rm --no-deps zluggish zluggish`.
+Every example below uses `node server/dist/src/cli/bin.js`. You can replace that prefix with `pnpm --dir server cli` or `docker compose run --rm --no-deps zluggish zluggish`.
 
 | Option              | Meaning                                                                               |
 | ------------------- | ------------------------------------------------------------------------------------- |
