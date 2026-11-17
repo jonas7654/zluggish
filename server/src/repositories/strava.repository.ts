@@ -36,8 +36,17 @@ async function oauth(form: Record<string, string>) {
   return tokenResponse.parse(await response.json());
 }
 
+const sessionCookie = '_strava4_session';
+
 function cookieSession(cookie: string) {
-  return new CookieSession('strava.com', { _strava4_session: cookie });
+  return new CookieSession('strava.com', { [sessionCookie]: cookie });
+}
+
+/** Strava rotates the session cookie as it is used; keeping the newest value keeps the login alive. */
+function keepFresh(session: CookieSession, cookie: string, save?: (cookie: string) => void) {
+  const fresh = session.get(sessionCookie);
+
+  if (fresh && fresh !== cookie) save?.(fresh);
 }
 
 const firstKey = (data: Record<string, string>, ...keys: string[]) => keys.find((key) => key in data) ?? keys[0] ?? '';
@@ -146,10 +155,10 @@ async function waitReady(session: CookieSession, upload: string, delay = 1000) {
 }
 
 export class StravaRepository {
-  authorizationUrl(clientId: string, state: string) {
+  authorizationUrl(clientId: string, state: string, redirectUri = redirect) {
     return `${site}/oauth/authorize?${new URLSearchParams({
       client_id: clientId,
-      redirect_uri: redirect,
+      redirect_uri: redirectUri,
       approval_prompt: 'auto',
       response_type: 'code',
       scope: 'activity:write',
@@ -241,12 +250,16 @@ export class StravaRepository {
     throw new Error(`Strava upload failed: ${response.status}`);
   }
 
-  async checkSession(cookie: string) {
-    const response = await cookieSession(cookie).request(selectUrl);
+  async checkSession(cookie: string, save?: (cookie: string) => void) {
+    const session = cookieSession(cookie);
+    const response = await session.request(selectUrl);
 
-    const response1 = await response.text();
+    const body = await response.text();
+    const valid = body.includes(marker);
 
-    return response1.includes(marker);
+    if (valid) keepFresh(session, cookie, save);
+
+    return valid;
   }
 
   parseForm(form: string) {
@@ -299,6 +312,7 @@ export class StravaRepository {
     name: string,
     photos: readonly string[] = [],
     delay = 1000,
+    save?: (cookie: string) => void,
   ) {
     const session = cookieSession(cookie);
     let text: string;
@@ -313,6 +327,22 @@ export class StravaRepository {
 
     if (!text.includes(marker)) throw new DeliveryRefusedError('strava_session_invalid');
 
+    try {
+      await this.sendFree(session, text, filename, fit, name, photos, delay);
+    } finally {
+      keepFresh(session, cookie, save);
+    }
+  }
+
+  private async sendFree(
+    session: CookieSession,
+    text: string,
+    filename: string,
+    fit: Uint8Array,
+    name: string,
+    photos: readonly string[],
+    delay: number,
+  ) {
     const token =
       /<meta name="csrf-token" content="([^"]+)"/.exec(text)?.[1] ??
       /name="authenticity_token" value="([^"]+)"/.exec(text)?.[1];

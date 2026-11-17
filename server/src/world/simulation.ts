@@ -18,6 +18,7 @@ import { readFileSync } from 'node:fs';
 import { appendFile, rename, stat } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
 import { z } from 'zod';
+import { botCommand } from '#src/dtos/management.dto';
 
 interface GhostPlayback {
   states: PlayerState[];
@@ -574,7 +575,7 @@ export class Simulation {
     return this.blobs.get(id)?.gesture(action.data) ?? null;
   }
 
-  command(id: bigint, command: string) {
+  command(id: bigint, command: string, administrator = false) {
     const [name, ...parts] = command.trim().toLowerCase().split(/\s+/);
     const argument = parts.join(' ');
 
@@ -592,9 +593,9 @@ export class Simulation {
       return 'Bookmark saved.';
     }
 
-    const user = this.runtime.accounts.get(Number(id));
-
-    if (!user?.is_admin) return 'This command requires the server owner.';
+    // These change the world for every rider. Only the management area sends them, on behalf of a rider.
+    if (!administrator && botCommand.safeParse(name).success)
+      return 'Use the web app management area for server commands.';
 
     if (name === 'group' || name === 'groupall') {
       this.group(id, name === 'groupall');

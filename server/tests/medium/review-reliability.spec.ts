@@ -1,5 +1,5 @@
 import { validateConfig } from '#src/config/index';
-import { createApp } from '#src/http/app';
+import { createGameApp } from '#src/http/app';
 import { ActivitySchema } from '#src/protocol/generated/activity_pb';
 import { PlayerProfileSchema, StreaksSchema } from '#src/protocol/generated/profile_pb';
 import { GhostSchema, PlayerStateSchema } from '#src/protocol/generated/udp-node-msgs_pb';
@@ -11,7 +11,7 @@ import { ImportsService } from '#src/services/profile-import.service';
 import { JobsService } from '#src/services/jobs.service';
 import { UploadsService } from '#src/services/uploads.service';
 import { Simulation } from '#src/world/simulation';
-import { binary, decode, mediumBrowser, mediumFixture } from '#tests/medium/support';
+import { binary, decode, mediumFixture, mediumWeb } from '#tests/medium/support';
 import { create, toBinary } from '@bufbuild/protobuf';
 import { Encoder, Profile, type FileIdMesg, type RecordMesg } from '@garmin/fitsdk';
 import assert from 'node:assert/strict';
@@ -188,7 +188,7 @@ await test('configured logging level controls request logging and application di
   await f.request('/health');
   assert.equal(info.mock.callCount(), 0, 'Routine requests stay quiet at INFO');
   f.world.lifecycle.log = new LoggingRepository({ level: 'VERBOSE' });
-  const verboseApp = createApp({ gameInfo: '{}', gameInfoHash: '0', variants: '{}' }, f);
+  const verboseApp = createGameApp({ gameInfo: '{}', gameInfoHash: '0', variants: '{}' }, f);
   await verboseApp.request('/health?token=never-log-this');
   assert.equal(info.mock.callCount(), 1);
   assert.match(String(info.mock.calls[0]?.arguments[0]), /VERBOSE http.completed/);
@@ -253,9 +253,8 @@ await test('repeated finalization keeps one streak update and deliveries retry o
   const streaks = await decode(await f.request('/api/fitness/streaks'), StreaksSchema);
   assert.equal(streaks.curStreakDistance, 3000);
   assert.equal(f.accounts.db.prepare('SELECT count(*) AS n FROM power_curve').get()?.n, 1);
-  const browser = await mediumBrowser(f);
-  const retried = await browser.form(`/user/${f.rider.username}/`);
-  assert.equal(retried.status, 302);
+  const retried = await mediumWeb(f, f.rider).request('/api/me/uploads/retry', 'POST', {});
+  assert.equal(retried.status, 200);
   await f.services.jobs.drain();
   assert.equal(delivered, 2);
   assert.equal(f.services.uploads.status(f.rider.player_id)[0]?.state, 'sent');

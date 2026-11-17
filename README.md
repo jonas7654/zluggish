@@ -2,11 +2,9 @@
 
 # Zluggish
 
-Zluggish is a self-hosted, open source server implementation of [Zwift](http://zwift.com) written in typescript that implements several features not available in the official app.
+Zluggish is a self-hosted, open-source server implementation of [Zwift](http://zwift.com) written in TypeScript that implements several features not available in the official app.
 
-This project builds on [zwift-offline](https://github.com/zoffline/zwift-offline) and [its fork](https://github.com/fatsbrown/zwift-offline).
-
-If you are migrating from the legacy zwift-offline app, please read the migration docs below.
+This project is a rewrite of [zwift-offline](https://github.com/zoffline/zwift-offline) and [its fork](https://github.com/fatsbrown/zwift-offline). If you are migrating from either, see [Migrating](#migrating).
 
 ## Features
 
@@ -17,7 +15,8 @@ Zluggish gives you complete control over the server, including the following fea
 - **Your own ghosts**: ride alongside your previous efforts and regroup ghosts through chat
 - **Custom RoboPacers and pelotons**: build pacers from recorded rides and add configurable followers, with control over group size, equipment, formation, and rider strength.
 - **Saved-position bookmarks**: save named places during a ride, start another session from a bookmark, or return to one using in-game teleport.
-- **Intervals.icu planned workouts**: bring scheduled workouts into the launcher and sync completed activities back to Intervals.icu. Exported TrainingPeaks `.zwo` workouts can also be imported through a local folder.
+- **Intervals.icu planned workouts**: bring scheduled workouts into the game launcher and sync completed activities back to Intervals.icu. Exported TrainingPeaks `.zwo` workouts can also be imported through a local folder.
+- **Web app**: manage users, settings, activities, integrations, and server operations from a browser, with no config files or CLI needed for day-to-day use
 - **Local records and data**: keep profiles, activities, and recordings in storage you can back up and inspect, with optional all-time leaderboards for your server.
 - **Equipment and progression control**: customize equipment availability and Drop balances on your own server, without grinding through unlocks.
 
@@ -25,43 +24,85 @@ Note that Zluggish is offline-only: there is no connection to Zwift's public mul
 
 ## Requirements
 
-Zluggish requires technical know-how to set up, so it is not for everyone. The **server** stores progress and runs ride services; the **client** is the device running the Zwift app. They can run on the same machine, or be on separated systems as long as they can be reached over the network.
+Zluggish requires technical know-how to set up, so it is not for everyone. The **server** stores progress and runs ride services; the **client** is the device running the Zwift app. They can run on the same machine or on separate systems as long as they can communicate over the network.
 
 ### Server requirements
 
-- A machine running either Linux, Windows or macOS
+- A machine running Linux, Windows, or macOS
 - Performance requirements are very low
-- Docker compose is used to run the software
+- Docker Compose is used to run the software
 
 ### Client requirements
 
-You will need a patched Zwift client so the easiest method is to run it on Windows or macOS. Android is supported but [requires manual patching](#step-2-configure-zwift-client-to-use-zluggish). iPhone and iPad clients are not supported.
+You will need a patched Zwift client, so the easiest method is to run it on Windows or macOS. Android is supported but [requires manual patching](#android-non-rooted). iPhone and iPad clients are not supported.
 
 See Zwift's [official system requirements](https://support.zwift.com/en_us/supported-devices-to-run-zwift-H1Cj9QbeB) for more complete system requirements.
 
 ## Server install
 
-If you are upgrading from legacy zwift-offline, first follow [Migration → Old storage](#old-storage).
+If you are upgrading from legacy zwift-offline, first follow [Migrating](#migrating).
 
-Clone this repository on the server, then run the [Docker Compose file](docker/docker-compose.yml) from the repository root.
+Create an empty directory on the server, for example `/etc/zluggish`, and add a `docker-compose.yml` file to it:
 
-```sh
-docker compose -f docker/docker-compose.yml up --build
+```yaml
+services:
+  zluggish:
+    image: ghcr.io/zluggish/zluggish:latest
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ./storage:/usr/src/app/zluggish/storage
+    ports:
+      - 80:80
+      - 443:443
+      - 8080:8080
+      - 3024:3024/udp
+      - 3025:3025
+    restart: unless-stopped
 ```
 
-It should say something like
+Then start the server from that directory:
 
 ```sh
-zluggish-1  | Zluggish server: https://0.0.0.0:443
+docker compose up -d
 ```
+
+The `storage` folder next to `docker-compose.yml` is created on first startup and holds the configuration, users and activities. To update, run `docker compose pull && docker compose up -d`.
+
+To build from source instead, clone this repository and run `docker compose -f docker/docker-compose.yml up --build` from the repository root. That setup uses `storage` in the repository root.
+
+You should see output similar to:
+
+```sh
+zluggish-1  | 2026-11-17T11:40:23.126Z INFO server.ready Zluggish is ready
+```
+
+### First-time setup
+
+The first administrator must prove access to the server using a setup key. When setup has not been completed and the web app is enabled, the server generates a key and prints it in the **Zluggish first-time setup** block in its startup output. Keep this key private: it authorizes creation of the first administrator.
+
+1. Start the server. Read the **Open:** address and **Setup key:** from the terminal, or retrieve them from the container logs:
+
+   ```sh
+   docker compose logs zluggish
+   ```
+
+2. Open the printed setup address (by default, `http://<server-ip>:8080/setup`). Paste the key into **Setup key** and select **Check key**. Case, spaces and hyphens do not matter.
+3. After **Setup key accepted** appears, enter a name, login name and password to create a new user. When migrating, you can instead choose **Use an existing user**, select an enabled user with a password, and enter that user's password. Users without passwords need [CLI account recovery](server/README.md#recover-a-local-account) first.
+4. Select **Complete setup**. The chosen user becomes the first administrator and is signed in automatically. The setup key is invalidated; future sign-ins use the user's login name and password.
+5. Open **Manage → Users** and create the other users with passwords.
+6. Start Zwift, select your user in the game and sign in with the user's username and password. Android uses native credential login, so every user needs a password; there is no passwordless picker.
+
+The key works only until setup completes or the server stops. If the server restarts before setup completes, use the new key from the latest startup output. After setup completes, restarting does not issue another key; use [CLI account recovery](server/README.md#recover-a-local-account) if you lose administrator access.
+
+### Server configuration and CLI
 
 The server image also includes the full admin CLI, with no Node or pnpm installation needed on the host:
 
 ```sh
-docker compose -f docker/docker-compose.yml run --rm --no-deps zluggish zluggish --help
+docker compose run --rm --no-deps zluggish zluggish --help
 ```
 
-It uses the same mounted storage as the server. Stop the server before commands that change accounts, migrate config, or write rider settings. See the [admin CLI guide](server/README.md) for commands and offline operation.
+It uses the same mounted storage as the server. Stop the server before commands that change accounts, migrate config, or write user settings. See the [admin CLI guide](server/README.md) for commands and offline operation.
 
 The container creates `storage/zluggish.config.ts` on first startup if it does not exist. Edit this file to change settings, then recreate the container. For example:
 
@@ -77,52 +118,65 @@ export default defineConfig({
 
 `server.advertisedIp` must be a non-wildcard IP address reachable by the game. Listener hosts must be non-empty IP addresses or hostnames; use `0.0.0.0` to listen on all IPv4 interfaces. Invalid or unknown settings prevent startup.
 
-You are now ready to connect the client
+The web app listener is configured under `network.web`:
+
+```ts
+network: {
+  web: {
+    enabled: true, // set to false to run without the web app
+    host: null, // defaults to network.host
+    port: 8080,
+    publicUrl: 'https://zluggish.example.com', // optional, see Web app
+  },
+},
+```
+
+After completing [first-time setup](#first-time-setup), connect the client.
 
 ## Client configuration
 
 ### Windows
 
-- Install Zwift if not already installed
-- **NOTE:** instead of performing the steps below you can instead just run the **configure_client** script from https://github.com/oldnapalm/zoffline-helper/releases/latest
-- On your Windows machine running Zwift, copy the following files in this repo to a known location:
+- Install Zwift if it is not already installed
+- **NOTE:** Instead of performing the steps below, you can run the **configure_client** script from the [zoffline-helper release page](https://github.com/oldnapalm/zoffline-helper/releases/latest).
+- On your Windows machine running Zwift, copy the following files from this repository to a known location:
   - [assets/ssl/cert-zwift-com.p12](assets/ssl/cert-zwift-com.p12)
   - [assets/ssl/cert-zwift-com.pem](assets/ssl/cert-zwift-com.pem)
-- Open Command Prompt as an admin, cd to that location and run
+- Open Command Prompt as an administrator, change to that directory, and run:
   - `certutil.exe -importpfx Root cert-zwift-com.p12`
   - If you're prompted for a password, just leave it blank. There is no password.
-- Open Notepad as an admin and open `C:\Program Files (x86)\Zwift\data\cacert.pem`
-  - Append the contents of `assets/ssl/cert-zwift-com.pem` to cacert.pem
-- Open Notepad as an admin and open `C:\Windows\System32\Drivers\etc\hosts`
+- Open Notepad as an administrator and open `C:\Program Files (x86)\Zwift\data\cacert.pem`
+  - Append the contents of `assets/ssl/cert-zwift-com.pem` to `cacert.pem`
+- Open Notepad as an administrator and open `C:\Windows\System32\Drivers\etc\hosts`
   - Append this line: `<server-ip> us-or-rly101.zwift.com secure.zwift.com cdn.zwift.com launcher.zwift.com`
-    <br />(Where `<server-ip>` is the ip address of the machine running Zluggish. If
-    it's running on the same machine as Zwift, use `127.0.0.1` as the ip.)
+    <br />(Where `<server-ip>` is the IP address of the machine running Zluggish. If
+    it's running on the same machine as Zwift, use `127.0.0.1` as the IP address.)
 - The retained `scripts/configure_client.bat` helper configures local client redirection to `127.0.0.1`; use the manual steps above for a separate server. `scripts/launch.bat` temporarily redirects the client to the address in `scripts/ip_address.txt`, launches Zwift, and restores the hosts file when you continue past its pause. It does not start the server.
 
 Why: We need to redirect Zwift to use Zluggish and convince Windows and Zwift to
-accept Zluggish’s self signed certificates for Zwift's domain names. Feel free
+accept Zluggish’s self-signed certificates for Zwift's domain names. Feel free
 to generate your own certificates and do the same.
 
 ### macOS
 
-- Install Zwift if not already installed
-- On your Mac machine running Zwift, copy the file [assets/ssl/cert-zwift-com.pem](assets/ssl/cert-zwift-com.pem) in this repo to a known location.
+- Install Zwift if it is not already installed
+- On the Mac running Zwift, copy the file [assets/ssl/cert-zwift-com.pem](assets/ssl/cert-zwift-com.pem) from this repository to a known location.
 - Open Keychain Access, select "System" under "Keychains", select "Certificates" under "Category"
   - Click "File - Import Items..." and import cert-zwift-com.pem
-  - Right click "\*.zwift.com", select "Get Info" and under "Trust" choose "When using this certificate: Always Trust".
+  - Right-click "\*.zwift.com", select "Get Info" and under "Trust" choose "When using this certificate: Always Trust".
 - From the cert-zwift-com.pem location, run `sed -n '29,53p' cert-zwift-com.pem >> ~/Library/Application\ Support/Zwift/data/cacert.pem`
-- Using a text editor (with admin privileges) open `/etc/hosts`
+- Using a text editor with administrator privileges, open `/etc/hosts`
   - Append this line: `<server-ip> us-or-rly101.zwift.com secure.zwift.com cdn.zwift.com launcher.zwift.com`
-    <br />(Where `<server-ip>` is the ip address of the machine running Zluggish. If
-    it's running on the same machine as Zwift, use `127.0.0.1` as the ip.)
+    <br />(Where `<server-ip>` is the IP address of the machine running Zluggish. If
+    it's running on the same machine as Zwift, use `127.0.0.1` as the IP address.)
 
 Why: We need to redirect Zwift to use Zluggish and convince macOS and Zwift to
-accept Zluggish’s self signed certificates for Zwift's domain names. Feel free
+accept Zluggish’s self-signed certificates for Zwift's domain names. Feel free
 to generate your own certificates and do the same.
 
 ### Android (non-rooted)
 
-- Install required apps:
+- Install the required apps:
   - Download and install `ZofflineObb.apk` from [here](https://github.com/fatsbrown/ZofflineObbAndroid/releases/latest)
   - Download and install `app-Github-release.apk` from [here](https://github.com/x-falcon/Virtual-Hosts/releases/latest)
   - Create a `hosts.txt` file to use with the app (you could use a text editor app or create it online with an online tool such as [this](https://passwordsgenerator.net/text-editor/)). The file must look like this (replace `<server-ip>` with the IP address of the machine running Zluggish):
@@ -133,73 +187,75 @@ to generate your own certificates and do the same.
     ```
   - Turn off "Private DNS" in Android settings
   - Run "Virtual Hosts" and select the created `hosts.txt` file
-  - Optionally, instead of using the "Virtual Hosts" app, you can set `dns.enabled` to `true` in `zluggish.config.ts` and set the "DNS 1" of your phone Wi-Fi connection to the IP address of the PC running Zluggish
-  - Note: If you know what you're doing and have a capable enough router you can adjust your router to alter these DNS records instead of using the "Virtual Hosts" app or changing your phone DNS.
+  - Optionally, instead of using the "Virtual Hosts" app, you can set `dns.enabled` to `true` in `zluggish.config.ts` and set "DNS 1" for your phone’s Wi-Fi connection to the IP address of the PC running Zluggish
+  - Note: If you know what you're doing and have a capable enough router, you can adjust your router to alter these DNS records instead of using the "Virtual Hosts" app or changing your phone’s DNS settings.
 - Patch after every installation or update:
-  - Install/update Zwift from Google play, but do not start it yet.
-    - If you have already started it go to `Android Settings > Applications > Zwift` and clear data or uninstall and reinstall the app.
+  - Install or update Zwift from Google Play, but do not start it yet.
+    - If you have already started it, go to `Android Settings > Applications > Zwift` and clear data or uninstall and reinstall the app.
   - Open the "ZofflineObb" app and run it (allow access to all files and install from unknown sources)
     - If the app doesn't work on your device, you can patch the OBB file on Windows. See [#505](https://github.com/zoffline/zwift-offline/issues/505) for details.
-  - Wait for process to finish (5-10min)
-  - Run Zwift, hopefully it verifies download and runs
+  - Wait for the process to finish (5–10 minutes)
+  - Run Zwift. It should verify the download and start.
 - Play Zwift:
-  - Virtual Hosts button must be ON
-  - Create a local rider through the server setup page, set its local password, then sign in with the handle shown in Settings.
+  - The Virtual Hosts button must be ON
+  - Ask an administrator to create your user in the [web app](#web-app) (**Manage → Users**) with a password, then sign in with that user's username and password.
 
 Why: We need to redirect Zwift to use Zluggish (this is done by the Virtual Hosts app) and convince Zwift to
-accept Zluggish’s self signed certificates for Zwift's domain names (this is done by the patch tool ZofflineObb).
+accept Zluggish’s self-signed certificates for Zwift's domain names (this is done by the patch tool ZofflineObb).
 
 #### Android (rooted)
 
 - Install Zwift on the device
-- Open Zwift once to complete installation (i.e download all extra files).
+- Open Zwift once to complete installation (i.e., download all extra files).
 - Append the contents of `assets/ssl/cert-zwift-com.pem` to `/data/data/com.zwift.zwiftgame/dataES/cacert.pem` on the device
   - Note: this file will only exist after the first run of Zwift since it's downloaded after the initial install
-  - Simple approach to achieve this if your device doesn't have a text editor:
+  - If your device does not have a text editor, use these commands:
     - `adb push assets/ssl/cert-zwift-com.pem /data/data/com.zwift.zwiftgame/dataES/`
     - In `adb shell`: `cd /data/data/com.zwift.zwiftgame/dataES/`
     - In `adb shell`: `cat cert-zwift-com.pem >> cacert.pem`
-    - However you do it, ensure the permissions and ownership of the file remains the same.
+    - However you do it, ensure the permissions and ownership of the file remain the same.
 - Modify the device's `/etc/hosts` file
   - Append this line: `<server-ip> us-or-rly101.zwift.com secure.zwift.com cdn.zwift.com`
     <br />(Where `<server-ip>` is the IP address of the machine running Zluggish.)
-  - If no text editor on the device, recommend:
+  - If the device has no text editor, use these steps:
     - `adb pull /etc/hosts`
-    - (modify on PC)
+    - Modify the file on your PC
     - `adb push hosts /etc/hosts`
-  - Note: If you know what you're doing and have a capable enough router you can adjust your router to alter these DNS records instead of modifying your `hosts` file.
-- Create a local rider through the server setup page, set its local password, then sign in with the handle shown in Settings.
+  - Note: If you know what you're doing and have a capable enough router, you can adjust your router to alter these DNS records instead of modifying your `hosts` file.
+- Ask an administrator to create your user in the [web app](#web-app) (**Manage → Users**) with a password, then sign in with that user's username and password.
 
 Why: We need to redirect Zwift to use Zluggish and convince Zwift to
-accept Zluggish’s self signed certificates for Zwift's domain names. Feel free
+accept Zluggish’s self-signed certificates for Zwift's domain names. Feel free
 to generate your own certificates and do the same.
 
 ## Uninstalling Zluggish
 
-To restore the original Zwift usage, comment out or remove the line added to the `hosts`
-file before starting Zwift. Then ensure Zwift is fully closed (right click
+To restore normal Zwift operation, comment out or remove the line added to the `hosts`
+file before starting Zwift. Then ensure Zwift is fully closed (right-click
 the Zwift system tray icon and exit) and restart Zwift.
 
 ## Importing your official Zwift profile
 
-Create/select the destination local rider first, then open **Profile** on rider home for file imports, or **Zwift connection** for official downloads. The file import form accepts `profile.bin`, `achievements.bin`, `economy_config.txt`, `user_storage.bin` and `streaks.bin`. The former Python `get_profile.py` helper has been removed; use the built-in import form.
+Sign in to the [web app](#web-app) as the destination user and open **Import**. Choose **Local files** to upload files, or **Zwift connection** to download them from your official account. The file import form accepts `profile.bin`, `achievements.bin`, `economy_config.txt`, `user_storage.bin` and `streaks.bin`. The former Python `get_profile.py` helper has been removed; use the built-in import.
 
-Review the source name/ID and destination rider before confirming. Selected profile/progression, achievement and economy files replace those categories with backups; unselected categories and local activities stay unchanged. Imported names update both the picker and in-game profile unless **Keep local name** is selected. Imports preserve the local numeric ID, login password, role and folder. Reimport replaces progress rather than merging it. Duplicate/unknown source warnings require confirmation. Finish active rides before importing.
+Review the source name/ID and destination user on the confirmation step before importing. Selected profile/progression, achievement and economy files replace those categories with backups; unselected categories and local activities stay unchanged. Imported names update both the user list and in-game profile unless **Keep local name** is selected. Imports preserve the local numeric ID, login password, role and folder. Reimport replaces progress rather than merging it. Duplicate/unknown source warnings require confirmation. Finish active rides before importing.
 
-Official credentials do not become a local password. The **Zwift connection** page saves them encrypted for downloads and optional integrations; file imports need no official credentials. Uploads and Click authentication are separate opt-in connection settings. Importing does not fetch historical activities or enable ongoing synchronization. File imports do not prove official-account ownership.
+Official credentials do not become a local password. The **Zwift connection** page saves them encrypted for downloads and optional integrations; file imports need no official credentials. Uploading activities to Zwift and Zwift Click authentication are separate opt-in checkboxes on that page. Importing does not fetch historical activities or enable ongoing synchronization. File imports do not prove official-account ownership.
 
-Do not copy files blindly into `storage/<local-player-id>` or a folder named after the official player ID. Use the rider-targeted import form so files are validated and IDs/names are normalized. Official downloads need access to Zwift services; client redirection may need to be disabled on the machine used for official login.
+Do not copy files blindly into `storage/<local-player-id>` or a folder named after the official player ID. Use the web app import so files are validated and IDs/names are normalized. Official downloads need access to Zwift services; client redirection may need to be disabled on the machine used for official login.
+
+To take your data with you, open **Export** and download the user files. If your power curves look wrong, open **Settings** and choose **Regenerate power curves** to rebuild them from your saved activities.
 
 ## Sharing activities
 
-Connections belong to the selected local rider. Completed activities are saved locally before uploads; one failing provider does not lose the saved activity. Live provider authorization and delivery still need verification for this TypeScript migration.
+Connections belong to the signed-in user and are managed under **Settings → Connections** in the [web app](#web-app). Completed activities are saved locally before uploads; a failed upload to one provider does not delete the saved activity. Live provider authorization and delivery still need verification for this TypeScript migration.
 
 <details><summary>Strava</summary>
 
-Two upload methods are available on **Settings → Strava**:
+Two upload methods are available. Choose one with **Strava upload method** in **Settings**:
 
-- **API application:** obtain a client ID and secret from [Strava API settings](https://www.strava.com/settings/api), set the authorization callback domain to `launcher.zwift.com`, save the credentials in the launcher and choose **Authorize with Strava**. Existing `storage/<local-player-id>/strava_token.txt` files are reused. API access depends on Strava's current application/account policy.
-- **Browser session cookie:** sign in to Strava in a browser, open developer tools, find `_strava4_session` under Application/Storage → Cookies, and paste it into the rider's Strava settings. Select the session-cookie upload method and use **Test session**. Treat this cookie as a credential.
+- **API application:** obtain a client ID and secret from [Strava API settings](https://www.strava.com/settings/api), set the authorization callback domain to the web app's hostname (the host of `network.web.publicUrl`, or the address you open the web app at), save the credentials under **Connections → Strava API** and choose **Authorize**. Existing `storage/<local-player-id>/strava_token.txt` files are reused. API access depends on Strava's current application/account policy.
+- **Browser session cookie:** sign in to Strava in a browser, open developer tools, find `_strava4_session` under Application/Storage → Cookies, and paste it into **Strava session cookie**. Select the session-cookie upload method and use **Test session**. Treat this cookie as a credential.
 
 Screenshot upload uses the session-cookie method rather than the API. The old Python authorization helper is no longer needed or included.
 
@@ -207,7 +263,7 @@ Screenshot upload uses the session-cookie method rather than the API. The old Py
 
 <details><summary>Garmin Connect</summary>
 
-Open **Settings → Garmin**, save the credentials and choose **Authorize with Garmin**. Enter the verification code if Garmin requests MFA. Authorization and FIT uploads now run in TypeScript; there is no Python helper or separate Garmin image.
+Open **Settings → Connections → Garmin**, save the credentials and choose **Authorize with Garmin**. Enter the verification code if Garmin requests MFA. Authorization and FIT uploads now run in TypeScript; there is no Python helper or separate Garmin image.
 
 Existing `oauth1_token.json` and `oauth2_token.json` files from garth can remain in `storage/<local-player-id>/garth/`. For a China account, set `integrations.garmin.domain: 'garmin.cn'` in operator config. Live Garmin login/upload remains a verification gate.
 
@@ -215,17 +271,17 @@ Existing `oauth1_token.json` and `oauth2_token.json` files from garth can remain
 
 <details><summary>Intervals.icu and planned workouts</summary>
 
-Open the selected rider's **Settings → Intervals** page. Copy the athlete ID and API key from [Intervals.icu settings](https://intervals.icu/settings), under Developer Settings, and save them there. The selected provider refreshes automatically when opening rider home. Android game login also refreshes Intervals.icu when reusing saved login tokens. Automatic network refreshes have a five-second deadline and retain cached workouts on failure; the provider page also has a manual sync button. Cycling workouts appear in the launcher; completed activities can be uploaded and paired with their planned workout.
+Open **Settings → Connections → Intervals.icu**. Copy the athlete ID and API key from [Intervals.icu settings](https://intervals.icu/settings), under Developer Settings, and save them there. The provider refreshes automatically when you sign in to the launcher. Android game login also refreshes Intervals.icu when reusing saved login tokens. Automatic network refreshes have a five-second deadline and retain cached workouts on failure; **Sync workouts** under **Settings → Connections → Intervals.icu** refreshes them on demand. Cycling workouts appear in the launcher; completed activities can be uploaded and paired with their planned workout.
 
-Exported TrainingPeaks `.zwo` files can be imported through a local bridge folder. Configure the rider's TrainingPeaks settings or `workouts.trainingpeaks.bridgeFolder` preference; paths must be accessible to the server, including inside Docker when used.
+Exported TrainingPeaks `.zwo` files can be imported through a local bridge folder. Set **TrainingPeaks export folder** in **Settings** or the `workouts.trainingpeaks.bridgeFolder` preference, then choose **Import workouts** under **Settings → Connections → TrainingPeaks**; paths must be accessible to the server, including inside Docker when used.
 
 </details>
 
 <details><summary>Official Zwift uploads and Runalyze</summary>
 
-Official Zwift upload credentials and opt-in upload settings are separate from local passwords and profile import. Open **Zwift connection** on rider home to save credentials and independently enable activity uploads or Click authentication.
+Official Zwift upload credentials and opt-in upload settings are separate from local passwords and profile import. Open **Import → Zwift connection** to save credentials and independently enable activity uploads or Click authentication.
 
-The Runalyze adapter reads the rider's existing `storage/<local-player-id>/runalyze_token.txt` file. Keep integration credentials private and preserve encryption keys when moving existing storage.
+The Runalyze adapter reads the user's existing `storage/<local-player-id>/runalyze_token.txt` file. Keep integration credentials private and preserve encryption keys when moving existing storage.
 
 </details>
 
@@ -233,7 +289,7 @@ The Runalyze adapter reads the rider's existing `storage/<local-player-id>/runal
 
 <details><summary>Android (non-rooted device)</summary>
 
-- Download and install the patched apk from [here](https://github.com/fatsbrown/zoffline-companion/releases/latest) (or [patch it yourself](https://github.com/fatsbrown/zoffline-companion#patch-it-yourself))
+- Download and install the patched APK from [here](https://github.com/fatsbrown/zoffline-companion/releases/latest) (or [patch it yourself](https://github.com/fatsbrown/zoffline-companion#patch-it-yourself))
 - Download and install `app-Github-release.apk` from [here](https://github.com/x-falcon/Virtual-Hosts/releases/latest)
 - Create a `hosts.txt` file to use with the app (you could use a text editor app or create it online with an online tool such as [this](https://passwordsgenerator.net/text-editor/)). The file must look like this (replace `<server-ip>` with the IP address of the machine running Zluggish):
 
@@ -242,22 +298,59 @@ The Runalyze adapter reads the rider's existing `storage/<local-player-id>/runal
   <server-ip> secure.zwift.com
   ```
 
-  - Important: don't add `cdn.zwift.com` to `hosts.txt`, Companion needs to download images from the official server
+  - Important: don't add `cdn.zwift.com` to `hosts.txt`; Companion needs to download images from the official server
 
 - Turn off "Private DNS" in Android settings
 - Run "Virtual Hosts" and select the created `hosts.txt` file
-- Optionally, instead of using the "Virtual Hosts" app, you can set `dns.enabled` to `true` in `zluggish.config.ts` and set the "DNS 1" of your phone Wi-Fi connection to the IP address of the PC running Zluggish
-- Note: If you know what you're doing and have a capable enough router you can adjust your router to alter these DNS records instead of using the "Virtual Hosts" app or changing your phone DNS.
+- Optionally, instead of using the "Virtual Hosts" app, you can set `dns.enabled` to `true` in `zluggish.config.ts` and set "DNS 1" for your phone’s Wi-Fi connection to the IP address of the PC running Zluggish
+- Note: If you know what you're doing and have a capable enough router, you can adjust your router to alter these DNS records instead of using the "Virtual Hosts" app or changing your phone’s DNS settings.
 
 </details>
 
-## Android passwords (TODO)
+## Web app
 
-Android uses native credential login, so set a local password for that rider and use the login handle shown in Settings. There is no passwordless native picker.
+The web app is where users and administrators work with Zluggish. Use it only on a network that you trust: other devices on the network can read the passwords that users type unless you put it behind HTTPS.
 
-For a separate server, set `server.advertisedIp` and allow TCP 80, 443, 3025 and UDP 3024 on the local network. This enables private household riding, not access to Zwift’s public multiplayer world.
+To create the first administrator, follow [First-time setup](#first-time-setup) under Server install.
+
+Behind a reverse proxy, set `network.web.publicUrl` to the address users open, for example `https://zluggish.example.com`. The web app then accepts requests only from that address, and an `https` URL marks sign-in cookies `Secure`. Set `network.web.enabled: false` to run without the web app.
+
+### User pages
+
+Every user has these pages in the menu:
+
+| Page       | Use                                                                                               |
+| ---------- | ------------------------------------------------------------------------------------------------- |
+| Profile    | View and edit your profile and avatar                                                             |
+| Activities | Browse saved activities by month, see route, elevation and stats, download FIT files and images   |
+| Import     | Import profile data from local files or from your official Zwift account                          |
+| Export     | Download your user data                                                                           |
+| Settings   | Ghosts, Connections (Strava, Garmin, Intervals.icu, TrainingPeaks), and regenerating power curves |
+| Password   | Change your own password                                                                          |
+
+### Administrator pages
+
+Administrators also see **Users** and **Server** under **Manage**:
+
+- **Users**: create users, enable or disable them, grant or remove the administrator role, set passwords, end sessions, delete users, and edit a user's settings.
+- **Server**: reload or command bots, edit stored world settings such as blob and peloton overrides, edit and delete events, and view the effective configuration. Changes to `zluggish.config.ts` still require a restart.
+
+### Ports
+
+For a separate server, set `server.advertisedIp` and allow the ports below on the local network. This enables private household riding, not access to Zwift's public multiplayer world.
+
+| Port | Protocol | Use                                |
+| ---- | -------- | ---------------------------------- |
+| 80   | HTTP     | Zwift CDN only                     |
+| 443  | HTTPS    | Game app and Zwift API only        |
+| 8080 | HTTP     | Web app (users and administrators) |
+| 3025 | TCP      | Game connection                    |
+| 3024 | UDP      | Ride data                          |
+| 53   | UDP      | Optional DNS (`dns.enabled`)       |
 
 ## Password recovery
+
+Users change their own password on the **Password** page, and administrators set another user's password under **Manage → Users**. If nobody can sign in, use the recovery CLI below.
 
 Stop the server before using the recovery CLI. Put the new password in a private file, then run from the repository root:
 
@@ -265,57 +358,32 @@ Stop the server before using the recovery CLI. Put the new password in a private
 pnpm --dir server cli --storage-dir /path/to/storage accounts recover --user 1 --password-file /private/path/new-password.txt --admin
 ```
 
-Remove the private password file after recovery. Omit `--admin` for password-only recovery. Riders cannot be left without a password. The CLI revokes existing sessions. It does not prompt interactively for a password. Gmail/SMTP reset links are no longer supported.
+Remove the private password file after recovery. The `--admin` option also enables the user and grants the administrator role. Omit `--admin` to preserve the role and enabled state. Users cannot be left without a password. The CLI revokes existing sessions. It does not prompt interactively for a password. Gmail/SMTP reset links are no longer supported.
 
 ## IPv6 (Optional)
 
 Set `network.host: '::'` in `zluggish.config.ts`, or choose per-listener `host` values under `network.api`, `network.cdn`, `network.tcp` and `network.udp`. Configure a client-reachable `server.advertisedIp` and matching firewall/host mappings. IPv6 behavior still needs target-platform testing; the old `ZOFFLINE_SERVER_HOST` variable and Python `run_ipv6.bat` startup path are not used by Node.
 
-## Migration
+## Migrating
 
-### Old storage
+Zluggish is a rework of the legacy zwift-offline app. Here are the key differences:
 
-These instructions apply to legacy singleplayer and multiplayer installations. Fresh storage uses first-rider setup and does not need conversion.
+- Codebase rewritten in TypeScript
+- Svelte web app for managing users, server settings, activities and integrations
+- Improved persistence layer and settings management
 
-1. Stop every server using the storage. Back up the entire `storage/` directory, including `zluggish.db` (or legacy `zwift-offline.db`), profiles, activities, preferences, credentials and signing/encryption keys. Keep the previous release/image for rollback.
-2. Install and build the Node packages using the source instructions above. Start with a restored storage copy; do not run old and new servers against the same directory.
-3. For original marker/text/INI/JSON configuration, migrate directly to TypeScript. Choose a new destination that does not already exist:
+We aim to import and convert your storage automatically, but we strongly suggest you back up your zwift-offline folder before attempting the upgrade.
 
-   ```sh
-   pnpm --dir server cli --storage-dir /path/to/storage config migrate --dry-run
-   pnpm --dir server cli --storage-dir /path/to/storage config migrate --output /path/to/zluggish.config.ts
-   ```
-
-   JSONC-only installations must recreate operator settings in `zluggish.config.ts` manually. Neither `storage/config.jsonc` nor the old JSONC example is loaded by this server. See the [typed config example](examples/zluggish.config.ts). Rider preference overrides are stored in SQLite, not embedded in operator source: config migration writes `storage/settings.db`, and the first server start merges it into `storage/zluggish.db`.
-
-4. Convert old accounts explicitly:
-
-   ```sh
-   pnpm --dir server cli --storage-dir /path/to/storage accounts migrate
-   pnpm --dir server cli --config /path/to/zluggish.config.ts config validate
-   pnpm --dir server cli --config /path/to/zluggish.config.ts config typecheck
-   ```
-
-   Use `--solo-player 42` on account/config migration when the intended legacy solo profile needs an explicit choice. Use the local folder number, which may differ from an imported official player ID. The old `--settings-source` and `--server-dir` flags are not supported; resolve conflicting preferences explicitly before migration.
-
-5. Start the server once. The first start merges `settings.db` and the rider files (profiles, progression, bookmarks, credentials and token caches) into `zluggish.db`. It backs up the old stores to `storage/backups/storage-v6-<time>/` first and keeps the old files. After you confirm the server works, preview and remove the imported old files with `storage clean-legacy` (see the [admin CLI guide](server/README.md#storage-and-upload-commands)).
-
-6. Inspect storage, IP, listener, TLS and credential paths in the generated config. Set `ZLUGGISH_CONFIG` or pass `--config` at startup. Inside Docker, mount config and storage and use their container paths. Re-select riders after startup and exercise ride/save/restart before switching production.
-
-Config migration does not create accounts or modify the original activity database. Account migration is a separate offline operation with a database backup. Existing profile folders and numeric local IDs are retained. Ambiguous solo ownership and conflicting preference values are rejected instead of guessed. Existing usernames are retained. Legacy password hashes are removed and existing sessions for those riders are revoked. Migrated riders have no password: select the rider in the browser and optionally set a new password in Settings. New passwords use Argon2id. Native clients require a new local password. Rerunning account migration preserves Argon2id passwords.
-
-A durable `.config-migration.json` journal makes config publication resumable. If interrupted, rerun the same command with the same destination; do not delete the journal or overwrite a subsequently edited config. Account database backups use `.accounts-<timestamp>.bak` suffixes. Preserve original marker/credential files until the migrated setup has been tested.
-
-Rollback means stopping Node and restoring a matching pre-migration storage/config snapshot for the old release. Running an old binary against the new database is not rollback. Restoring an older snapshot discards subsequent progress; retain later FIT files separately.
+After the upgrade, you will need to set user passwords again. During [first-time setup](#first-time-setup) in the web app, choose an existing migrated user that has a password to become the administrator; users without a password need one set with the [admin CLI](server/README.md) first.
 
 ## Extra features
 
 <details><summary>Ghosts</summary>
 
-- Enable this feature by checking "Enable ghosts" in Zluggish’s launcher (if using Android, access the selected rider’s home page, check "Enable ghosts" and click "Start Zwift" to save the option).
+- Ghosts are enabled by default. Change "Ride with ghosts" in the web app’s Settings to enable or disable them for your user.
 - When you save an activity, the ghost will be saved in `storage/<player_id>/ghosts/<world>/<route>`. Next time you ride the same route, the ghost will be loaded.
 - Type `.regroup` in chat to regroup the ghosts.
-- Legacy ghost appearance settings used `storage/ghost_profile.txt`. The migration preserves its path as `ghosts.profileFile`, but current TypeScript playback uses the local rider profile and does not apply that override yet. The old `find_equip.py` helper is not included.
+- Legacy ghost appearance settings used `storage/ghost_profile.txt`. The migration preserves its path as `ghosts.profileFile`, but current TypeScript playback uses the local user profile and does not apply that override yet. The old `find_equip.py` helper is not included.
 
 </details>
 
@@ -323,7 +391,7 @@ Rollback means stopping Node and restoring a matching pre-migration storage/conf
 
 - Set `bots.enabled` to `true` in `zluggish.config.ts` to load ghosts as bots; they keep riding regardless of your route.
 - Set `bots.multiplier` to an integer from 1 to 100 to duplicate bots. Large numbers can affect performance.
-- Type `.group` in chat to group the bots, or `.groupall` to include duplicates (if using multiplier). Type `.autogroup` or `.autogroupall` to automatically group whenever you change roads. Type `.stopautogroup` to stop automatic grouping, or `.disperse` to randomize positions.
+- Type `.group` in chat to group the bots, or `.groupall` to include duplicates (if using a multiplier). Type `.autogroup` or `.autogroupall` to automatically group whenever you change roads. Type `.stopautogroup` to stop automatic grouping, or `.disperse` to randomize positions.
 - Names, nationalities and equipment can be customized by creating a file `bot.txt` inside the `storage` folder. The former Python catalogue helper is not included; preserve an existing catalogue and set `bots.ridersFile` to its path in `zluggish.config.ts`.
 - If you want some random bots, check [this repository](https://github.com/oldnapalm/zoffline-bots).
 
@@ -331,18 +399,18 @@ Rollback means stopping Node and restoring a matching pre-migration storage/conf
 
 <details><summary>RoboPacers</summary>
 
-- RoboPacers are ghosts saved using a power simulator, you can find some in [this repository](https://github.com/oldnapalm/zoffline-bots).
-- The ghost must be recorded using update frequency of 1 second (default is 3 seconds).
-- The activity must start and finish at the same position and speed, otherwise the bot won't loop smoothly.
+- RoboPacers are ghosts saved using a power simulator. You can find some in [this repository](https://github.com/oldnapalm/zoffline-bots).
+- The ghost must be recorded using an update frequency of 1 second (the default is 3 seconds).
+- The activity must start and finish at the same position and speed; otherwise the bot won't loop smoothly.
 - The profile must contain a unique player ID and the route ID, so that when you join the bot you take the same turns at intersections.
 - Store each pacer’s `profile.bin` and `route.bin` in `storage/robopacers/<pacer-name>/`. The old Python `bot_editor.py` helper has been removed; use an existing compatible recording or external tooling to prepare its ID, route and loop.
-- If you want to create a dynamic RoboPacer (increase power on climbs and decrease on descents) you can use [standalone_power.py](https://github.com/oldnapalm/zwift-offline/blob/master/standalone_power.py) (requires 2 ANT sticks, [python-ant](https://github.com/mch/python-ant) and [PowerMeterTx.py](https://github.com/oldnapalm/zwift-offline/blob/master/PowerMeterTx.py)).
+- If you want to create a dynamic RoboPacer (increase power on climbs and decrease it on descents), you can use [standalone_power.py](https://github.com/oldnapalm/zwift-offline/blob/master/standalone_power.py) (requires 2 ANT sticks, [python-ant](https://github.com/mch/python-ant) and [PowerMeterTx.py](https://github.com/oldnapalm/zwift-offline/blob/master/PowerMeterTx.py)).
 
 </details>
 
 <details><summary>Pelotons (RoboPacer + follower bots)</summary>
 
-- A peloton is one RoboPacer followed by a custom group of bots riding in formation around and behind it, so joining the pacer feels like riding in a real group.
+- A peloton consists of one RoboPacer followed by a custom group of bots riding in formation around and behind it, so joining the pacer feels like riding in a real group.
 - Followers move up and back inside the group, drift laterally, stretch out on climbs (weaker riders lose some meters and come back on the flat), coast on descents and show realistic power (drafting), cadence and heart rate.
 - Quick way: ride next to a RoboPacer and type `.peloton 20` in chat (`.peloton` shows the current size, `.peloton off` removes it). Chat changes persist as SQLite overrides; they do not rewrite `zluggish.config.ts`.
 - Or add a `pelotons` array to `zluggish.config.ts`. Each entry needs a stable `id` and a `pacer` (the folder name inside `storage/robopacers` or its player ID). Other fields have defaults:
@@ -366,8 +434,22 @@ export default defineConfig({
       climbStretch: 1,
       maxDrop: 40,
       riders: [
-        { firstName: 'Tadej', lastName: 'Pogacar', countryCode: 705, isMale: true, position: 'front', strength: 1.3 },
-        { firstName: 'Ana', lastName: 'Lopez', isMale: false, weight: 55, position: 'back', strength: 0.85 },
+        {
+          firstName: 'Tadej',
+          lastName: 'Pogacar',
+          countryCode: 705,
+          isMale: true,
+          position: 'front',
+          strength: 1.3,
+        },
+        {
+          firstName: 'Ana',
+          lastName: 'Lopez',
+          isMale: false,
+          weight: 55,
+          position: 'back',
+          strength: 0.85,
+        },
       ],
     },
   ],
@@ -384,7 +466,7 @@ export default defineConfig({
 
 <details><summary>Solo blob</summary>
 
-- Solo peloton "blob" is a group of bots that swarm around the player, in real time - no RoboPacer needed.
+- A solo peloton "blob" is a group of bots that swarm around the player, in real time - no RoboPacer needed.
 - The bots ride the actual trail you just rode (real corners, hills and speed), sit wheel to wheel behind you to use the draft, mix and rotate: somebody comes up to your handlebars, pulls for a while, then drifts back through the group and somebody else takes over.
 - Chat commands:
   - `.blob <n>` - start/keep a blob of n riders around you
@@ -410,7 +492,7 @@ export default defineConfig({
 
 <details><summary>All-time leaderboards</summary>
 
-- To enable all-time leaderboards (override 60 minutes live results and 90 days personal records), set `leaderboards.allTime` to `true` in `zluggish.config.ts`.
+- To enable all-time leaderboards (overriding the 60-minute window for live results and the 90-day window for personal records), set `leaderboards.allTime` to `true` in `zluggish.config.ts`.
 - Jerseys are still valid for 60 minutes but will be granted only when a new all-time record is set.
 
 </details>
@@ -466,11 +548,11 @@ Enable guild-member and message-content intents for the bot. The bridge supports
 
 ## Community Discord server and Strava club
 
-Please join the community supported [Discord](https://discord.gg/GMdn8F8) server and [Strava](https://www.strava.com/clubs/zoffline) club.
+Please join the community-supported [Discord](https://discord.gg/GMdn8F8) server and [Strava](https://www.strava.com/clubs/zoffline) club.
 
 ## Dependencies
 
-Use Docker, or Node 24 and pnpm 12 for a source installation. Runtime dependencies include Hono and its Node adapter, protobuf codecs, SQLite through Node's built-in module, native OS storage locks, Zod, Jiti, the Garmin FIT/Connect libraries and discord.js. Package manifests and lockfiles in `server/` are authoritative. No Python runtime or pip dependencies are required.
+Use Docker, or Node 24 and pnpm 12 for a source installation. The web app is built with Svelte and Vite (see `web/`; Docker builds it for you). Runtime dependencies include Hono and its Node adapter, protobuf codecs, SQLite through Node's built-in module, native OS storage locks, Zod, Jiti, the Garmin FIT/Connect libraries and discord.js. Package manifests and lockfiles in `server/` are authoritative. No Python runtime or pip dependencies are required.
 
 ## Note
 
@@ -493,7 +575,7 @@ Alternatively, [this script](https://gist.github.com/oldnapalm/556c58448a6ee0943
 
 <details><summary>Update failed during patching</summary>
 
-If you get this error even though Zluggish is up to date, rename the file `Zwift_ver_cur.<version>.xml` in Zwift directory to `Zwift_ver_cur.xml` and edit the file `Zwift_ver_cur_filename.txt` accordingly.
+If you get this error even though Zluggish is up to date, rename the file `Zwift_ver_cur.<version>.xml` in the Zwift directory to `Zwift_ver_cur.xml` and edit the file `Zwift_ver_cur_filename.txt` accordingly.
 
 </details>
 
@@ -508,7 +590,7 @@ mise run install
 mise run check
 ```
 
-For individual pnpm commands and lint provenance, see the [CLI/tooling guide](server/README.md).
+Build the web app with `pnpm --dir web build`, and type-check it with `pnpm --dir web check`. For individual pnpm commands and lint provenance, see the [CLI/tooling guide](server/README.md).
 
 ## Legal notice
 
@@ -542,7 +624,7 @@ Progress includes elapsed seconds and distance in metres; a counter reset is
 flagged. Reconnecting transport does not start another ride. A ride ends on
 logout, inactivity cleanup, or shutdown; this does not imply that an activity was
 saved. Only successful durable finalization emits `activity.saved`, with recovery
-marked separately. External upload failures require retry from the rider home.
+marked separately. External upload failures require a retry from the web app, under **Settings → Connections → Activity uploads**.
 
 Companion phone registration emits `companion.registered`. It does not establish
 a persistent connection, so logs do not claim a companion disconnect. Repeated
@@ -551,4 +633,4 @@ registrations are deduplicated within a two-minute activity window.
 VERBOSE request summaries use route templates and exclude query strings and
 request bodies. Credentials and packet payloads are not logged. Exceptions record
 their type rather than arbitrary provider messages or stacks, which may contain
-credentials. Player IDs identify riders without logging their names or emails.
+credentials. Player IDs identify users without logging their names or emails.

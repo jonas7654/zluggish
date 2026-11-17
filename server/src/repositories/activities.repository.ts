@@ -239,6 +239,29 @@ export class ActivitiesRepository {
     );
   }
 
+  /** A rider's own activities, newest first, with whether each holds a FIT payload and how many ready images. */
+  ownActivities(player: number | bigint, id?: IntegerInput, page?: number) {
+    let selection = query
+      .selectFrom('activity')
+      .select([
+        ...columns,
+        sql<number>`fit is not null`.as('has_fit'),
+        sql<number>`(SELECT count(*) FROM activity_image i WHERE i.activity_id = activity.id AND i.player_id = activity.player_id AND i.state = 'ready')`.as(
+          'image_count',
+        ),
+      ])
+      .where('player_id', '=', player)
+      .where('distanceInMeters', '>', 1);
+
+    if (id !== undefined) selection = selection.where('id', '=', integer(id));
+
+    selection = selection.orderBy('date', 'desc').orderBy('id', 'desc');
+
+    if (page !== undefined) selection = selection.limit(21).offset(page * 20);
+
+    return this.executor.all(selection, true);
+  }
+
   activityById(id: IntegerInput) {
     return this.executor.get(query.selectFrom('activity').select(columns).where('id', '=', integer(id)), true);
   }

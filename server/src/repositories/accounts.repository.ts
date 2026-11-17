@@ -1,3 +1,5 @@
+import { normalizeLoginName } from '#src/dtos/management.dto';
+import { atomic } from '#src/db/transaction';
 import { integer } from '#src/db/values';
 import type { IntegerInput } from '#src/db/values';
 import { query, SqliteExecutor } from '#src/db/query';
@@ -15,15 +17,17 @@ export const riderSchema = z.object({
   pass_hash: z.string().nullable(),
   auth_version: z.number().int(),
   official_player_id: z.string().nullable(),
-  is_admin: z.number(),
+  role: z.enum(['rider', 'administrator']),
+  enabled: z.number().int().min(0).max(1),
+  revision: z.number().int().positive(),
 });
 
-export type Rider = z.infer<typeof riderSchema>;
+export type User = z.infer<typeof riderSchema>;
 
 export class AccountsRepository {
   private readonly executor: SqliteExecutor;
 
-  constructor(db: DatabaseSync) {
+  constructor(private readonly db: DatabaseSync) {
     this.executor = new SqliteExecutor(db);
   }
 
@@ -37,12 +41,14 @@ export class AccountsRepository {
         'last_name',
         'pass_hash',
         'auth_version',
-        'is_admin',
+        'role',
+        'enabled',
+        'revision',
         sql<string | null>`cast(official_player_id as text)`.as('official_player_id'),
       ]);
   }
 
-  list(): Rider[] {
+  list(): User[] {
     return this.executor
       .all(
         this.selection()
@@ -53,46 +59,59 @@ export class AccountsRepository {
       .map((row) => riderSchema.parse(row));
   }
 
-  get(id: number): Rider | null {
+  get(id: number): User | null {
     const row = this.executor.get(this.selection().where('player_id', '=', id));
 
     return row ? riderSchema.parse(row) : null;
   }
 
-  byUsername(username: string): Rider | null {
-    const row = this.executor.get(this.selection().where('username', '=', username));
+  /** SQLite lower() folds only ASCII, so imported names compare in JavaScript after
+  normalizeLoginName. Two imported names that normalize alike match only exactly.
+  */
+  byUsername(username: string): User | null {
+    const exact = this.executor.get(this.selection().where('username', '=', username));
 
-    return row ? riderSchema.parse(row) : null;
+    if (exact) return riderSchema.parse(exact);
+    const matches = this.sameLoginName(username);
+
+    return matches.length === 1 ? matches[0]! : null;
   }
 
-  setupComplete() {
-    const row = this.executor.get(query.selectFrom('account_state').select('setup_complete').where('id', '=', 1));
+  /** Every rider whose login name normalizes to the same value. */
+  sameLoginName(username: string) {
+    const wanted = normalizeLoginName(username);
 
-    if (!row) throw new Error('Missing account setup state');
-
-    return row.setup_complete !== 0;
+    return this.list().filter((rider) => normalizeLoginName(rider.username) === wanted);
   }
 
   insert(rider: Insertable<Database['user']>) {
     return this.executor.run(query.insertInto('user').values(rider));
   }
 
-  finishSetup() {
-    this.executor.run(query.updateTable('account_state').set({ setup_complete: 1 }).where('id', '=', 1));
-  }
-
-  // Password change (including removing protection) revokes every older player:version identity.
+  // Offline recovery preserves disabled state unless administrator access is requested.
   setPassword(id: number, hash: string | null, admin: boolean) {
-    this.executor.run(
-      query
-        .updateTable('user')
-        .set({
-          pass_hash: hash,
-          auth_version: sql`auth_version + 1`,
-          ...(admin && { is_admin: 1 }),
-        })
-        .where('player_id', '=', id),
-    );
+    if (!hash) throw new Error('A password is required');
+    atomic(this.db, () => {
+      this.executor.run(
+        query
+          .updateTable('user')
+          .set({
+            pass_hash: hash,
+            auth_version: sql`auth_version + 1`,
+            revision: sql`revision + 1`,
+            ...(admin && { role: 'administrator' as const, enabled: 1 }),
+          })
+          .where('player_id', '=', id),
+      );
+      this.executor.run(
+        query
+          .deleteFrom('rider_document')
+          .where('player_id', '=', id)
+          .where('name', 'in', ['encryption_key.bin', 'relay-auth-version']),
+      );
+
+      if (admin) this.executor.run(query.updateTable('web_setup_state').set({ state: 'complete' }).where('id', '=', 1));
+    });
   }
 
   updateImportedProfile(id: number, firstName: string, lastName: string, officialId: IntegerInput | null) {
@@ -100,6 +119,7 @@ export class AccountsRepository {
       query
         .updateTable('user')
         .set({
+          revision: sql`revision + 1`,
           first_name: firstName,
           last_name: lastName,
           official_player_id: officialId === null ? null : integer(officialId),
@@ -110,7 +130,10 @@ export class AccountsRepository {
 
   updateName(id: number, firstName: string, lastName: string) {
     this.executor.run(
-      query.updateTable('user').set({ first_name: firstName, last_name: lastName }).where('player_id', '=', id),
+      query
+        .updateTable('user')
+        .set({ first_name: firstName, last_name: lastName, revision: sql`revision + 1` })
+        .where('player_id', '=', id),
     );
   }
 }

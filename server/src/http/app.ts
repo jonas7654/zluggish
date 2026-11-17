@@ -1,7 +1,8 @@
 import { packageVersion } from '#src/config/load';
-import { browserJson } from '#src/http/launcher/results';
+import { browserJson } from '#src/http/game/results';
 import { ApplicationError } from '#src/errors';
 import { parseProtobuf } from '#src/http/protobuf';
+import { rideCompletionRoutes } from '#src/http/routes/ride-completion';
 import { accountRoutes, authenticated } from '#src/http/routes/accounts';
 import { activityRoutes } from '#src/http/routes/activities';
 import { assetRoutes } from '#src/http/routes/assets';
@@ -12,7 +13,6 @@ import { integrationRoutes } from '#src/http/routes/integrations';
 import { profileRoutes } from '#src/http/routes/profiles';
 import { recordRoutes } from '#src/http/routes/records';
 import { relayRoutes } from '#src/http/routes/relay';
-import { settingsRoutes } from '#src/http/routes/settings';
 import { socialRoutes } from '#src/http/routes/social';
 import { staticRoutes } from '#src/http/routes/static';
 import { storageRoutes } from '#src/http/routes/storage';
@@ -26,7 +26,7 @@ import {
   StructSchema,
   ValueSchema,
 } from '#src/protocol/generated/variants_pb';
-import type { Rider } from '#src/repositories/accounts.repository';
+import type { User } from '#src/repositories/accounts.repository';
 import { CryptoRepository } from '#src/repositories/crypto.repository';
 import { LoggingRepository } from '#src/repositories/logging.repository';
 import { clone, create, fromJsonString, toBinary } from '@bufbuild/protobuf';
@@ -42,7 +42,7 @@ export interface PublicMetadata {
   variants: string;
 }
 
-export function createApp(metadata: PublicMetadata, runtime?: Runtime) {
+export function createGameApp(metadata: PublicMetadata, runtime?: Runtime) {
   const app = new Hono<RuntimeEnv>();
   const log = runtime?.world.lifecycle.log ?? new LoggingRepository();
   app.use('*', async (c, next) => {
@@ -75,12 +75,12 @@ export function createApp(metadata: PublicMetadata, runtime?: Runtime) {
     });
 
   if (runtime) {
+    rideCompletionRoutes(app, runtime);
     accountRoutes(app, runtime);
     profileRoutes(app, runtime);
     relayRoutes(app, runtime);
     activityRoutes(app, runtime);
     storageRoutes(app, runtime);
-    settingsRoutes(app, runtime);
     goalRoutes(app, runtime);
     recordRoutes(app, runtime);
     fitnessRoutes(app, runtime);
@@ -114,11 +114,11 @@ export function createApp(metadata: PublicMetadata, runtime?: Runtime) {
     return toBinary(FeatureResponseSchema, response);
   }
 
-  function variantsFor(rider: Rider | null) {
+  function variantsFor(user: User | null) {
     const known = new Map(byName);
 
-    if (runtime && rider) {
-      const file = resolve(runtime.services.profiles.folder(rider.player_id), 'variants.txt');
+    if (runtime && user) {
+      const file = resolve(runtime.services.profiles.folder(user.player_id), 'variants.txt');
 
       if (runtime.services.files.exists(file))
         try {
@@ -126,7 +126,7 @@ export function createApp(metadata: PublicMetadata, runtime?: Runtime) {
             .variants)
             known.set(variant.name, variant);
         } catch {
-          log.warn('config.variants_invalid', 'Ignoring invalid variants override', { playerId: rider.player_id });
+          log.warn('config.variants_invalid', 'Ignoring invalid variants override', { playerId: user.player_id });
         }
     }
 
@@ -184,7 +184,7 @@ export function createApp(metadata: PublicMetadata, runtime?: Runtime) {
         return c.json({ ok: false, message: error.message || 'The request was refused.', reload }, status);
       }
 
-      log.error('http.failed', 'Launcher request failed', { requestId: c.get('requestId'), error });
+      log.error('http.failed', 'Game app request failed', { requestId: c.get('requestId'), error });
 
       return c.json({ ok: false, message: 'Could not save. Try again.' }, 500);
     }

@@ -1,12 +1,14 @@
 import { ConfigError } from '#src/config/index';
 import { Repositories } from '#src/repositories';
-import type { Rider } from '#src/repositories/accounts.repository';
+import type { User } from '#src/repositories/accounts.repository';
 import { AccountsRepository } from '#src/repositories/accounts.repository';
 import { BaseService } from '#src/services/base.service';
 import { resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 
 export class AccountsService extends BaseService {
+  onRevoke: ((id: number) => void) | undefined;
+
   readonly db: DatabaseSync;
 
   readonly repository: AccountsRepository;
@@ -29,24 +31,26 @@ export class AccountsService extends BaseService {
     return this.repository.byUsername(username);
   }
 
-  // Setup is one-way: first owner creation commits its marker in the same account transaction.
-  setupComplete() {
-    return this.repository.setupComplete();
+  /** True when another rider already uses this login name after normalization. */
+  loginNameTaken(username: string, except?: number) {
+    return this.repository.sameLoginName(username).some((rider) => rider.player_id !== except);
   }
 
-  identityOf(rider: Rider) {
+  // Setup is one-way: first owner creation commits its marker in the same account transaction.
+  identityOf(rider: User) {
     return `${rider.player_id}:${rider.auth_version}`;
   }
 
-  identity(identity: string): Rider | null {
+  identity(identity: string): User | null {
     if (!/^\d+:\d+$/.test(identity)) return null;
     const [id = 0, version] = identity.split(':').map(Number);
     const rider = this.get(id);
 
-    return rider && rider.auth_version === version ? rider : null;
+    return rider && rider.enabled === 1 && rider.pass_hash && rider.auth_version === version ? rider : null;
   }
 
-  async create(name: string, password: string, owner = false, username?: string): Promise<Rider> {
+  /** Direct creation for tests and offline tools. Riders are otherwise created only in the management area. */
+  async create(name: string, password: string, username?: string): Promise<User> {
     const displayName = name.trim();
 
     if (!displayName || displayName.length > 100) throw new ConfigError('Enter a name between 1 and 100 characters');
@@ -58,8 +62,6 @@ export class AccountsService extends BaseService {
     this.db.exec('BEGIN IMMEDIATE');
 
     try {
-      if (owner && this.setupComplete()) throw new ConfigError('Setup already completed');
-
       const occupied = [
         ...this.list().map((user) => user.player_id),
         ...this.filesRepository
@@ -84,10 +86,7 @@ export class AccountsService extends BaseService {
         pass_hash: passwordHash,
         auth_version: 1,
         official_player_id: null,
-        is_admin: owner ? 1 : 0,
       });
-
-      if (owner) this.repository.finishSetup();
 
       const user = this.get(id);
 
@@ -105,13 +104,42 @@ export class AccountsService extends BaseService {
     }
   }
 
-  async verify(rider: Rider, password: string) {
-    return this.cryptoRepository.verifyPassword(rider.pass_hash, password);
+  async verify(rider: User, password: string) {
+    // Spend the same hashing work as a real check, so timing does not reveal the account state.
+    if (!rider.enabled || !rider.pass_hash) {
+      await this.cryptoRepository.hashPassword(password);
+
+      return false;
+    }
+
+    const valid = await this.cryptoRepository.verifyPassword(rider.pass_hash, password);
+    const current = this.get(rider.player_id);
+
+    return !!(
+      valid &&
+      current?.enabled &&
+      current.auth_version === rider.auth_version &&
+      current.pass_hash === rider.pass_hash &&
+      current.username === rider.username
+    );
   }
 
-  async changePassword(id: number, password: string, admin = false) {
+  async changePassword(id: number, password: string, admin = false, live: () => boolean = () => true) {
     if (!password) throw new ConfigError('Password must not be empty');
-    this.repository.setPassword(id, await this.cryptoRepository.hashPassword(password), admin);
+    const before = this.get(id);
+    const hash = await this.cryptoRepository.hashPassword(password);
+    const current = this.get(id);
+
+    if (
+      !live() ||
+      !before ||
+      !current ||
+      current.auth_version !== before.auth_version ||
+      current.pass_hash !== before.pass_hash
+    )
+      throw new ConfigError('Account changed. Retry.');
+    this.repository.setPassword(id, hash, admin);
+    this.onRevoke?.(id);
   }
 
   close() {

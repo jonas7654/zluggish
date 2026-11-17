@@ -28,8 +28,7 @@ await test('the main queries use an index on several years of history', async (t
   const db = f.accounts.db;
   const riders = [];
 
-  for (let index = 0; index < 5; index++)
-    riders.push(await f.accounts.create(`Rider ${index}`, 'test-password', index === 0));
+  for (let index = 0; index < 5; index++) riders.push(await f.accounts.create(`Rider ${index}`, 'test-password'));
 
   db.exec('BEGIN');
   const day = 86_400_000;

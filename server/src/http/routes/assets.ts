@@ -1,4 +1,5 @@
 import { packageRoot } from '#src/config/load';
+import { gamePage } from '#src/http/game/render';
 import type { HttpRuntime as Runtime, RuntimeEnv } from '#src/http/runtime';
 import type { Hono } from 'hono';
 import { extname, relative, resolve } from 'node:path';
@@ -43,7 +44,7 @@ export function assetRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
   app.get('/static/launcher-ui/*', (c) => {
     const file = inside(
-      resolve(packageRoot(), 'dist/web/client/assets'),
+      resolve(packageRoot(), '../web/dist/game/client/assets'),
       c.req.path.slice('/static/launcher-ui/assets'.length),
     );
 
@@ -60,6 +61,16 @@ export function assetRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       'Cache-Control': 'public, max-age=31536000, immutable',
     });
   });
+
+  app.get('/static/web/launcher/embed.html', (c) =>
+    gamePage(c, runtime, {
+      kind: 'message',
+      title: 'Loading Zwift...',
+      csrf: '',
+      version: '',
+      forms: [],
+    }),
+  );
 
   serve('/style', resolve(runtime.assets, 'cdn/style'));
   serve('/static', resolve(runtime.assets, 'cdn/static'));

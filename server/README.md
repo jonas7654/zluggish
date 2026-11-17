@@ -1,6 +1,6 @@
 # Zluggish CLI
 
-The CLI manages operator configuration, rider settings, legacy migrations, and local account recovery. It works directly with configuration files and storage; it does not connect to a running server or start one.
+The CLI manages operator configuration, user settings, legacy migrations, and local account recovery. It works directly with configuration files and storage; it does not connect to a running server or start one.
 
 Run the commands below from the **repository root**. Replace sample paths and rider ID `1` with your own values. Stop every server using the target storage before running `accounts migrate`, `accounts recover`, `config migrate` (except `--dry-run`), `settings set/reset` (except `--dry-run`), or any `storage` or `uploads` command. These operations take an exclusive storage lock.
 
@@ -15,8 +15,8 @@ With the required Node version installed, enable the pinned pnpm version and bui
 ```sh
 corepack enable
 corepack prepare pnpm@12.18.0 --activate
-pnpm --dir server install --frozen-lockfile
-pnpm --dir server build
+pnpm install --frozen-lockfile
+pnpm build
 node server/dist/src/cli/bin.js --help
 ```
 
@@ -40,8 +40,8 @@ Native Windows execution is supported by the code, including Windows storage loc
 ```powershell
 corepack enable
 corepack prepare pnpm@12.18.0 --activate
-pnpm --dir server install --frozen-lockfile
-pnpm --dir server build
+pnpm install --frozen-lockfile
+pnpm build
 node .\server\dist\src\cli\bin.js --help
 node .\server\dist\src\cli\bin.js --config .\server\zluggish.config.ts config validate
 ```
@@ -50,20 +50,22 @@ The TypeScript entry point also works with `pnpm --dir server cli --help`. Quote
 
 ## Run with Docker Compose
 
-The server image includes the `zluggish` admin command and all its dependencies. No Node or pnpm installation is needed on the host. Use the existing [Compose service](../docker/docker-compose.yml), which mounts the same storage and uses the same container configuration as the server:
+The server image includes the `zluggish` admin command and all its dependencies. No Node or pnpm installation is needed on the host. Run it through the [server's Compose service](../README.md#server-install) from the directory containing `docker-compose.yml`. It mounts the same storage and uses the same container configuration as the server:
 
 ```sh
-docker compose -f docker/docker-compose.yml run --rm --no-deps zluggish zluggish --help
-docker compose -f docker/docker-compose.yml run --rm --no-deps zluggish zluggish config validate
+docker compose run --rm --no-deps zluggish zluggish --help
+docker compose run --rm --no-deps zluggish zluggish config validate
 ```
 
 For offline changes, stop the server first, run the command, then restart after success:
 
 ```sh
-docker compose -f docker/docker-compose.yml stop zluggish
-docker compose -f docker/docker-compose.yml run --rm --no-deps zluggish zluggish accounts migrate
-docker compose -f docker/docker-compose.yml up -d zluggish
+docker compose stop zluggish
+docker compose run --rm --no-deps zluggish zluggish accounts migrate
+docker compose up -d zluggish
 ```
+
+From a source checkout, add `-f docker/docker-compose.yml` after `docker compose` and run from the repository root.
 
 Compose `run` does not publish service ports. All paths supplied to the CLI must be container paths; mount external configuration or password files into the container when needed. The default container config selects the mounted storage at `/usr/src/app/zluggish/storage`. The CLI selects an existing config in that storage automatically, matching server startup; before the first startup it uses the image default. For config migration, select an output path on a writable mount.
 
@@ -77,7 +79,7 @@ These commands require an image built with the integrated CLI. For a local sourc
 
 ## Configuration and common options
 
-Every example below uses `node server/dist/src/cli/bin.js`. You can replace that prefix with `pnpm --dir server cli` or `docker compose -f docker/docker-compose.yml run --rm --no-deps zluggish zluggish`.
+Every example below uses `node server/dist/src/cli/bin.js`. You can replace that prefix with `pnpm --dir server cli` or `docker compose run --rm --no-deps zluggish zluggish`.
 
 | Option              | Meaning                                                                               |
 | ------------------- | ------------------------------------------------------------------------------------- |
@@ -121,7 +123,7 @@ These commands require an existing local rider, identified by numeric `--user ID
 
 | Command                                        | Behavior                                                                                          |
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `settings show --user ID`                      | Print effective rider settings as JSON, merging config defaults with saved overrides.             |
+| `settings show --user ID`                      | Print effective user settings as JSON, merging config defaults with saved overrides.              |
 | `settings set --user ID KEY VALUE [--dry-run]` | Validate and save one override. `VALUE` must be JSON. A dry run validates without saving.         |
 | `settings reset --user ID KEY [--dry-run]`     | Remove one override so the rider inherits the config default. A dry run validates without saving. |
 
@@ -184,7 +186,7 @@ node .\server\dist\src\cli\bin.js --storage-dir .\storage accounts recover --use
 
 The CLI reads the password from the file, removes one trailing newline, and does not prompt interactively. Delete the file after successful recovery. Add `--admin` to grant administrator access during recovery; omit it for password-only recovery.
 
-Every rider has a password, so recovery always sets a new one. Riders migrated from legacy password hashes start without a password and must be recovered this way before they can sign in. Recovery revokes existing tokens and every remembered launcher login.
+Every user has a password, so recovery always sets a new one. Riders migrated from legacy password hashes start without a password and must be recovered this way before they can sign in. Recovery revokes existing tokens and every remembered launcher login.
 
 ## Storage and upload commands
 
@@ -209,7 +211,7 @@ node server/dist/src/cli/bin.js --storage-dir ./storage uploads list
 node server/dist/src/cli/bin.js --storage-dir ./storage uploads resume --confirm
 ```
 
-A restored backup cannot know which deliveries the providers received after the backup was made, so a restore pauses uploads. Check the providers, cancel the deliveries they already have, then resume. See [activity completion and deliveries](../docs/activity-completion.md).
+A restored backup cannot know which deliveries the providers received after the backup was made, so a restore pauses uploads. Check the providers, cancel the deliveries they already have, then resume.
 
 ## Development tools
 

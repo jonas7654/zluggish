@@ -84,3 +84,41 @@ ALTER TABLE activity_media ADD COLUMN created_at INTEGER;
 ALTER TABLE activity_image ADD COLUMN state TEXT NOT NULL DEFAULT 'ready';
 ALTER TABLE activity_image ADD COLUMN created_at INTEGER;
 `;
+
+// Version 8: independent, permanent web setup state and rider permissions.
+export const administratorSchemaSQL = `
+ALTER TABLE user DROP COLUMN is_admin;
+ALTER TABLE user ADD COLUMN role TEXT NOT NULL DEFAULT 'rider' CHECK(role IN ('rider','administrator'));
+ALTER TABLE user ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1));
+ALTER TABLE user ADD COLUMN revision INTEGER NOT NULL DEFAULT 1 CHECK(typeof(revision)='integer' AND revision>0);
+ALTER TABLE rider_settings ADD COLUMN revision INTEGER NOT NULL DEFAULT 1 CHECK(typeof(revision)='integer' AND revision>0);
+ALTER TABLE world_settings ADD COLUMN revision INTEGER NOT NULL DEFAULT 1 CHECK(typeof(revision)='integer' AND revision>0);
+CREATE TABLE web_setup_state (id INTEGER PRIMARY KEY CHECK(id=1), state TEXT NOT NULL CHECK(state IN ('unclaimed','complete')));
+INSERT INTO web_setup_state VALUES (1,'unclaimed');
+CREATE TRIGGER web_setup_permanent BEFORE UPDATE ON web_setup_state WHEN OLD.state='complete' AND NEW.state!='complete' BEGIN SELECT RAISE(ABORT,'Setup is permanent'); END;
+CREATE TRIGGER web_setup_no_replace BEFORE INSERT ON web_setup_state WHEN NEW.state='unclaimed' AND EXISTS(SELECT 1 FROM web_setup_state WHERE state='complete') BEGIN SELECT RAISE(ABORT,'Setup is permanent'); END;
+CREATE TRIGGER web_setup_no_delete BEFORE DELETE ON web_setup_state BEGIN SELECT RAISE(ABORT,'Setup is permanent'); END;
+CREATE TABLE management_audit (
+ id INTEGER PRIMARY KEY, actor_kind TEXT NOT NULL, actor_player_id INTEGER,
+ target_kind TEXT NOT NULL, target_id TEXT, action TEXT NOT NULL, timestamp INTEGER NOT NULL,
+ operation_id TEXT, reason TEXT NOT NULL DEFAULT '', before_value TEXT, after_value TEXT
+);
+CREATE TABLE management_operation (
+ actor_player_id INTEGER NOT NULL, operation_id TEXT NOT NULL, action TEXT NOT NULL,
+ target TEXT NOT NULL, fingerprint TEXT NOT NULL, status TEXT NOT NULL, result TEXT,
+ created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY(actor_player_id, operation_id)
+);
+DELETE FROM rider_document WHERE name='encryption_key.bin';
+`;
+
+// Version 9: the management change history is no longer kept.
+export const dropManagementAuditSQL = `
+DROP TABLE management_audit;
+`;
+
+// Version 10: web sessions survive restarts. Only a hash of the session id is stored.
+export const webSessionSQL = `
+CREATE TABLE web_session (
+ id_hash TEXT PRIMARY KEY, csrf TEXT NOT NULL, identity TEXT NOT NULL, expires INTEGER NOT NULL
+);
+`;

@@ -24,7 +24,10 @@ await test('Calendar clears pending map and climb selections for the launching c
   f.world.mapOverrides.set('other-client', '7');
   f.world.climbOverrides.set('other-client', '10002');
 
+  assert.equal(f.settings.read(f.rider.player_id)['ghosts.enabled'], undefined);
   const selected = await browser.form('/start-zwift', { map: '6', climb: '10001' });
+  assert.equal(f.settings.read(f.rider.player_id)['ghosts.enabled'], undefined);
+  f.settings.save(f.rider.player_id, { 'ghosts.enabled': false });
   assert.equal(selected.status, 302);
   assert.equal(f.world.mapOverrides.get(''), '6');
   assert.equal(f.world.climbOverrides.get(''), '10001');
@@ -41,6 +44,7 @@ await test('Calendar clears pending map and climb selections for the launching c
 
   const calendar = await browser.form('/start-zwift', { map: 'CALENDAR', climb: 'CALENDAR' });
   assert.equal(calendar.status, 302);
+  assert.equal(f.settings.read(f.rider.player_id)['ghosts.enabled'], false);
   assert.equal(f.world.mapOverrides.has(''), false);
   assert.equal(f.world.climbOverrides.has(''), false);
   assert.equal(f.world.mapOverrides.get('other-client'), '7');
@@ -75,23 +79,8 @@ await test('Calendar clears pending map and climb selections for the launching c
     });
 
     assert.equal(response2.status, 302);
-    const response3 = await request(`/settings/${f.rider.username}/`);
+    const response3 = await request(`/user/${f.rider.username}/`);
     assert.equal(response3.status, 200);
-
-    const response4 = await form(`/settings/${f.rider.username}/`, {
-      enableghosts: 'on',
-      strava_method: 'free',
-      bridge_folder: '/tmp/workouts',
-    });
-
-    assert.equal(response4.status, 302);
-    assert.equal(f.settings.read(f.rider.player_id)['uploads.strava.method'], 'free');
-    f.profiles.save(f.rider.player_id, f.profiles.get(f.rider.player_id));
-    const download = await form('/download', { filename: 'profile.bin' });
-    assert.equal(download.status, 200);
-    assert.match(download.headers.get('Content-Disposition') ?? '', /profile.bin/);
-    const response5 = await form('/download', { filename: '../secret' });
-    assert.equal(response5.status, 400);
     const response6 = await form('/start-zwift', { map: '6', climb: '10001' });
     assert.equal(response6.status, 302);
     assert.equal(f.world.mapOverrides.get(''), '6');

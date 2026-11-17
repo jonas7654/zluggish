@@ -162,6 +162,27 @@ export class UploadsRepository {
     return this.update(activity, provider, ['pending', 'failed', 'ambiguous'], { state: 'cancelled' });
   }
 
+  /** A rider's request to upload again. A delivery that was sent starts over, so a multi-request
+  provider creates a new remote activity instead of updating the earlier one.
+  */
+  requeue(activity: number, provider: string, from: UploadState) {
+    return (
+      this.executor.run(
+        query
+          .updateTable('activity_upload')
+          .set({
+            state: 'pending',
+            last_error: null,
+            ...(from === 'sent' && { remote_id: null, step: null }),
+            updated_at: this.now(),
+          })
+          .where('activity_id', '=', activity)
+          .where('provider', '=', provider)
+          .where('state', '=', from),
+      ).changes !== 0
+    );
+  }
+
   /** At startup no request is in flight: an earlier send has an unknown result. */
   interrupted() {
     return this.executor.run(

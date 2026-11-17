@@ -73,6 +73,8 @@ export class World {
 
   presence: ((id: bigint, joining: boolean) => void) | undefined;
 
+  disconnect: ((id: bigint) => void) | undefined;
+
   simulation: Simulation | undefined;
 
   /** Ride recovery follows each session start and end. */
@@ -129,6 +131,7 @@ export class World {
   }
 
   logout(playerId: bigint, reason = 'logout') {
+    this.disconnect?.(playerId);
     this.advance(playerId);
     this.sessions?.logout(playerId, reason);
     this.lifecycle.end(playerId, reason);

@@ -216,6 +216,7 @@ export const RiderDocumentName = {
   GarthOauth1TokenJson: 'garth/oauth1_token.json',
   GarthOauth2TokenJson: 'garth/oauth2_token.json',
   EncryptionKeyBin: 'encryption_key.bin',
+  RelayAuthVersion: 'relay-auth-version',
 } as const;
 
 export type RiderDocumentName = (typeof RiderDocumentName)[keyof typeof RiderDocumentName];

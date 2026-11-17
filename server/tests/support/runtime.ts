@@ -1,7 +1,7 @@
 import { createServices } from '#src/composition';
 import { validateConfig } from '#src/config/index';
 import { packageRoot } from '#src/config/load';
-import { createApp } from '#src/http/app';
+import { createGameApp } from '#src/http/app';
 import { AccountsService } from '#src/services/auth.service';
 import { SessionsService } from '#src/services/browser-session.service';
 import { World } from '#src/world/state';
@@ -38,7 +38,7 @@ export function runtimeFixture(t: TestContext) {
 
   const runtime = Object.assign(context, { services: createServices(context) });
 
-  const app = createApp({ gameInfo: '{}', gameInfoHash: '0', variants: '{}' }, runtime);
+  const app = createGameApp({ gameInfo: '{}', gameInfoHash: '0', variants: '{}' }, runtime);
 
   t.after(() => {
     accounts.close();

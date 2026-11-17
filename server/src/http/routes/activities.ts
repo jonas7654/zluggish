@@ -27,11 +27,13 @@ export function activityRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
       const activity = parseProtobuf(ActivitySchema, new Uint8Array(await c.req.arrayBuffer()));
 
+      if (!runtime.services.accounts.identity(runtime.services.accounts.identityOf(user))) throw new HTTPException(401);
       activity.playerId = id;
 
       if (!activity.date) activity.date = new Date().toISOString();
 
       const activityId = records.insert('activity', ActivitySchema, activity, ['fit']);
+      runtime.services.rideCompletion.register(user.player_id, BigInt(activityId), c.req.header('Authorization') ?? '');
 
       return c.body(JSON.stringify({ id: Number(activityId) }), 200, {
         'Content-Type': 'text/html; charset=utf-8',
@@ -75,7 +77,10 @@ export function activityRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     activity.id = id;
 
     const finish = c.req.query('upload-to-strava') === 'true';
-    const outcome = await service.saveInTurn(activity, finish);
+
+    const outcome = await service.saveInTurn(activity, finish, () => {
+      if (!runtime.services.accounts.identity(runtime.services.accounts.identityOf(user))) throw new HTTPException(401);
+    });
 
     if (finish && outcome !== 'unchanged') runtime.world.logout(BigInt(user.player_id), 'activity_finished');
 

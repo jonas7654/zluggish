@@ -1,5 +1,5 @@
 import { ApplicationError } from '#src/errors';
-import type { Rider } from '#src/repositories/accounts.repository';
+import type { User } from '#src/repositories/accounts.repository';
 import { AccountsService } from '#src/services/auth.service';
 import { BaseService } from '#src/services/base.service';
 import { resolve } from 'node:path';
@@ -9,15 +9,10 @@ export interface BrowserSession {
   csrf: string;
   identity: string | null;
   selected: boolean;
-  pendingImport: string | null;
   touched: number;
 }
 
-type BrowserEvent =
-  | { type: 'login'; identity: string }
-  | { type: 'clear-selection' }
-  | { type: 'stage-import'; stage: string }
-  | { type: 'finish-import' };
+type BrowserEvent = { type: 'login'; identity: string } | { type: 'clear-selection' };
 
 const identityPayload = z.object({ session_cookie: z.string() });
 
@@ -76,7 +71,6 @@ export class SessionsService extends BaseService {
       csrf: this.cryptoRepository.randomBytes(32).toString('base64url'),
       identity: null,
       selected: false,
-      pendingImport: null,
       touched: now,
     };
 
@@ -85,7 +79,7 @@ export class SessionsService extends BaseService {
     return { id: token, session };
   }
 
-  /** Identity, launch selection and staged import are independent session dimensions. */
+  /** Identity and launch selection are independent session dimensions. */
   transition(session: BrowserSession, event: BrowserEvent) {
     switch (event.type) {
       case 'login': {
@@ -96,16 +90,6 @@ export class SessionsService extends BaseService {
 
       case 'clear-selection': {
         session.selected = false;
-        break;
-      }
-
-      case 'stage-import': {
-        session.pendingImport = event.stage;
-        break;
-      }
-
-      case 'finish-import': {
-        session.pendingImport = null;
         break;
       }
     }
@@ -129,7 +113,7 @@ export class SessionsService extends BaseService {
   }
 
   /** A signed "remember password" token for one rider; a password change bumps auth_version and revokes it. */
-  remember(rider: Rider, now = Date.now()) {
+  remember(rider: User, now = Date.now()) {
     const expires = Math.floor(now / 1000) + REMEMBER_SECONDS;
 
     return this.cryptoRepository.signIdentity(`remember:${this.accounts.identityOf(rider)}:${expires}`, this.secret);
@@ -144,7 +128,7 @@ export class SessionsService extends BaseService {
     return rider?.player_id === playerId ? rider : null;
   }
 
-  rider(session: BrowserSession) {
+  user(session: BrowserSession) {
     return session.identity ? this.accounts.identity(session.identity) : null;
   }
 
@@ -188,6 +172,8 @@ export class SessionsService extends BaseService {
     templates: { access: string; refresh: string; id: string },
   ) {
     const identity = this.accounts.identityOf(rider);
+
+    if (!this.accounts.identity(identity)) throw new ApplicationError(401, 'Account changed. Sign in again.');
 
     return {
       access_token: this.token(identity, templates.access),

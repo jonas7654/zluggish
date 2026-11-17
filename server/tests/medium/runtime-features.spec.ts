@@ -14,7 +14,7 @@ import { z } from 'zod';
 
 await test('meetup invitations persist, protect ownership and return both protocol formats', async (t) => {
   const f = runtimeFixture(t);
-  const owner = await f.accounts.create('Organizer', 'test-password', true);
+  const owner = await f.accounts.create('Organizer', 'test-password');
   const invited = await f.accounts.create('Invitee', 'test-password');
   const outsider = await f.accounts.create('Outsider', 'test-password');
 
@@ -76,7 +76,7 @@ await test('meetup invitations persist, protect ownership and return both protoc
 
 await test('workout ramps split at power boundaries and cached schedules retain stable UUIDs', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Workout Rider', 'test-password', true);
+  const user = await f.accounts.create('Workout Rider', 'test-password');
 
   const xml =
     '<workout_file><name>Tempo</name><sportType>bike</sportType><workout><Warmup Duration="600" PowerLow="0.5" PowerHigh="1.0"/><SteadyState Duration="300" Power="0.8"/></workout></workout_file>';
@@ -115,7 +115,7 @@ await test('workout ramps split at power boundaries and cached schedules retain 
 
 await test('blob chat overrides survive reconstruction, gestures change mode, stale anchors disappear', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Blob Rider', 'test-password', true);
+  const user = await f.accounts.create('Blob Rider', 'test-password');
   let now = 100;
   const simulation = new Simulation(f, () => now);
   t.after(() => simulation.close());
@@ -162,7 +162,7 @@ await test('game storage updates preserve other equipment signatures', async (t)
   const { UserStorageSchema } = await import('#src/protocol/generated/user_storage_pb');
 
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Garage Rider', 'test-password', true);
+  const user = await f.accounts.create('Garage Rider', 'test-password');
 
   const headers = {
     Authorization: `Bearer ${f.sessions.tokens(user, f.tokens).access_token}`,

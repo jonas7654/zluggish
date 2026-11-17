@@ -1,5 +1,5 @@
 import { packageVersion } from '#src/config/load';
-import { createApp } from '#src/http/app';
+import { createGameApp } from '#src/http/app';
 import { FeatureRequestSchema, FeatureResponseSchema } from '#src/protocol/generated/variants_pb';
 import { runtimeFixture } from '#tests/support/runtime';
 import { create, fromBinary, toBinary } from '@bufbuild/protobuf';
@@ -13,7 +13,7 @@ const metadata = {
 };
 
 await test('public metadata routes preserve response values and content types', async () => {
-  const app = createApp(metadata);
+  const app = createGameApp(metadata);
   const version = await app.request('/api/game_info/version');
   assert.deepEqual(await version.json(), { version: 'abc' });
   const info = await app.request('/api/game_info');
@@ -31,7 +31,7 @@ await test('machine variant endpoint consumes and returns protobuf, including un
     }),
   );
 
-  const response = await createApp(metadata).request('/experimentation/v1/machine-id-variant', {
+  const response = await createGameApp(metadata).request('/experimentation/v1/machine-id-variant', {
     method: 'POST',
     body: request,
   });
@@ -46,7 +46,7 @@ await test('machine variant endpoint consumes and returns protobuf, including un
 });
 
 await test('malformed binary input fails without a stack trace', async () => {
-  const response = await createApp(metadata).request('/experimentation/v1/machine-id-variant', {
+  const response = await createGameApp(metadata).request('/experimentation/v1/machine-id-variant', {
     method: 'POST',
     body: new Uint8Array([255]),
   });
@@ -57,7 +57,7 @@ await test('malformed binary input fails without a stack trace', async () => {
 
 await test('malformed protobuf and missing required fields return 400 without changing stored data', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Invalid Input', 'test-password', true);
+  const user = await f.accounts.create('Invalid Input', 'test-password');
   const headers = { Authorization: `Bearer ${f.sessions.tokens(user, f.tokens).access_token}` };
 
   for (const path of ['/api/segment-results', `/api/profiles/${user.player_id}/in-game-fields`, '/api/users/login']) {
@@ -79,7 +79,7 @@ await test('malformed protobuf and missing required fields return 400 without ch
 
 await test('unexpected failures are logged while responses omit error details', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Broken Profile', 'test-password', true);
+  const user = await f.accounts.create('Broken Profile', 'test-password');
   f.accounts.repositories.riderDocuments.put(user.player_id, 'profile.bin', new Uint8Array([255]));
   const logged = t.mock.method(console, 'error', () => {});
 

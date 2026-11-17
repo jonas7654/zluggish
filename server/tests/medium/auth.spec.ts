@@ -1,4 +1,4 @@
-import { mediumBrowser, mediumFixture } from '#tests/medium/support';
+import { mediumBrowser, mediumFixture, mediumWeb } from '#tests/medium/support';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -113,22 +113,17 @@ await test('setting a password revokes all of that rider’s sessions and refres
   const other = await mediumBrowser(f, f.other);
   const tokens = f.sessions.tokens(f.rider, f.tokens);
 
-  const rejected = await one.form(`/reset/${f.rider.username}/`, {
-    csrf_token: 'wrong',
-    password: 'secret',
-    confirm_password: 'secret',
-  });
-
-  assert.equal(rejected.status, 400);
+  const web = mediumWeb(f, f.rider);
+  const rejected = await web.request('/api/me/password', 'POST', { current_password: 'wrong', password: 'secret' });
+  assert.equal(rejected.status, 403);
   assert.equal(f.accounts.get(f.rider.player_id)?.auth_version, f.rider.auth_version);
 
-  const response = await one.form(`/reset/${f.rider.username}/`, {
+  const response = await web.request('/api/me/password', 'POST', {
     current_password: 'test-password',
     password: 'secret',
-    confirm_password: 'secret',
   });
 
-  assert.equal(response.status, 302);
+  assert.equal(response.status, 200);
 
   for (const browser of [one, two]) {
     const profile = await browser.request('/api/profiles/me');
@@ -154,6 +149,26 @@ await test('setting a password revokes all of that rider’s sessions and refres
   assert.equal(refresh.status, 401);
 });
 
+await test('an administrator changes their own password without the current one', async (t) => {
+  const f = await mediumFixture(t);
+  const management = f.services.management;
+
+  await management.setup({
+    mode: 'existing',
+    key: management.issueSetupKey()!,
+    username: f.rider.username,
+    password: 'test-password',
+  });
+
+  const administrator = f.accounts.get(f.rider.player_id)!;
+  const response = await mediumWeb(f, administrator).request('/api/me/password', 'POST', { password: 'secret' });
+  assert.equal(response.status, 200);
+  assert.equal(await f.accounts.verify(f.accounts.get(administrator.player_id)!, 'secret'), true);
+
+  const rider = await mediumWeb(f, f.other).request('/api/me/password', 'POST', { password: 'secret' });
+  assert.equal(rider.status, 403);
+});
+
 await test('failed account creation rolls back rows and folders and leaves the service usable', async (t) => {
   const f = await mediumFixture(t);
   const before = f.accounts.list();
@@ -161,17 +176,15 @@ await test('failed account creation rolls back rows and folders and leaves the s
 
   for (const name of ['', ' '.repeat(3), 'x'.repeat(101)])
     await assert.rejects(f.accounts.create(name, 'test-password'), /Enter a name/);
-  await assert.rejects(f.accounts.create('Second owner', 'test-password', true), /Setup already completed/);
-  await assert.rejects(f.accounts.create('Duplicate', 'test-password', false, f.rider.username));
+  await assert.rejects(f.accounts.create('Duplicate', 'test-password', f.rider.username));
   assert.deepEqual(f.accounts.list(), before);
   assert.equal(f.accounts.db.isTransaction, false);
   assert.equal(existsSync(resolve(f.accounts.storage, String(nextId))), false);
-  assert.equal(f.accounts.setupComplete(), true);
 
   const created = await f.accounts.create('  New   Rider  ', 'test-password');
   assert.equal(created.player_id, nextId);
   assert.equal(created.first_name, 'New');
   assert.equal(created.last_name, 'Rider');
-  assert.equal(created.is_admin, 0);
+  assert.equal(created.role, 'rider');
   assert.equal(existsSync(resolve(f.accounts.storage, String(nextId))), true);
 });

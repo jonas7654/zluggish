@@ -37,7 +37,7 @@ export const riderSettingsSchema = z
   .strictObject({
     ghosts: z
       .strictObject({
-        enabled: z.boolean().default(false),
+        enabled: z.boolean().default(true),
       })
       .prefault({})
       .readonly(),
@@ -94,7 +94,8 @@ export const configSchema = z
       .readonly(),
     accounts: z
       .strictObject({
-        allowSelfRegistration: z.boolean().default(true),
+        /** Deprecated and ignored. Only an administrator creates riders, in the web app. */
+        allowSelfRegistration: z.boolean().optional(),
       })
       .prefault({})
       .readonly(),
@@ -191,6 +192,21 @@ export const configSchema = z
     network: z
       .strictObject({
         host: listenerHost.default('127.0.0.1'),
+        web: z
+          .strictObject({
+            enabled: z.boolean().default(true),
+            host: listenerHost.nullable().default(null),
+            port: z.number().int().min(1).max(65_535).default(8080),
+            /** The address riders open, when a reverse proxy sits in front. Https here marks cookies Secure. */
+            publicUrl: z
+              .url({ protocol: /^https?$/ })
+              .refine((value) => new URL(value).pathname === '/', 'Expected an origin without a path')
+              .transform((value) => new URL(value).origin)
+              .nullable()
+              .default(null),
+          })
+          .prefault({})
+          .readonly(),
         cdn: z
           .strictObject({
             host: listenerHost.nullable().default(null),

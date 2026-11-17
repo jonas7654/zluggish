@@ -1,4 +1,4 @@
-import { openDatabase } from '#src/db/open';
+import { openDatabase, SCHEMA_VERSION } from '#src/db/open';
 import { migrateAccounts } from '#src/migrations/accounts';
 import { SettingsStore } from '#src/repositories/settings.repository';
 import { legacyDatabase } from '#tests/support/legacy';
@@ -35,7 +35,7 @@ for (const upgrade of ['startup', 'accounts migrate'] as const) {
 
     assert.equal(columns.has('remember'), false);
     assert.equal(columns.has('enable_ghosts'), false);
-    assert.equal(reopened.prepare('SELECT version FROM version').get()?.version, 7);
+    assert.equal(reopened.prepare('SELECT version FROM version').get()?.version, SCHEMA_VERSION);
     assert.equal(reopened.prepare('SELECT count(*) AS count FROM user').get()?.count, 2);
     const persisted = new SettingsStore(reopened);
     assert.equal(persisted.read(1)['ghosts.enabled'], false);
@@ -54,6 +54,7 @@ await test('a fresh database uses WAL, the current version and one settings stor
   assert.equal(db.prepare('PRAGMA journal_mode').get()?.journal_mode, 'wal');
   assert.equal(db.prepare('PRAGMA synchronous').get()?.synchronous, 2);
   assert.equal(db.prepare('PRAGMA foreign_keys').get()?.foreign_keys, 1);
-  assert.equal(db.prepare('SELECT version FROM version').get()?.version, 7);
+  assert.equal(db.prepare('SELECT version FROM version').get()?.version, SCHEMA_VERSION);
   assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE name='rider_settings'").get());
+  assert.equal(db.prepare("SELECT 1 FROM sqlite_master WHERE name='management_audit'").get(), undefined);
 });

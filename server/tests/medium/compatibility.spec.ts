@@ -16,7 +16,7 @@ import { z } from 'zod';
 await test('Companion and game zfiles negotiate independently and refresh overwrite timestamps', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.UTC(2026, 10, 13, 12) });
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Files Rider', 'test-password', true);
+  const user = await f.accounts.create('Files Rider', 'test-password');
   const other = await f.accounts.create('Other Rider', 'test-password');
   const authorization = { Authorization: `Bearer ${f.sessions.tokens(user, f.tokens).access_token}` };
 
@@ -109,7 +109,7 @@ await test('Companion and game zfiles negotiate independently and refresh overwr
 
 await test('multipart and raw avatars download as exact image bytes; malformed input cannot replace them', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Avatar Rider', 'test-password', true);
+  const user = await f.accounts.create('Avatar Rider', 'test-password');
   const headers = { Authorization: `Bearer ${f.sessions.tokens(user, f.tokens).access_token}` };
   const jpeg = Buffer.from([255, 216, 1, 2, 255, 217]);
   const form = new FormData();
@@ -135,7 +135,7 @@ await test('multipart and raw avatars download as exact image bytes; malformed i
 
 await test('profile zero is a nonfatal 400 and entitlement remains public with the complete route stack', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Zero Rider', 'test-password', true);
+  const user = await f.accounts.create('Zero Rider', 'test-password');
   const headers = { Authorization: `Bearer ${f.sessions.tokens(user, f.tokens).access_token}` };
 
   for (const path of ['/api/profiles/0', '/api/profiles/0/in-game-fields']) {
@@ -157,7 +157,7 @@ await test('profile zero is a nonfatal 400 and entitlement remains public with t
 
 await test('saved-game achievements and portal thresholds survive repeated reads and backfill imported routes', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Badge Rider', 'test-password', true);
+  const user = await f.accounts.create('Badge Rider', 'test-password');
   const other = await f.accounts.create('Other Rider', 'test-password');
   const headers = { Authorization: `Bearer ${f.sessions.tokens(user, f.tokens).access_token}` };
   const saved = new Uint8Array(0x1_51);
@@ -217,7 +217,7 @@ await test('saved-game achievements and portal thresholds survive repeated reads
 
 await test('activity list applies the legacy SQL month cutoff without deleting history', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('History Rider', 'test-password', true);
+  const user = await f.accounts.create('History Rider', 'test-password');
 
   const cutoff = z
     .object({ cutoff: z.string() })
@@ -243,7 +243,7 @@ await test('activity list applies the legacy SQL month cutoff without deleting h
 
 await test('meetup creation announces organizer join and editing resets existing invitation notifications', async (t) => {
   const f = runtimeFixture(t);
-  const owner = await f.accounts.create('Organizer', 'test-password', true);
+  const owner = await f.accounts.create('Organizer', 'test-password');
   const invited = await f.accounts.create('Invitee', 'test-password');
 
   const headers = {
@@ -302,7 +302,7 @@ await test('meetup creation announces organizer join and editing resets existing
 
 await test('race summary derives meetup durations and avatars without changing submitted data', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Racer', 'test-password', true);
+  const user = await f.accounts.create('Racer', 'test-password');
   const headers = { Authorization: `Bearer ${f.sessions.tokens(user, f.tokens).access_token}` };
   new AssetFiles().writeDurable(resolve(f.profiles.folder(user.player_id), 'avatarLarge.jpg'), Buffer.from('avatar'));
   f.accounts.db
@@ -339,7 +339,7 @@ await test('race summary derives meetup durations and avatars without changing s
 
 await test('profile JSON edits reuse read negotiation and avatar resolution', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Profile Rider', 'test-password', true);
+  const user = await f.accounts.create('Profile Rider', 'test-password');
 
   const headers = {
     Authorization: `Bearer ${f.sessions.tokens(user, f.tokens).access_token}`,

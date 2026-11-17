@@ -2,7 +2,8 @@ import { Resources } from '#src/node/lifecycle/resources';
 import { ConfigError } from '#src/config/index';
 import type { LoadOptions } from '#src/config/load';
 import { loadConfig, packageRoot, prepareContainerConfig } from '#src/config/load';
-import { createApp } from '#src/http/app';
+import { createWebApp } from '#src/http/web-app';
+import { createGameApp } from '#src/http/app';
 import { startCdn } from '#src/node/network/cdn';
 import { startDns } from '#src/node/network/dns';
 import type { HttpListenerOptions } from '#src/node/network/http';
@@ -25,7 +26,13 @@ if (values.config !== undefined) options.path = values.config;
 
 if (values['storage-dir'] !== undefined) options.storageDir = values['storage-dir'];
 
-const { config } = await loadConfig(prepareContainerConfig(options));
+const { config } = await loadConfig(prepareContainerConfig(options)).catch((error) => {
+  if (!(error instanceof ConfigError)) throw error;
+  console.error(`ConfigError: ${error.message}`);
+  // This is the server CLI entry point; config failure must stop before runtime startup.
+  // eslint-disable-next-line unicorn/no-process-exit
+  process.exit(1);
+});
 
 if (existsSync(resolve(config.storageDir, '.config-migration.json')))
   throw new ConfigError('Interrupted config migration; resume config migrate before starting');
@@ -46,9 +53,22 @@ async function start() {
   const resources = new Resources();
 
   try {
+    const webConfig = config.network.web;
+
+    if (
+      webConfig.enabled &&
+      [
+        config.network.api.port,
+        config.network.cdn.port,
+        config.network.tcp.port,
+        config.network.udp.port,
+        ...(config.dns.enabled ? [53] : []),
+      ].includes(webConfig.port)
+    )
+      throw new ConfigError('The web port must differ from every game listener port.');
     const owner = await openRuntime(config, assets);
     resources.defer(() => owner.close());
-    const app = createApp({ gameInfo, gameInfoHash, variants }, owner.runtime);
+    const app = createGameApp({ gameInfo, gameInfoHash, variants }, owner.runtime);
     const api = config.network.api;
     const host = api.host ?? config.network.host;
     const listener: HttpListenerOptions = { port: api.port, host };
@@ -61,6 +81,13 @@ async function start() {
 
     const server = startHttp(app, listener);
     resources.defer(() => closeHttp(server));
+    let setupKey = webConfig.enabled ? owner.runtime.services.management.issueSetupKey() : null;
+
+    const web = webConfig.enabled
+      ? startHttp(createWebApp(owner.runtime), { host: webConfig.host ?? config.network.host, port: webConfig.port })
+      : null;
+
+    if (web) resources.defer(() => closeHttp(web));
     const cdn = startCdn(owner.runtime);
     resources.defer(() => closeHttp(cdn));
     const ride = startRideListeners(owner.runtime);
@@ -74,6 +101,12 @@ async function start() {
 
     const log = owner.runtime.world.lifecycle.log;
 
+    if (config.accounts.allowSelfRegistration !== undefined)
+      log.warn(
+        'config.deprecated',
+        'accounts.allowSelfRegistration is deprecated and ignored. Only an administrator creates riders, in the web app. Remove it from the configuration.',
+      );
+
     function closeHttp(listener: ReturnType<typeof startHttp>) {
       return new Promise<void>((resolve, reject) =>
         listener.close((error) => {
@@ -83,10 +116,33 @@ async function start() {
       );
     }
 
-    const listeners = [server, cdn, ride.tcp, ride.udp, ...(dns ? [dns.socket] : [])];
+    const listeners = [server, cdn, ...(web ? [web] : []), ride.tcp, ride.udp, ...(dns ? [dns.socket] : [])];
 
     try {
       await Promise.all(listeners.map((listener) => once(listener, 'listening')));
+      console.log(
+        'Use Zluggish only on a network that you trust. Other devices on the network can read the passwords that riders type.',
+      );
+
+      if (web) {
+        const bind = webConfig.host ?? config.network.host;
+
+        const address =
+          webConfig.publicUrl ??
+          `http://${bind === '0.0.0.0' || bind === '::' ? config.server.advertisedIp : bind.includes(':') ? `[${bind}]` : bind}:${webConfig.port}`;
+
+        console.log(`Web app: ${address}`);
+
+        if (!webConfig.publicUrl?.startsWith('https:') && !['127.0.0.1', '::1', 'localhost'].includes(bind))
+          console.log('The web app sends passwords over the network without encryption.');
+
+        if (setupKey)
+          console.log(
+            `============================================================\nZluggish first-time setup\nOpen: ${address}/setup\nSetup key: ${setupKey}\nThis key works until setup is complete or the server stops.\n============================================================`,
+          );
+      }
+
+      setupKey = null;
       log.info('server.ready', 'Zluggish is ready', {
         host,
         port: api.port,
@@ -103,7 +159,7 @@ async function start() {
       throw new Error('Required listener could not start', { cause: error });
     }
 
-    for (const listener of [server, cdn, ride.tcp])
+    for (const listener of [server, cdn, ride.tcp, ...(web ? [web] : [])])
       listener.on('error', () => {
         log.error('server.listener_failed', 'Network listener failed');
       });
@@ -117,6 +173,8 @@ async function start() {
 
       const timer = setTimeout(() => {
         if ('closeAllConnections' in server) server.closeAllConnections();
+
+        if (web && 'closeAllConnections' in web) web.closeAllConnections();
 
         if ('closeAllConnections' in cdn) cdn.closeAllConnections();
         log.error('server.stop_timeout', 'Shutdown timed out');

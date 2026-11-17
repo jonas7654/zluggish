@@ -24,7 +24,7 @@ import { z } from 'zod';
 export const HELP = `Usage: zluggish [--config PATH] [--storage-dir DIR] config init|validate|show|typecheck|migrate
        zluggish [--config PATH] settings show|set|reset --user ID [KEY] [VALUE]
 
-accounts recover --user ID --password-file PATH  Set a rider password offline
+accounts recover --user ID --password-file PATH  Set a rider password offline; --admin also enables the rider, grants the administrator role, and completes setup
 accounts migrate [--solo-player ID]          Convert the legacy account database offline
 config migrate --dry-run                     Preview direct legacy -> zluggish.config.ts migration
 config migrate --output PATH [--solo-player ID]  Migrate offline, preserving original files
@@ -124,13 +124,17 @@ export async function run(argv: string[], output: (message: string) => void = co
         const accounts = new AccountsService(storage);
 
         try {
-          if (!accounts.get(playerId)) throw new ConfigError('Unknown rider');
+          if (!accounts.get(playerId)) throw new ConfigError('Unknown user');
           const password = readFileSync(passwordFile, 'utf8').replace(/\r?\n$/, '');
 
           if (password === '') throw new ConfigError('Password must not be empty');
 
           await accounts.changePassword(playerId, password, values.admin ?? false);
-          output('Account recovered; previous tokens revoked');
+          output(
+            values.admin
+              ? 'Account recovered and enabled with the administrator role; previous tokens revoked'
+              : 'Account recovered; enabled state and role preserved; previous tokens revoked',
+          );
         } finally {
           accounts.close();
         }

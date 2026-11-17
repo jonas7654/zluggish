@@ -1,8 +1,8 @@
-import { UploadProvider } from '#src/enum';
+import { UploadProvider, UploadState } from '#src/enum';
 import type { RemovableCredentialFile } from '#src/enum';
 import type { RepositoryContext as Runtime } from '#src/context';
 import { atomic, immediate } from '#src/db/transaction';
-import { DeliveryRefusedError, refused } from '#src/errors';
+import { ApplicationError, DeliveryRefusedError, refused } from '#src/errors';
 import type { Activity } from '#src/protocol/generated/activity_pb';
 import { ActivitySchema } from '#src/protocol/generated/activity_pb';
 import { PlayerProfileSchema } from '#src/protocol/generated/profile_pb';
@@ -26,7 +26,7 @@ const isoDate = (value: string | null | undefined) =>
 
 const title = (value: string | null | undefined) => (value ?? '').trim().toLowerCase();
 
-/** Provider duplicate behavior (see docs/activity-completion.md). An ambiguous delivery
+/** Provider duplicate behavior. An ambiguous delivery
 retries automatically only for a provider that reliably rejects duplicates or accepts an
 idempotency key. No provider is verified yet, so every ambiguous delivery needs an
 operator decision.
@@ -99,6 +99,56 @@ export class UploadsService extends BaseService {
         })
         .parse(row),
     );
+  }
+
+  /** Each configured provider with this activity's delivery to it, if any. */
+  forActivity(player: number, activity: number) {
+    return this.configured(player).map((provider) => {
+      const delivery = this.uploadsRepository.get(activity, provider);
+
+      return { provider, state: delivery?.state ?? null, error: delivery?.last_error ?? null };
+    });
+  }
+
+  /** Upload a finished activity on the rider's request. A sent or ambiguous delivery uploads
+  again only with `again`: the provider may already hold the activity.
+  */
+  request(player: number, activity: number, provider: UploadProvider, again: boolean) {
+    immediate(this.repositories.db, () => {
+      const stored = this.activitiesRepository.fit(activity);
+
+      if (!stored || stored.player !== player) throw new ApplicationError(404, 'Activity not found.');
+
+      if (!stored.fit?.length || !this.uploadPayload(activity))
+        throw new ApplicationError(409, 'Only a finished activity with a FIT file can be uploaded.');
+
+      if (!this.configured(player).includes(provider))
+        throw new ApplicationError(409, 'Connect this service in Integrations first.');
+      const state = this.uploadsRepository.get(activity, provider)?.state;
+
+      if (state === 'pending' || state === 'sending') return;
+
+      if ((state === 'sent' || state === 'ambiguous') && !again)
+        throw new ApplicationError(409, 'This activity may already be there. Confirm to upload it again.');
+
+      if (state === undefined) this.uploadsRepository.insert(activity, provider);
+      else this.uploadsRepository.requeue(activity, provider, z.enum(UploadState).parse(state));
+      this.jobsRepository.enqueue('delivery', { activityId: activity, provider });
+    });
+
+    return this.drain();
+  }
+
+  /** Imported and older finished activities may predate completion records. Reading
+  their metadata must not replay completion rewards or automatic deliveries.
+  */
+  private uploadPayload(activity: number) {
+    const saved = this.completionRepository.get(BigInt(activity));
+
+    if (saved) return fromBinary(ActivitySchema, saved.payload);
+    const row = this.activitiesRepository.activityById(activity);
+
+    return row?.end_date ? this.protobufRepository.decode(ActivitySchema, row) : null;
   }
 
   /** Failed deliveries become pending. Ambiguous ones need explicit confirmation: the
@@ -179,9 +229,9 @@ export class UploadsService extends BaseService {
       if (!job.valid()) return null;
       const delivery = this.uploadsRepository.get(activity, provider);
       const stored = this.activitiesRepository.fit(activity);
-      const saved = this.completionRepository.get(BigInt(activity));
+      const payload = this.uploadPayload(activity);
 
-      if (!delivery || !stored || stored.player === null || !saved) return null;
+      if (!delivery || !stored?.fit?.length || stored.player === null || !payload) return null;
 
       if (delivery.state === 'sending') {
         this.uploadsRepository.abandon(activity, provider);
@@ -198,7 +248,6 @@ export class UploadsService extends BaseService {
       }
 
       this.uploadsRepository.begin(activity, provider, token);
-      const payload = fromBinary(ActivitySchema, saved.payload);
       payload.fit = stored.fit ?? new Uint8Array();
 
       return { player: stored.player, payload, delivery: { ...delivery, attempt: token } };
@@ -300,7 +349,15 @@ export class UploadsService extends BaseService {
     const cookie = this.riderDocuments.text(player, 'strava4_session.txt')?.split(/\r?\n/, 1)[0] ?? '';
 
     if (!cookie) throw new DeliveryRefusedError('strava_session_missing');
-    await this.stravaRepository.uploadFree(cookie, activity.fitFilename, activity.fit, activity.name, photos);
+    await this.stravaRepository.uploadFree(
+      cookie,
+      activity.fitFilename,
+      activity.fit,
+      activity.name,
+      photos,
+      undefined,
+      (fresh) => this.riderDocuments.put(player, 'strava4_session.txt', fresh),
+    );
   }
 
   async garmin(player: number, activity: Activity) {

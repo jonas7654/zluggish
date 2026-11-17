@@ -1,5 +1,4 @@
-import type { Rider } from '#src/repositories/accounts.repository';
-import type { BrowserSession } from '#src/services/browser-session.service';
+import type { User } from '#src/repositories/accounts.repository';
 import type { GarminClient, MfaState } from 'garminconnect-js';
 import type { RepositoryContext } from '#src/context';
 import type { FitnessRepository } from '#src/repositories/fitness.repository';
@@ -20,10 +19,10 @@ export class IntegrationsService extends BaseService {
     super(context.accounts.repositories);
   }
 
-  /** Browser-keyed authorization: login -> mfa -> verifying -> committed/removed.
+  /** Session-keyed authorization: login -> mfa -> verifying -> committed/removed.
   A replacement attempt fences both old callbacks and token-file publication.
   */
-  async authorizeGarmin(key: string, browser: BrowserSession, rider: Rider, code?: string) {
+  async authorizeGarminSession(key: string, live: () => boolean, rider: User, code?: string) {
     const identity = this.context.accounts.identityOf(rider);
 
     for (const [id, entry] of this.garminAttempts) if (entry.expires < Date.now()) this.garminAttempts.delete(id);
@@ -58,7 +57,7 @@ export class IntegrationsService extends BaseService {
       return (
         this.garminAttempts.get(key) === attempt &&
         attempt.expires >= Date.now() &&
-        this.context.sessions.current(key, browser, identity) &&
+        live() &&
         credentials?.[0] === attempt.credentials[0] &&
         credentials?.[1] === attempt.credentials[1]
       );
@@ -100,18 +99,14 @@ export class IntegrationsService extends BaseService {
     }
   }
 
-  async authorizeStrava(key: string, browser: BrowserSession, rider: Rider, code: string) {
+  async authorizeStravaSession(live: () => boolean, rider: User, code: string) {
     const credentials = this.connectionsRepository.read(rider.player_id, 'strava');
 
     if (!credentials) throw new Error('Missing Strava credentials');
     const token = await this.stravaRepository.exchangeCode(credentials[0], credentials[1], code);
     const current = this.connectionsRepository.read(rider.player_id, 'strava');
 
-    if (
-      !this.context.sessions.current(key, browser, this.context.accounts.identityOf(rider)) ||
-      current?.[0] !== credentials[0] ||
-      current?.[1] !== credentials[1]
-    )
+    if (!live() || current?.[0] !== credentials[0] || current?.[1] !== credentials[1])
       throw new Error('Expired authorization');
     this.riderDocuments.put(rider.player_id, 'strava_token.txt', this.stravaRepository.serializeToken(token));
   }

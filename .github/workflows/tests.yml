@@ -27,7 +27,7 @@ jobs:
       - run: pnpm check:web
       - run: pnpm typecheck
       - run: pnpm test
-      - run: pnpm build
+      - run: pnpm --dir .. build
       - name: Regenerate protocol files
         run: pnpm codegen
       - name: Check generated protocol files are up to date

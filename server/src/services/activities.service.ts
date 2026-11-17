@@ -125,7 +125,7 @@ export class ActivitiesService extends BaseService {
   /** Saves from requests run one per event-loop turn: a group of riders that finish
   together cannot hold the main thread for the whole group.
   */
-  saveInTurn(activity: Activity, finish: boolean) {
+  saveInTurn(activity: Activity, finish: boolean, validate: () => boolean | void = () => {}) {
     const queued = performance.now();
     metrics.record(Metric.QueueDepth, ++this.queued);
 
@@ -134,6 +134,8 @@ export class ActivitiesService extends BaseService {
       .then(() => {
         this.queued--;
         metrics.record(Metric.QueueWait, performance.now() - queued);
+
+        if (validate() === false) return 'unchanged';
 
         return this.save(activity, finish);
       });
@@ -454,6 +456,90 @@ export class ActivitiesService extends BaseService {
       : summary;
   }
 
+  /** A rider's own activities for the web app. The rider owns them, so fitness privacy does not apply. */
+  own(player: number, id?: string, page?: number) {
+    return this.activitiesRepository.ownActivities(player, id, page).map((row) => {
+      const activity = this.protobufRepository.decode(ActivitySchema, row);
+      const elapsed = Date.parse(activity.endDate) - Date.parse(activity.startDate);
+
+      return {
+        id: String(activity.id),
+        name: activity.name,
+        world: Number(activity.courseId),
+        sport: activity.sport === Sport.RUNNING ? 'running' : 'cycling',
+        startDate: activity.startDate || null,
+        endDate: activity.endDate || null,
+        distanceInMeters: activity.distanceInMeters,
+        totalElevation: activity.totalElevation,
+        movingTimeInMs: Number(activity.movingTimeInMs) || (Number.isFinite(elapsed) && elapsed > 0 ? elapsed : 0),
+        calories: activity.calories,
+        avgWatts: activity.avgWatts,
+        maxWatts: activity.maxWatts,
+        normalizedPower: activity.normalizedPower,
+        tss: activity.tss,
+        avgHeartRate: activity.avgHeartRate,
+        maxHeartRate: activity.maxHeartRate,
+        avgCadence: activity.avgCadence,
+        maxCadence: activity.maxCadence,
+        avgSpeed: activity.avgSpeed,
+        maxSpeed: activity.maxSpeed,
+        fit: Number(row.has_fit) === 1,
+        images: Number(row.image_count),
+      };
+    });
+  }
+
+  /** One own activity with its ready images and chart. The chart is null while its job runs. */
+  ownDetail(player: number, id: string) {
+    const [activity] = this.own(player, id);
+
+    if (!activity) throw new ApplicationError(404, 'Activity not found.');
+
+    const images = z
+      .array(z.object({ id: z.number(), state: z.string() }))
+      .parse(this.activitiesRepository.listActivityImage(player, id))
+      .filter((row) => row.state === 'ready')
+      .map((row) => row.id);
+
+    const fileId = activity.fit ? this.chartFile(BigInt(id)) : null;
+
+    const chart =
+      fileId === null ? null : JSON.parse(this.filesRepository.readFileSync(this.chartPath(fileId), 'utf8'));
+
+    return { ...activity, imageIds: images, chart, chartPending: activity.fit && chart === null };
+  }
+
+  /** The canonical FIT payload of an own activity, with a filename safe for a download header. */
+  ownFit(player: number, id: string) {
+    const stored = this.activitiesRepository.fit(id);
+
+    if (!stored?.fit || stored.player !== player) throw new ApplicationError(404, 'FIT file not found.');
+
+    const base = stored.filename
+      .normalize('NFKD')
+      .replaceAll(/[^\w. -]/g, '_')
+      .replace(/^[.\s]+/, '');
+
+    return {
+      fit: stored.fit,
+      filename: base ? (base.toLowerCase().endsWith('.fit') ? base : `${base}.fit`) : `${id}.fit`,
+    };
+  }
+
+  /** A ready image of an own activity. */
+  ownImage(player: number, activity: string, image: number) {
+    const ready = z
+      .array(z.object({ id: z.number(), state: z.string() }))
+      .parse(this.activitiesRepository.listActivityImage(player, activity))
+      .some((row) => row.id === image && row.state === 'ready');
+
+    const path = resolve(this.context.profiles.folder(player), 'images', `${image}.jpg`);
+
+    if (!ready || !this.filesRepository.existsSync(path)) throw new ApplicationError(404, 'Image not found.');
+
+    return this.filesRepository.readFileSync(path);
+  }
+
   recentActivities(...values: Parameters<ActivitiesRepository['recentActivities']>) {
     return this.activitiesRepository.recentActivities(...values);
   }
@@ -499,7 +585,8 @@ export class ActivitiesService extends BaseService {
 
     if (fileId !== null && this.filesRepository.existsSync(this.chartPath(fileId))) return fileId;
 
-    if (!this.completionRepository.get(activity) || !this.activitiesRepository.fit(activity)?.fit) return null;
+    // Imported activities can have a canonical FIT payload without a completion record.
+    if (!this.activitiesRepository.fit(activity)?.fit?.length) return null;
 
     immediate(this.repositories.db, () => {
       const id = fileId ?? Number(this.activitiesRepository.insertActivityFile(activity).lastInsertRowid);

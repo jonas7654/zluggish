@@ -62,7 +62,6 @@ const imported = [
   'strava_token.txt',
   'runalyze_token.txt',
   'zwift_credentials.bin',
-  'encryption_key.bin',
   'garth/oauth1_token.json',
 ] as const;
 
@@ -145,7 +144,7 @@ await test('the storage merge imports every legacy store once and keeps the lega
   const db = open();
   const documents = new RiderDocuments(db, storage);
 
-  assert.equal(db.prepare('SELECT version FROM version').get()?.version, 7);
+  assert.equal(db.prepare('SELECT version FROM version').get()?.version, 10);
   assert.equal(db.prepare('PRAGMA journal_mode').get()?.journal_mode, 'wal');
   assert.deepEqual(new SettingsStore(db).read(1), { 'ghosts.enabled': true });
   assert.deepEqual(new SettingsStore(db).world('blob:1'), { riders: 4 });
@@ -239,7 +238,7 @@ await test('a repeated start does not migrate again', (t) => {
   const before = readdirSync(resolve(storage, 'backups'));
   const db = open();
   assert.deepEqual(readdirSync(resolve(storage, 'backups')), before);
-  assert.equal(db.prepare('SELECT count(*) AS n FROM rider_document').get()?.n, 7);
+  assert.equal(db.prepare('SELECT count(*) AS n FROM rider_document').get()?.n, 6);
 });
 
 const snapshot = toBinary(StreaksSchema, StreakService.advancedStreak(previous, activity(20, 'Journal name', { fit })));
@@ -328,8 +327,8 @@ for (const step of Object.values(MigrationStep))
     );
 
     const db = open();
-    assert.equal(db.prepare('SELECT version FROM version').get()?.version, 7);
-    assert.equal(db.prepare('SELECT count(*) AS n FROM rider_document').get()?.n, 7);
+    assert.equal(db.prepare('SELECT version FROM version').get()?.version, 10);
+    assert.equal(db.prepare('SELECT count(*) AS n FROM rider_document').get()?.n, 6);
     assert.equal(db.prepare("SELECT count(*) AS n FROM job WHERE type='delivery'").get()?.n, 1);
     assert.equal(existsSync(resolve(storage, StorageFile.Temporary)), false);
     assert.ok(existsSync(resolve(storage, '1/profile.bin')));
@@ -385,7 +384,10 @@ await test('a legacy cleanup preview removes nothing and lists only imported, ba
   );
   assert.deepEqual(
     plan.kept.map((file) => [relative(storage, file.path), file.reason]),
-    [['99', 'no account for this rider folder']],
+    [
+      [join('1', 'encryption_key.bin'), 'not in the database'],
+      ['99', 'no account for this rider folder'],
+    ],
   );
 
   for (const file of plan.removable) assert.ok(existsSync(file.path));

@@ -1,9 +1,9 @@
-import { createApp } from '#src/http/app';
+import { createGameApp } from '#src/http/app';
 import { LoginResponseSchema } from '#src/protocol/generated/login_pb';
 import { AchievementsSchema, PlayerProfileSchema, StreaksSchema } from '#src/protocol/generated/profile_pb';
 import { UserStorageSchema } from '#src/protocol/generated/user_storage_pb';
 import { AssetFiles } from '#src/repositories/files.repository';
-import { mediumBrowser, mediumFixture } from '#tests/medium/support';
+import { mediumFixture, mediumWeb } from '#tests/medium/support';
 import { create, fromBinary, toBinary } from '@bufbuild/protobuf';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
@@ -51,10 +51,10 @@ const cases = [
 ] as const;
 
 for (const item of cases) {
-  await test(`F12 browser restore stages, cancels and confirms ${item.name} with backup and rider isolation`, async (t) => {
+  await test(`F12 web restore stages, cancels and confirms ${item.name} with backup and rider isolation`, async (t) => {
     const f = await mediumFixture(t);
-    const browser = await mediumBrowser(f);
-    const other = await mediumBrowser(f, f.other);
+    const web = mediumWeb(f, f.rider);
+    const other = mediumWeb(f, f.other);
     const folder = f.profiles.folder(f.rider.player_id);
     const stored = () => Buffer.from(f.services.documents.get(f.rider.player_id, item.name) ?? []);
     f.services.documents.put(f.rider.player_id, item.name, item.before);
@@ -63,40 +63,32 @@ for (const item of cases) {
     const upload = async () => {
       const files = new FormData();
       files.set(item.name, new File([Uint8Array.from(item.after)], item.name));
-      const response = await browser.upload(`/profile/${f.rider.username}/`, files);
-      assert.equal(response.status, 302);
-      assert.equal(response.headers.get('Location'), `/profile/${f.rider.username}/confirm/`);
+      const response = await web.request('/api/me/import', 'POST', files);
+      assert.equal(response.status, 200);
+      const { review } = await response.json();
       assert.deepEqual(stored(), Buffer.from(item.before));
-      const review = await browser.request(`/profile/${f.rider.username}/confirm/`);
-      assert.equal(review.status, 200);
-      assert.match(await review.text(), new RegExp(item.name.replaceAll('.', '\\.')));
+      const pending = await web.request('/api/me/import');
+      const { review: listed } = await pending.json();
+      assert.equal(listed.stage, review.stage);
+
+      return String(review.stage);
     };
 
-    await upload();
-    const canceled = await browser.form(`/profile/${f.rider.username}/confirm/`, { cancel: '1' });
-    assert.equal(canceled.status, 302);
+    const first = await upload();
+    const canceled = await web.request('/api/me/import/confirm', 'POST', { stage: first, cancel: true });
+    assert.equal(canceled.status, 200);
     assert.deepEqual(stored(), Buffer.from(item.before));
     assert.equal(
       readdirSync(folder).some((name) => name.startsWith('.ts-import-')),
       false,
     );
-    await upload();
-
-    const foreignConfirm = await other.form(`/profile/${f.rider.username}/confirm/`, {
-      confirm: '1',
-      confirm_source: 'on',
-    });
-
-    assert.equal(foreignConfirm.status, 302);
+    const stage = await upload();
+    const foreignConfirm = await other.request('/api/me/import/confirm', 'POST', { stage, confirmSource: true });
+    assert.equal(foreignConfirm.status, 409);
     assert.deepEqual(stored(), Buffer.from(item.before));
-
-    const published = await browser.form(`/profile/${f.rider.username}/confirm/`, {
-      confirm: '1',
-      confirm_source: 'on',
-    });
-
-    assert.equal(published.status, 302);
-    const downloaded = await browser.form('/download', { filename: item.name });
+    const published = await web.request('/api/me/import/confirm', 'POST', { stage, confirmSource: true });
+    assert.equal(published.status, 200);
+    const downloaded = await web.request(`/api/me/export/${item.name}`);
     assert.equal(downloaded.status, 200);
     const bytes = new Uint8Array(await downloaded.arrayBuffer());
 
@@ -111,7 +103,7 @@ for (const item of cases) {
     assert.equal(backups.length, 1);
     assert.deepEqual(readFileSync(resolve(folder, backups[0]!)), Buffer.from(item.before));
     assert.equal(f.accounts.get(f.rider.player_id)?.auth_version, account?.auth_version);
-    assert.equal(f.accounts.get(f.rider.player_id)?.is_admin, account?.is_admin);
+    assert.equal(f.accounts.get(f.rider.player_id)?.role, account?.role);
     assert.equal(f.services.documents.has(f.other.player_id, item.name), false);
     assert.equal(
       readdirSync(folder).some((name) => name.startsWith('.ts-import-')),
@@ -122,24 +114,29 @@ for (const item of cases) {
 
 await test('F12 multipart restore accepts selected empty protobuf files and requires CSRF before staging', async (t) => {
   const f = await mediumFixture(t);
-  const browser = await mediumBrowser(f);
+  const web = mediumWeb(f, f.rider);
   const names = ['achievements.bin', 'user_storage.bin', 'streaks.bin'];
   const missingCsrf = new FormData();
   missingCsrf.set('streaks.bin', new File([], 'streaks.bin'));
-  const rejected = await browser.request(`/profile/${f.rider.username}/`, { method: 'POST', body: missingCsrf });
-  assert.equal(rejected.status, 400);
+  const rejected = await web.request('/api/me/import', 'POST', missingCsrf, '');
+  assert.equal(rejected.status, 403);
   const files = new FormData();
 
   for (const name of names) files.set(name, new File([], name));
-  const staged = await browser.upload(`/profile/${f.rider.username}/`, files);
-  assert.equal(staged.status, 302);
-  const unconfirmed = await browser.form(`/profile/${f.rider.username}/confirm/`, { confirm: '1' });
+  const staged = await web.request('/api/me/import', 'POST', files);
+  assert.equal(staged.status, 200);
+
+  const {
+    review: { stage },
+  } = await staged.json();
+
+  const unconfirmed = await web.request('/api/me/import/confirm', 'POST', { stage });
   assert.equal(unconfirmed.status, 400);
-  const published = await browser.form(`/profile/${f.rider.username}/confirm/`, { confirm: '1', confirm_source: 'on' });
-  assert.equal(published.status, 302);
+  const published = await web.request('/api/me/import/confirm', 'POST', { stage, confirmSource: true });
+  assert.equal(published.status, 200);
 
   for (const name of names) {
-    const response = await browser.form('/download', { filename: name });
+    const response = await web.request(`/api/me/export/${name}`);
     assert.equal(response.status, 200);
     const bytes = await response.arrayBuffer();
     assert.equal(bytes.byteLength, 0);
@@ -148,15 +145,15 @@ await test('F12 multipart restore accepts selected empty protobuf files and requ
 
 await test('F12 app reconstruction removes a stage whose restore already committed', async (t) => {
   const f = await mediumFixture(t);
-  const browser = await mediumBrowser(f);
+  const web = mediumWeb(f, f.rider);
   const folder = f.profiles.folder(f.rider.player_id);
   const original = toBinary(StreaksSchema, create(StreaksSchema, { curStreak: 2 }));
   const incoming = toBinary(StreaksSchema, create(StreaksSchema, { curStreak: 99 }));
   f.services.documents.put(f.rider.player_id, 'streaks.bin', original);
   const files = new FormData();
   files.set('streaks.bin', new File([incoming], 'streaks.bin'));
-  const staged = await browser.upload(`/profile/${f.rider.username}/`, files);
-  assert.equal(staged.status, 302);
+  const staged = await web.request('/api/me/import', 'POST', files);
+  assert.equal(staged.status, 200);
   const stage = readdirSync(folder).find((name) => name.startsWith('.ts-import-'));
   assert.ok(stage);
   // Simulate a process stopping after the publication transaction, before the stage removal.
@@ -164,7 +161,7 @@ await test('F12 app reconstruction removes a stage whose restore already committ
   f.services.documents.put(f.rider.player_id, 'streaks.bin', incoming);
   f.accounts.db.prepare('INSERT INTO rider_import (stage, player_id) VALUES (?, ?)').run(stage, f.rider.player_id);
   f.accounts.db.exec('COMMIT');
-  const restarted = createApp({ gameInfo: '{}', gameInfoHash: '0', variants: '{}' }, f);
+  const restarted = createGameApp({ gameInfo: '{}', gameInfoHash: '0', variants: '{}' }, f);
   const response = await restarted.request('/api/fitness/streaks', { headers: f.headers() });
   assert.equal(response.status, 200);
   assert.equal(fromBinary(StreaksSchema, new Uint8Array(await response.arrayBuffer())).curStreak, 99);
@@ -172,17 +169,15 @@ await test('F12 app reconstruction removes a stage whose restore already committ
 });
 
 for (const choice of ['profile', 'achievements', 'both']) {
-  await test(`F12 official ${choice} download uses saved encrypted credentials and requires browser confirmation`, async (t) => {
+  await test(`F12 official ${choice} download uses saved encrypted credentials and requires web confirmation`, async (t) => {
     const f = await mediumFixture(t);
-    const browser = await mediumBrowser(f);
-    const connection = `/zwift/${f.rider.username}/`;
+    const web = mediumWeb(f, f.rider);
 
-    const saved = await browser.form(connection, {
-      action: 'settings',
+    const saved = await web.request('/api/me/zwift', 'PUT', {
       username: 'official@example.test',
       password: 'medium-secret',
-      upload: 'on',
-      click: 'on',
+      upload: true,
+      click: true,
     });
 
     assert.equal(saved.status, 200);
@@ -238,24 +233,27 @@ for (const choice of ['profile', 'achievements', 'both']) {
       throw new Error(`Unexpected official request ${path}`);
     });
 
-    const selection = {
-      action: 'import',
-      profile: choice === 'achievements' ? '' : 'on',
-      achievements: choice === 'profile' ? '' : 'on',
-    };
+    const downloaded = await web.request('/api/me/zwift/import', 'POST', {
+      profile: choice !== 'achievements',
+      achievements: choice !== 'profile',
+    });
 
-    const downloaded = await browser.form(connection, selection);
-    assert.equal(downloaded.status, 302);
+    assert.equal(downloaded.status, 200);
+
+    const {
+      review: { stage },
+    } = await downloaded.json();
+
     assert.equal(f.profiles.get(f.rider.player_id).firstName, 'Medium');
     assert.equal(f.accounts.get(f.rider.player_id)?.official_player_id, null);
 
-    const published = await browser.form(`/profile/${f.rider.username}/confirm/`, {
-      confirm: '1',
-      confirm_source: 'on',
-      keep_name: 'on',
+    const published = await web.request('/api/me/import/confirm', 'POST', {
+      stage,
+      confirmSource: true,
+      keepName: true,
     });
 
-    assert.equal(published.status, 302);
+    assert.equal(published.status, 200);
     assert.equal(f.profiles.get(f.rider.player_id).id, BigInt(f.rider.player_id));
     assert.equal(f.profiles.get(f.rider.player_id).firstName, 'Medium');
     assert.equal(f.services.documents.has(f.rider.player_id, 'economy_config.txt'), choice !== 'achievements');
@@ -269,7 +267,13 @@ for (const choice of ['profile', 'achievements', 'both']) {
       assert.equal(f.accounts.get(f.rider.player_id)?.official_player_id, '999');
     }
 
-    const disabled = await browser.form(connection, { action: 'settings', click: 'on' });
+    const disabled = await web.request('/api/me/zwift', 'PUT', {
+      username: '',
+      password: '',
+      upload: false,
+      click: true,
+    });
+
     assert.equal(disabled.status, 200);
     assert.equal(f.settings.read(f.rider.player_id)['uploads.zwift.enabled'], false);
     assert.equal(f.settings.read(f.rider.player_id)['devices.zwiftClick.enabled'], true);
@@ -278,14 +282,16 @@ for (const choice of ['profile', 'achievements', 'both']) {
       'medium-secret',
     ]);
 
-    const invalidCsrf = await browser.request(connection, {
-      method: 'POST',
-      body: new URLSearchParams({ action: 'settings', password: 'rejected' }),
-    });
+    const invalidCsrf = await web.request(
+      '/api/me/zwift',
+      'PUT',
+      { username: 'rejected', password: 'rejected', upload: false, click: false },
+      'wrong',
+    );
 
-    assert.equal(invalidCsrf.status, 400);
-    const removed = await browser.form('/delete/zwift_credentials.bin', { confirm_action: 'on' });
-    assert.equal(removed.status, 302);
+    assert.equal(invalidCsrf.status, 403);
+    const removed = await web.request('/api/me/zwift', 'DELETE');
+    assert.equal(removed.status, 200);
     assert.equal(f.accounts.repositories.connectionsRepository.read(f.rider.player_id, 'zwift'), null);
   });
 }
@@ -293,12 +299,12 @@ for (const choice of ['profile', 'achievements', 'both']) {
 for (const failure of ['login', 'profile', 'invalid profile']) {
   await test(`F12 failed official import preserves rider data and creates no pending stage: ${failure}`, async (t) => {
     const f = await mediumFixture(t);
-    const browser = await mediumBrowser(f);
-    const connection = `/zwift/${f.rider.username}/`;
-    await browser.form(connection, {
-      action: 'settings',
+    const web = mediumWeb(f, f.rider);
+    await web.request('/api/me/zwift', 'PUT', {
       username: 'official@example.test',
       password: 'medium-secret',
+      upload: false,
+      click: false,
     });
     const profilePath = resolve(f.profiles.folder(f.rider.player_id), 'profile.bin');
     const before = toBinary(PlayerProfileSchema, f.profiles.get(f.rider.player_id));
@@ -338,11 +344,11 @@ for (const failure of ['login', 'profile', 'invalid profile']) {
         );
       throw new Error(`Unexpected official request ${path}`);
     });
-    const response = await browser.form(connection, { action: 'import', profile: 'on' });
-    assert.equal(response.status, 200);
-    const html = await response.text();
-    assert.match(html, /Download failed/);
-    assert.doesNotMatch(html, /medium-secret|official-token/);
+    const response = await web.request('/api/me/zwift/import', 'POST', { profile: true, achievements: false });
+    assert.equal(response.status, 400);
+    const body = await response.text();
+    assert.match(body, failure === 'invalid profile' ? /Could not import these files/ : /Download failed/);
+    assert.doesNotMatch(body, /medium-secret|official-token/);
     assert.deepEqual(readFileSync(profilePath), Buffer.from(before));
     assert.equal(
       readdirSync(f.profiles.folder(f.rider.player_id)).some((name) => name.startsWith('.ts-import-')),
@@ -359,8 +365,8 @@ for (const failure of ['login', 'profile', 'invalid profile']) {
             '/auth/realms/zwift/tokens/logout',
           ]),
     ]);
-    const confirm = await browser.request(`/profile/${f.rider.username}/confirm/`);
-    assert.equal(confirm.status, 302);
-    assert.equal(confirm.headers.get('Location'), `/profile/${f.rider.username}/`);
+    const pending = await web.request('/api/me/import');
+    const { review } = await pending.json();
+    assert.equal(review, null);
   });
 }

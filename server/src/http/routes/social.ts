@@ -57,7 +57,7 @@ export function socialRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
         create(PlayerProfilesSchema, {
           profiles: ids.map((id) => {
             if (runtime.services.profiles.synthetic.has(BigInt(id)) || runtime.services.accounts.get(id))
-              return runtime.services.profiles.forViewer(runtime.services.profiles.get(id), c.get('rider')?.player_id);
+              return runtime.services.profiles.forViewer(runtime.services.profiles.get(id), c.get('user')?.player_id);
 
             return create(PlayerProfileSchema, {
               id: BigInt(id),

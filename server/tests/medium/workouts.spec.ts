@@ -2,7 +2,7 @@ import { createCdn } from '#src/node/network/cdn';
 import { LoginRequestSchema, LoginResponseSchema } from '#src/protocol/generated/login_pb';
 import { ZFilesProtoSchema } from '#src/protocol/generated/zfiles_pb';
 import { AssetFiles } from '#src/repositories/files.repository';
-import { binary, decode, mediumBrowser, mediumFixture } from '#tests/medium/support';
+import { binary, decode, mediumBrowser, mediumFixture, mediumWeb } from '#tests/medium/support';
 import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -19,8 +19,7 @@ await test('F07 browser home and Android login share one refresh; saved-token lo
   t.mock.timers.enable({ apis: ['Date'], now: Date.UTC(2026, 10, 13, 12) });
   const f = await mediumFixture(t);
   const browser = await mediumBrowser(f);
-  const connected = await browser.form(`/intervals/${f.rider.username}/`, { athlete_id: '123', api_key: 'medium-key' });
-  assert.equal(connected.status, 302);
+  f.services.connections.save(f.rider.player_id, 'intervals', ['123', 'medium-key']);
   const calls: { url: URL; signal: AbortSignal | null | undefined }[] = [];
 
   t.mock.method(globalThis, 'fetch', async (input: URL | string, init?: RequestInit) => {
@@ -84,7 +83,7 @@ for (const failure of ['provider unavailable', 'invalid second download']) {
     t.mock.timers.enable({ apis: ['Date'], now: Date.UTC(2026, 10, 13, 12) });
     const f = await mediumFixture(t);
     const browser = await mediumBrowser(f);
-    await browser.form(`/intervals/${f.rider.username}/`, { athlete_id: '123', api_key: 'medium-key' });
+    f.services.connections.save(f.rider.player_id, 'intervals', ['123', 'medium-key']);
     let failing = false;
 
     t.mock.method(globalThis, 'fetch', (input: URL | string) => {
@@ -132,8 +131,7 @@ for (const failure of ['provider unavailable', 'invalid second download']) {
 
 await test('F07 automatic login deadline cancels provider work without replacing the cached schedule', async (t) => {
   const f = await mediumFixture(t);
-  const browser = await mediumBrowser(f);
-  await browser.form(`/intervals/${f.rider.username}/`, { athlete_id: '123', api_key: 'medium-key' });
+  f.services.connections.save(f.rider.player_id, 'intervals', ['123', 'medium-key']);
   const metadata = resolve(f.profiles.folder(f.rider.player_id), 'intervals_icu_workout.json');
   const before = Buffer.from('{"provider":"intervals-icu","workouts":[]}');
   new AssetFiles().writeDurable(metadata, before);
@@ -185,8 +183,7 @@ await test('F07 TrainingPeaks home refresh publishes zfiles and a failed refresh
   const folder = resolve(f.config.storageDir, 'bridge');
   mkdirSync(folder);
   new AssetFiles().writeDurable(resolve(folder, 'first.zwo'), xml);
-  const configured = await browser.form(`/trainingpeaks/${f.rider.username}/`, { bridge_folder: folder });
-  assert.equal(configured.status, 200);
+  f.settings.save(f.rider.player_id, { 'workouts.trainingpeaks.bridgeFolder': folder });
   const home = await browser.request(`/user/${f.rider.username}/`);
   assert.equal(home.status, 200);
   const first = await decode(await f.request('/api/zfiles/list?folder=customworkouts'), ZFilesProtoSchema);
@@ -228,8 +225,8 @@ for (const sport of [undefined, 'CYCLING', 'cycling', 'RUNNING', 'running', 'ROW
   await test(`F14 all planned-workout endpoints filter sport consistently: ${sport ?? 'omitted'}`, async (t) => {
     t.mock.timers.enable({ apis: ['Date'], now: Date.UTC(2026, 10, 13, 12) });
     const f = await mediumFixture(t);
-    const browser = await mediumBrowser(f);
-    await browser.form(`/intervals/${f.rider.username}/`, { athlete_id: '123', api_key: 'medium-key' });
+    const web = mediumWeb(f, f.rider);
+    f.services.connections.save(f.rider.player_id, 'intervals', ['123', 'medium-key']);
     t.mock.method(globalThis, 'fetch', (input: URL | string) =>
       Promise.resolve(
         String(input).endsWith('/download.zwo')
@@ -237,8 +234,9 @@ for (const sport of [undefined, 'CYCLING', 'cycling', 'RUNNING', 'running', 'ROW
           : Response.json([{ id: 42, start_date_local: `${day}T08:00:00` }]),
       ),
     );
-    const synced = await browser.form(`/intervals/${f.rider.username}/sync`);
+    const synced = await web.request('/api/me/workouts/sync', 'POST', { provider: 'intervals' });
     assert.equal(synced.status, 200);
+    assert.deepEqual(await synced.json(), { message: 'Synced 1 Intervals.icu workouts.' });
     const baseline = await f.request('/api/workout/schedule/list');
     const [workout] = schedules.parse(await baseline.json());
     assert.ok(workout);
@@ -271,8 +269,8 @@ for (const sport of [undefined, 'CYCLING', 'cycling', 'RUNNING', 'running', 'ROW
 await test('Intervals sync preserves interleaved exercise blocks and text events in downloaded assets', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.UTC(2026, 10, 13, 12) });
   const f = await mediumFixture(t);
-  const browser = await mediumBrowser(f);
-  await browser.form(`/intervals/${f.rider.username}/`, { athlete_id: '123', api_key: 'test' });
+  const web = mediumWeb(f, f.rider);
+  f.services.connections.save(f.rider.player_id, 'intervals', ['123', 'test']);
 
   const workout =
     '<workout_file><name>A &amp; B</name><sportType>bike</sportType><uniqueId>old</uniqueId><workout>' +
@@ -286,7 +284,7 @@ await test('Intervals sync preserves interleaved exercise blocks and text events
         : Response.json([{ id: 42, start_date_local: `${day}T08:00:00` }]),
     ),
   );
-  await browser.form(`/intervals/${f.rider.username}/sync`);
+  await web.request('/api/me/workouts/sync', 'POST', { provider: 'intervals' });
   const response = await f.request('/api/workout/schedule/list');
   const [entry] = schedules.parse(await response.json());
   assert.ok(entry);
@@ -300,16 +298,19 @@ await test('Intervals sync preserves interleaved exercise blocks and text events
 
 await test('TrainingPeaks collisions reject the whole import and preserve existing workouts', async (t) => {
   const f = await mediumFixture(t);
-  const browser = await mediumBrowser(f);
+  const web = mediumWeb(f, f.rider);
   const folder = resolve(f.config.storageDir, 'bridge');
   mkdirSync(folder);
   new AssetFiles().writeDurable(resolve(folder, 'Tempo A.zwo'), xml);
-  await browser.form(`/trainingpeaks/${f.rider.username}/`, { bridge_folder: folder });
-  await browser.form(`/trainingpeaks/${f.rider.username}/sync`);
+  f.settings.save(f.rider.player_id, { 'workouts.trainingpeaks.bridgeFolder': folder });
+  const imported = await web.request('/api/me/workouts/sync', 'POST', { provider: 'trainingpeaks' });
+  assert.deepEqual(await imported.json(), { message: 'Imported 1 TrainingPeaks workouts.' });
   const before = f.accounts.db.prepare('SELECT * FROM zfile').all();
   new AssetFiles().writeDurable(resolve(folder, 'Tempo-A.zwo'), xml.replace('Medium Tempo', 'Different'));
-  const response = await browser.form(`/trainingpeaks/${f.rider.username}/sync`);
-  assert.match(await response.text(), /sync failed/);
+  const response = await web.request('/api/me/workouts/sync', 'POST', { provider: 'trainingpeaks' });
+  assert.equal(response.status, 503);
+  const { message } = await response.json();
+  assert.match(message, /sync failed/);
   assert.deepEqual(f.accounts.db.prepare('SELECT * FROM zfile').all(), before);
   const list = await decode(await f.request('/api/zfiles/list?folder=customworkouts'), ZFilesProtoSchema);
   const download = await f.request(`/api/zfiles/${list.zfiles[0]?.id}/download`);

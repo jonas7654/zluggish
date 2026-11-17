@@ -9,6 +9,7 @@ import { resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
 const { completionSchemaSQL, createSchemaSQL } = await import(resolve('dist/src/db/ddl.js'));
+const { SCHEMA_VERSION } = await import(resolve('dist/src/db/open.js'));
 const storage = '/tmp/legacy-storage';
 const backup = '/tmp/legacy-backup';
 const config = '/tmp/storage-config/zluggish.config.ts';
@@ -45,7 +46,7 @@ function zluggish(...args) {
 const usage = JSON.parse(zluggish('storage', 'usage'));
 assert.ok(usage.database > 0);
 const db = new DatabaseSync(resolve(storage, 'zluggish.db'), { readOnly: true });
-assert.equal(db.prepare('SELECT version FROM version').get().version, 7);
+assert.equal(db.prepare('SELECT version FROM version').get().version, SCHEMA_VERSION);
 assert.equal(db.prepare("SELECT state FROM activity_upload WHERE provider='runalyze'").get().state, 'ambiguous');
 assert.equal(db.prepare('SELECT count(*) AS n FROM rider_document WHERE player_id=1').get().n, 2);
 db.close();

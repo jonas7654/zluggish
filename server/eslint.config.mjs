@@ -143,7 +143,7 @@ export default defineConfig([
   },
   ...svelte.configs.recommended,
   {
-    basePath: fileURLToPath(new URL('.', import.meta.url)),
+    basePath: fileURLToPath(new URL('..', import.meta.url)),
     files: ['web/**/*.svelte'],
     languageOptions: {
       parserOptions: { parser: typescriptEslint.parser },
@@ -152,8 +152,9 @@ export default defineConfig([
     rules: { 'svelte/no-at-html-tags': 'error', 'svelte/prefer-svelte-reactivity': 'off' },
   },
   {
-    basePath: fileURLToPath(new URL('.', import.meta.url)),
+    basePath: fileURLToPath(new URL('..', import.meta.url)),
     files: ['web/**/*.ts'],
+    plugins: { '@typescript-eslint': typescriptEslint.plugin, 'import-x': importX },
     languageOptions: { parser: typescriptEslint.parser, globals: { ...globals.browser, ...globals.node } },
     rules: {
       ...typescriptEslint.configs.recommended[2].rules,

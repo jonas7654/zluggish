@@ -3,7 +3,7 @@ import { ConfigError, validateConfig, validationError } from '#src/config/index'
 import { configSchema } from '#src/config/schema';
 import { createJiti } from 'jiti';
 import { accessSync, constants, copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
-import { basename, dirname, isAbsolute, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, resolve, sep } from 'node:path';
 import { createSecureContext } from 'node:tls';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
@@ -32,6 +32,16 @@ export function packageVersion(): string {
     .parse(JSON.parse(readFileSync(resolve(packageRoot(), 'package.json'), 'utf8'))).version;
 
   return version;
+}
+
+/** Supported client release from the bundled update manifest. */
+export function supportedZwiftVersion(): string {
+  const manifest = readFileSync(
+    resolve(packageRoot(), '../assets/cdn/gameassets/Zwift_Updates_Root/Zwift_ver_cur.xml'),
+    'utf8',
+  );
+
+  return /sversion="([^"]+)"/.exec(manifest)?.[1] ?? 'Unknown';
 }
 
 export function selectConfigPath(path?: string, env = process.env): string {
@@ -69,6 +79,46 @@ export function prepareContainerConfig(options: LoadOptions): LoadOptions {
   }
 
   return { ...options, path };
+}
+
+const loadError = z
+  .object({
+    name: z.string().catch('Error'),
+    code: z.string().optional().catch(undefined),
+    message: z.string().catch(''),
+    stack: z.string().catch(''),
+  })
+  .catch({ name: 'Error', message: '', stack: '' });
+
+/** Report the runtime message and first operator source location without dependency stacks. */
+function describeLoadError({ name, code, message, stack }: z.infer<typeof loadError>, path: string) {
+  const normalizedPath = path.replaceAll('\\', '/');
+  const normalizedMessage = message.replaceAll('\\', '/');
+  const normalizedStack = stack.replaceAll('\\', '/');
+  const escaped = normalizedPath.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
+  const position = new RegExp(String.raw`${escaped}:(\d+):(\d+)`).exec(`${normalizedMessage}\n${normalizedStack}`);
+  const where = position ? ` at line ${position[1]}, column ${position[2]}` : '';
+  const missing = /Cannot find (?:module|package) '([^']+)'/.exec(message)?.[1];
+
+  if (code === 'MODULE_NOT_FOUND' || code === 'ERR_MODULE_NOT_FOUND')
+    return `cannot find the import ${missing ? `'${missing}'` : 'it names'}${where}`;
+  const parse = /^ParseError: (?:[A-Z]:[\\/]: )?([^\n]+)/.exec(message)?.[1]?.trim();
+
+  if (parse) return `syntax error${where}: ${parse}`;
+  const undefinedName = name === 'ReferenceError' ? /^(\S+) is not defined$/.exec(message)?.[1] : undefined;
+
+  if (undefinedName) return `'${undefinedName}' is not defined${where}`;
+
+  const frame = stack
+    .split('\n')
+    .find(
+      (line) =>
+        /^\s+at /.test(line) &&
+        line.replaceAll('\\', '/').includes(`${dirname(path).replaceAll('\\', '/')}/`) &&
+        !line.includes('/node_modules/'),
+    );
+
+  return `${name}${where}${message ? `: ${message}` : ''}${frame ? `\n${frame.trim().replaceAll('/', () => sep)}` : ''}`;
 }
 
 export async function loadConfig(options: LoadOptions = {}): Promise<LoadedConfig> {
@@ -121,8 +171,7 @@ export async function loadConfig(options: LoadOptions = {}): Promise<LoadedConfi
   } catch (error) {
     if (error instanceof ConfigError) throw error;
 
-    // Loader exceptions can include source lines, environment values or secrets.
-    throw new ConfigError(`Cannot evaluate ${path}; check module syntax and imports`);
+    throw new ConfigError(`Cannot evaluate ${path}: ${describeLoadError(loadError.parse(error), path)}`);
   }
 
   const relative = (p: string) => (p && !isAbsolute(p) ? resolve(dirname(path), p) : p);

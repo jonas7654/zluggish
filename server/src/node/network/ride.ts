@@ -55,6 +55,8 @@ export function startRideListeners(runtime: Runtime) {
       relay.acceptUdp(decoded.iv.connection, decoded.fields.connection, decoded.fields.sequence);
       world.lifecycle.connected(id);
 
+      runtime.services.rideCompletion.touch(Number(id));
+
       if (incoming.state) world.receive(id, incoming.state);
 
       // Legacy protobuf exposes an empty message for an omitted state. Reply to
@@ -85,6 +87,7 @@ export function startRideListeners(runtime: Runtime) {
   // validate -> activate (superseding old owner) -> close. Every send/tick/close
   // checks ownership; TCP close alone never removes relay credentials or ends a ride.
   const active = new Map<bigint, Socket>();
+  world.disconnect = (id) => active.get(id)?.destroy();
 
   const tcp = createServer((socket) => {
     sockets.add(socket);
@@ -135,17 +138,22 @@ export function startRideListeners(runtime: Runtime) {
             playerId = BigInt(packet.readUInt32BE(1));
             const id = Number(playerId);
 
-            if (!runtime.accounts.get(id)) throw new Error('Unknown rider');
+            const rider = runtime.accounts.get(id);
+
+            if (!rider || (!rider.enabled && !runtime.services.rideCompletion.relay(id)))
+              throw new Error('Unknown rider');
 
             // The stored relay key lets a restarted server accept the existing session.
             const current = world.relays.get(playerId);
             const documents = runtime.services.documents;
 
-            if (current) documents.put(id, 'encryption_key.bin', current.key);
-            else {
+            if (current && rider.enabled) {
+              runtime.services.rideCompletion.persistRelay(id, current.key, rider.auth_version);
+            } else {
               const key = documents.get(id, 'encryption_key.bin');
 
-              if (key) world.login(playerId, key);
+              if (key && rider.enabled && documents.text(id, 'relay-auth-version') === String(rider.auth_version))
+                world.login(playerId, key);
             }
           }
 
@@ -163,6 +171,11 @@ export function startRideListeners(runtime: Runtime) {
           const incoming = fromBinary(ClientToServerSchema, decoded.payload.subarray(2));
 
           if (incoming.playerId !== playerId) throw new Error('Mismatched relay identity');
+          const account = runtime.accounts.get(Number(playerId));
+
+          if (!account?.enabled && !runtime.services.rideCompletion.relay(Number(playerId)))
+            throw new Error('Relay revoked');
+          runtime.services.rideCompletion.touch(Number(playerId));
           world.lifecycle.connected(playerId);
           const hello = first || decoded.fields.connection !== undefined;
 
@@ -297,6 +310,7 @@ export function startRideListeners(runtime: Runtime) {
     udp,
     close: () =>
       (closing ??= Promise.try(async () => {
+        world.disconnect = undefined;
         world.lifecycle.close();
         clearInterval(cleanup);
 

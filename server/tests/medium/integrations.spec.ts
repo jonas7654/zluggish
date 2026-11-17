@@ -1,11 +1,11 @@
-import { inputValue } from '#tests/support/html';
-import { createApp } from '#src/http/app';
+import { responseStatus, inputValue } from '#tests/support/html';
+import { createGameApp } from '#src/http/app';
 import { DeliveryRefusedError } from '#src/errors';
 import { UploadsService } from '#src/services/uploads.service';
 import { ActivitySchema } from '#src/protocol/generated/activity_pb';
-import { PlayerStateSchema } from '#src/protocol/generated/udp-node-msgs_pb';
 import { FeatureRequestSchema, FeatureResponseSchema } from '#src/protocol/generated/variants_pb';
 import { runtimeFixture } from '#tests/support/runtime';
+import { mediumWeb } from '#tests/medium/support';
 import { create, fromBinary, toBinary } from '@bufbuild/protobuf';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -14,7 +14,7 @@ import type { TestContext } from 'node:test';
 import { test } from 'node:test';
 import { z } from 'zod';
 
-function browser(app: ReturnType<typeof createApp>) {
+function browser(app: ReturnType<typeof createGameApp>) {
   let cookie = '';
   let csrf = '';
 
@@ -54,55 +54,34 @@ function browser(app: ReturnType<typeof createApp>) {
   return client;
 }
 
-await test('Strava credentials are stored encrypted, never echoed, and removal is allow-listed', async (t) => {
+await test('Strava credentials are stored encrypted, never echoed, and disconnecting removes them', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Strava Rider', 'test-password', true);
-  const client = browser(f.app);
-  await client.signIn(user.player_id, user.username);
+  const user = await f.accounts.create('Strava Rider', 'test-password');
+  const web = mediumWeb(f, user);
 
-  const saved = await client.form(`/strava/${user.username}/`, {
-    client_id: '12345',
-    client_secret: 'very-secret-value',
+  const saved = await web.request('/api/me/connections/strava', 'PUT', {
+    username: '12345',
+    secret: 'very-secret-value',
   });
 
-  const body = await saved.text();
-  assert.match(body, /Credentials saved/);
-  assert.doesNotMatch(body, /very-secret-value/);
+  assert.equal(saved.status, 200);
+  assert.doesNotMatch(await saved.text(), /very-secret-value/);
 
   assert.deepEqual(f.accounts.repositories.connectionsRepository.read(user.player_id, 'strava'), [
     '12345',
     'very-secret-value',
   ]);
 
-  const response3 = await client.form(`/strava/${user.username}/`, {
-    client_id: '',
-    client_secret: '',
-  });
-
-  const empty = await response3.text();
-
-  assert.match(empty, /secret can.+t be empty/);
-
-  await client.form(`/strava/${user.username}/`, { method: 'free' });
-  assert.equal(f.settings.read(user.player_id)['uploads.strava.method'], 'free');
-
-  await client.form(`/strava/${user.username}/`, {
-    _strava4_session: 'cookie-value',
-  });
-
+  const empty = await web.request('/api/me/connections/strava', 'PUT', { username: '', secret: '' });
+  assert.equal(empty.status, 400);
+  await web.request('/api/me/connections/strava/cookie', 'PUT', { cookie: 'cookie-value' });
   assert.equal(f.services.documents.text(user.player_id, 'strava4_session.txt'), 'cookie-value');
   const stored = f.accounts.db.prepare("SELECT data FROM rider_document WHERE name='strava4_session.txt'").get();
   assert.equal(Buffer.from(z.instanceof(Uint8Array).parse(stored?.data)).includes('cookie-value'), false);
-  const response4 = await client.form('/delete/profile.bin', {});
-  assert.equal(response4.status, 403);
-  const response5 = await client.form('/delete/..%2Fprofile.bin', {});
-  assert.equal(response5.status, 403);
-
-  const removed = await client.form('/delete/strava4_session.txt', { confirm_action: 'on' });
-  assert.equal(removed.status, 302);
+  const removed = await web.request('/api/me/connections/strava', 'DELETE');
+  assert.equal(removed.status, 200);
   assert.equal(f.services.documents.has(user.player_id, 'strava4_session.txt'), false);
-  const response6 = await f.app.request('/delete/strava_token.txt');
-  assert.equal(response6.status, 404);
+  assert.equal(f.accounts.repositories.connectionsRepository.read(user.player_id, 'strava'), null);
 });
 
 function activityWithFit() {
@@ -140,7 +119,7 @@ function stubFetch(t: TestContext) {
 
 await test('Intervals.icu upload pairs the planned workout and removes only that workout', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Interval Rider', 'test-password', true);
+  const user = await f.accounts.create('Interval Rider', 'test-password');
   f.accounts.repositories.connectionsRepository.save(user.player_id, 'intervals', ['42', 'key']);
   const folder = f.profiles.folder(user.player_id);
   const cached = resolve(f.config.storageDir, 'tp-workouts/intervalsicu');
@@ -196,7 +175,7 @@ await test('Intervals.icu upload pairs the planned workout and removes only that
 
 await test('an expired Strava token is saved before an upload whose result is unknown', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Upload Rider', 'test-password', true);
+  const user = await f.accounts.create('Upload Rider', 'test-password');
   f.services.documents.put(user.player_id, 'strava_token.txt', '1\nsecret\nold\nrefresh\n1\n');
   f.services.documents.put(user.player_id, 'runalyze_token.txt', 'runalyze-token\n');
   const calls: string[] = [];
@@ -225,37 +204,19 @@ await test('an expired Strava token is saved before an upload whose result is un
   assert.ok(calls.some((url) => url.includes('runalyze.com')));
 });
 
-await test('only administrators can control restarts and bot reloads', async (t) => {
+await test('game app has no server operations even for the first legacy owner', async (t) => {
   const f = runtimeFixture(t);
-  const admin = await f.accounts.create('Owner', 'test-password', true);
-  const other = await f.accounts.create('Other', 'test-password', false);
-  f.world.online.set(77n, create(PlayerStateSchema, { id: 77n }));
-
-  const queued = () => f.world.updates.get(77n)?.length ?? 0;
-
-  for (const [user, expected] of [
-    [other, 0],
-    [admin, 1],
-  ] as const) {
-    const client = browser(f.app);
-    await client.signIn(user.player_id, user.username);
-    const response = await client.form('/restart', { confirm_action: 'on' });
-    assert.equal(response.status, user.is_admin ? 302 : 403);
-    assert.equal(response.headers.get('Location'), user.is_admin ? `/user/${user.username}/` : null);
-    assert.equal(queued(), expected);
-    const response7 = await client.form('/reloadbots', { confirm_action: 'on' });
-    assert.equal(response7.status, user.is_admin ? 302 : 403);
-  }
-
+  const owner = await f.accounts.create('Owner', 'test-password');
   const client = browser(f.app);
-  await client.signIn(admin.player_id, admin.username);
-  await client.form('/cancelrestart', {});
-  assert.equal(queued(), 2);
+  await client.signIn(owner.player_id, owner.username);
+
+  for (const path of ['/restart', '/cancelrestart', '/reloadbots'])
+    assert.equal(await responseStatus(client.form(path, { confirm_action: 'on' })), 404);
 });
 
 await test('per-rider variants override the base set and unknown names stay explicit', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Variant Rider', 'test-password', true);
+  const user = await f.accounts.create('Variant Rider', 'test-password');
 
   writeFileSync(
     resolve(f.profiles.folder(user.player_id), 'variants.txt'),
@@ -299,8 +260,12 @@ await test('launcher assets are served safely and game assets redirect to the CD
   assert.equal(background.headers.get('Content-Type'), 'image/jpeg');
   const loading = await f.app.request('/static/web/launcher/embed.html');
   assert.equal(loading.status, 200);
-  assert.equal(loading.headers.get('Content-Type'), 'text/html; charset=utf-8');
-  assert.match(await loading.text(), /Loading Zwift/);
+  assert.match(loading.headers.get('Content-Type')!, /^text\/html; charset=utf-8$/i);
+  const loadingHtml = await loading.text();
+  assert.match(loadingHtml, /Loading Zwift/);
+  assert.match(loadingHtml, /class="wordmark[^"]*">zluggish/);
+  assert.match(loadingHtml, /\/static\/launcher-ui\/[^" ]+\.css/);
+  assert.doesNotMatch(loadingHtml, /bootstrap|\/style\/site\.css/);
   const traversal = await f.app.request('/static/%2e%2e/%2e%2e/tokens.json');
   assert.equal(traversal.status, 404);
   const response9 = await f.app.request('/style/%2e%2e/%2e%2e/README.md');
@@ -316,7 +281,7 @@ await test('launcher assets are served safely and game assets redirect to the CD
 
 await test('the mobile aggregate composes goals, activities, events and invitations', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('Mobile Rider', 'test-password', true);
+  const user = await f.accounts.create('Mobile Rider', 'test-password');
 
   const response = await f.app.request(
     '/relay/worlds/1/aggregate/mobile?goalCount=2&activityCount=2&eventCount=1&eventSport=CYCLING&pendingEventInviteCount=1&acceptedEventInviteCount=1',
@@ -345,28 +310,23 @@ await test('the mobile aggregate composes goals, activities, events and invitati
   assert.equal(body.goals.length, 0);
 });
 
-await test('Strava authorization only completes for the browser that started it', async (t) => {
+await test('Strava authorization only completes for the web session that started it', async (t) => {
   const f = runtimeFixture(t);
-  const user = await f.accounts.create('OAuth Rider', 'test-password', true);
-  const client = browser(f.app);
-  await client.signIn(user.player_id, user.username);
+  const user = await f.accounts.create('OAuth Rider', 'test-password');
+  const web = mediumWeb(f, user);
   f.accounts.repositories.connectionsRepository.save(user.player_id, 'strava', ['55', 'secret']);
   const calls = stubFetch(t);
-
-  const start = await client.request('/strava_auth');
-  assert.equal(start.status, 302);
-
-  const target = new URL(start.headers.get('Location') ?? '');
+  const start = await web.request('/api/me/connections/strava/authorize', 'POST', {});
+  const { url } = await start.json();
+  const target = new URL(url);
   assert.equal(target.searchParams.get('client_id'), '55');
-  assert.equal(target.searchParams.get('state'), client.csrf);
-
-  const refused = await client.request('/authorization?code=abc&state=other');
-  assert.match(await refused.text(), /canceled/);
+  const state = target.searchParams.get('state')!;
+  const other = mediumWeb(f, user);
+  const refused = await other.request('/api/me/connections/strava/authorize', 'POST', { code: 'abc', state });
+  assert.equal(refused.status, 403);
   assert.equal(calls.length, 0);
   assert.equal(f.services.documents.has(user.player_id, 'strava_token.txt'), false);
-
-  const accepted = await client.request(`/authorization?code=abc&state=${client.csrf}`);
-
-  assert.match(await accepted.text(), /Strava authorized/);
+  const accepted = await web.request('/api/me/connections/strava/authorize', 'POST', { code: 'abc', state });
+  assert.equal(accepted.status, 200);
   assert.equal(f.services.documents.text(user.player_id, 'strava_token.txt'), '55\nsecret\na\nr\n9000000000\n');
 });

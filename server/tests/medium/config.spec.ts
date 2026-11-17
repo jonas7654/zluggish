@@ -53,7 +53,7 @@ await test('defaults and explicit bootstrap overrides are deterministic', async 
   assert.equal(result.config.network.host, '127.0.0.1');
   assert.equal(result.config.network.api.port, 443);
   assert.equal(validateConfig({ network: { host: '0.0.0.0' } }).network.host, '0.0.0.0');
-  assert.equal(result.config.riderDefaults.ghosts.enabled, false);
+  assert.equal(result.config.riderDefaults.ghosts.enabled, true);
   assert.equal(result.config.soloBlob.riders, 8);
   assert.equal(defineConfig({ bots: { multiplier: 2 } }).bots.multiplier, 2);
 });
@@ -95,7 +95,7 @@ await test('container respects explicit config and storage overrides', async (t)
   assert.equal(loaded.config.storageDir, customStorage);
 });
 
-await test('invalid operator values and loader errors do not reveal secrets or create state', async (t) => {
+await test('invalid values hide secrets and runtime errors retain diagnostics without creating state', async (t) => {
   const root = fixture(t);
   const path = resolve(root, 'zluggish.config.ts');
   writeFileSync(path, `export default { bots: { multiplier: 'secret-value' } }`);
@@ -106,9 +106,30 @@ await test('invalid operator values and loader errors do not reveal secrets or c
   writeFileSync(path, `throw new Error('operator-secret');`);
   await assert.rejects(
     loadConfig({ path }),
-    (error) => error instanceof Error && !error.message.includes('operator-secret'),
+    (error) => error instanceof Error && error.message.includes('operator-secret'),
   );
   assert.deepEqual(readdirSync(root), ['zluggish.config.ts']);
+});
+
+await test('runtime TypeErrors identify the config or imported file and original message', async (t) => {
+  const root = fixture(t);
+  const path = resolve(root, 'zluggish.config.ts');
+
+  for (const imported of [false, true]) {
+    const failingPath = imported ? resolve(root, 'values.ts') : path;
+    writeFileSync(failingPath, `const value = undefined;\nexport default value.trim();`);
+
+    if (imported) writeFileSync(path, `import value from './values.ts';\nexport default value;`);
+    await assert.rejects(loadConfig({ path }), (error) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /TypeError.*Cannot read properties of undefined/);
+      assert.ok(error.message.includes(`${failingPath}:2:`), error.message);
+      assert.doesNotMatch(error.message, /node_modules|at loadConfig/);
+      assert.ok(error.message.split('\n').length <= 2, error.message);
+
+      return true;
+    });
+  }
 });
 
 await test('invalid network settings and unknown config keys fail at file load', async (t) => {
@@ -158,7 +179,22 @@ await test('invalid real config files stop the server before creating runtime st
     ['undefined export', 'export default undefined;', /<root>/],
     ['null export', 'export default null;', /<root>|Cannot evaluate/],
     ['array export', 'export default [];', /<root>/],
-    ['invalid syntax', 'export default {', /Cannot evaluate/],
+    ['invalid syntax', 'export default {', /Cannot evaluate .*: syntax error at line 1, column \d+/],
+    [
+      'syntax error keeps secrets out',
+      "export default {\n  network: { host: '127.0.0.1' }\n  secret: 'hunter2',\n};",
+      /^(?!.*hunter2).*syntax error at line 3, column 2: Unexpected token, expected ","/s,
+    ],
+    [
+      'missing import',
+      "import x from './missing-file';\nexport default { x };",
+      /cannot find the import '\.\/missing-file'/,
+    ],
+    [
+      'undefined name',
+      "const secret = 'hunter2';\nexport default { network: { host: undefinedThing } };",
+      /^(?!.*hunter2).*'undefinedThing' is not defined at line 2, column \d+/s,
+    ],
     ['async factory', 'export default async () => ({});', /Async configuration/],
     ['missing peloton ID', 'export default { pelotons: [{ pacer: 1 }] };', /pelotons\.0\.id/],
     ['missing pacer', "export default { pelotons: [{ id: 'group' }] };", /pelotons\.0\.pacer/],
@@ -228,6 +264,7 @@ await test('invalid real config files stop the server before creating runtime st
       assert.equal(result.signal, null);
       assert.equal(result.status, 1, result.stderr);
       assert.match(result.stderr, expected);
+      assert.doesNotMatch(result.stderr, /at loadConfig|Node\.js v|node_modules/);
       assert.doesNotMatch(result.stdout, /Zluggish server:/);
       assert.equal(existsSync(storage), false, 'configuration must fail before runtime creates storage');
       assert.deepEqual(readdirSync(root), source === null ? [] : ['zluggish.config.ts']);
@@ -264,4 +301,13 @@ await test('custom TLS files are resolved and validated without creating storage
   assert.equal(loaded.config.tls.certFile, resolve(root, 'cert.pem'));
   assert.equal(loaded.config.tls.keyFile, resolve(root, 'key.pem'));
   assert.equal(existsSync(loaded.config.storageDir), false);
+});
+
+await test('the web public URL is reduced to its origin, and paths or other schemes are refused', () => {
+  const web = (publicUrl: string) => validateConfig({ network: { web: { publicUrl } } }).network.web.publicUrl;
+  assert.equal(validateConfig({}).network.web.publicUrl, null);
+  assert.equal(web('https://Zluggish.example.com/'), 'https://zluggish.example.com');
+  assert.equal(web('http://192.0.2.1:8080'), 'http://192.0.2.1:8080');
+  assert.throws(() => web('https://zluggish.example.com/app'));
+  assert.throws(() => web('ftp://zluggish.example.com'));
 });

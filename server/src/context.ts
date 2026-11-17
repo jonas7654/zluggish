@@ -15,6 +15,4 @@ export interface RepositoryContext {
   profiles: Profiles;
   assets: string;
   tokens: { access: string; refresh: string; id: string };
-  /** Overrides the default SIGINT used by the admin restart countdown. */
-  stop?: () => void;
 }

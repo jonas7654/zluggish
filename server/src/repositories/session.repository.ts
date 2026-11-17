@@ -17,6 +17,10 @@ export class CookieSession {
     for (const [name, value] of Object.entries(initial)) this.cookies.set(name, value);
   }
 
+  get(name: string) {
+    return this.cookies.get(name);
+  }
+
   private inDomain(url: URL) {
     return url.hostname === this.domain || url.hostname.endsWith(`.${this.domain}`);
   }
