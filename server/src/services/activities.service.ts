@@ -457,8 +457,8 @@ export class ActivitiesService extends BaseService {
   }
 
   /** A rider's own activities for the web app. The rider owns them, so fitness privacy does not apply. */
-  own(player: number, id?: string) {
-    return this.activitiesRepository.ownActivities(player, id).map((row) => {
+  own(player: number, id?: string, page?: number) {
+    return this.activitiesRepository.ownActivities(player, id, page).map((row) => {
       const activity = this.protobufRepository.decode(ActivitySchema, row);
       const elapsed = Date.parse(activity.endDate) - Date.parse(activity.startDate);
 

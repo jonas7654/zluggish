@@ -330,7 +330,6 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
         runtime,
         model(c, 'message', 'Activity uploads', [], {
           message: 'Retry requested. Check the provider before retrying again.',
-          uploads: runtime.services.uploads.status(user.player_id).slice(0, 100),
         }),
         `/user/${user.username}/`,
       );
@@ -383,13 +382,7 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
           makeForm('switch', '/riders/switch/', [], 'Switch rider'),
         ],
         {
-          uploads: runtime.services.uploads.status(user.player_id).slice(0, 100),
           back: { href: '/login/', label: 'Choose another rider' },
-          links: [
-            ['reset', 'Password'],
-            ['settings', 'Settings'],
-            ['power_curves', 'Power curves'],
-          ].map(([path, label]) => ({ href: `/${path}/${encodeURIComponent(user.username)}/`, label: label! })),
         },
       ),
     );

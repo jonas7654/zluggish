@@ -8,6 +8,7 @@ export interface WebSession {
   expires: number;
   confirmedUntil: number;
   pendingImport?: string;
+  stravaState?: string;
 }
 
 /** Only signed-in riders hold server state. Anonymous requests use a double-submit CSRF

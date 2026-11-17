@@ -1,3 +1,4 @@
+import { webConnectionRoutes } from '#src/http/web-connections';
 import { webProfileRoutes } from '#src/http/web-profile';
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
@@ -201,31 +202,20 @@ export function createWebApp(runtime: HttpRuntime) {
 
     return c.json(management.saveSettings(c.get('sessionId'), player, await c.req.json()));
   });
-  app.get('/api/me/integration-links', (c) => {
-    const player = sessions.require(c.get('sessionId')).player_id;
-    const rider = accounts.get(player)!;
-    const origin = new URL(publicUrl ?? c.req.url);
-    origin.protocol = runtime.config.network.api.useCert ? 'https:' : 'http:';
-    origin.port = String(runtime.config.network.api.port);
-
-    return c.json({
-      links: [
-        ['strava', 'Strava'],
-        ['garmin', 'Garmin'],
-        ['intervals', 'Intervals.icu'],
-        ['trainingpeaks', 'TrainingPeaks'],
-      ].map(([path, label]) => ({
-        label,
-        href: new URL(`/${path}/${encodeURIComponent(rider.username)}/`, origin).href,
-      })),
-    });
-  });
+  webConnectionRoutes(app, runtime);
   webProfileRoutes(app, runtime);
 
   const activityId = z.string().regex(/^\d{1,19}$/);
-  app.get('/api/me/activities', (c) =>
-    c.json({ activities: activities.own(sessions.require(c.get('sessionId')).player_id) }),
-  );
+  app.get('/api/me/activities', (c) => {
+    const page = z.coerce
+      .number()
+      .int()
+      .min(0)
+      .max(1000000)
+      .parse(c.req.query('page') ?? '0');
+    const rows = activities.own(sessions.require(c.get('sessionId')).player_id, undefined, page);
+    return c.json({ activities: rows.slice(0, 20), hasMore: rows.length > 20 });
+  });
   app.get('/api/me/activities/:id', (c) =>
     c.json(activities.ownDetail(sessions.require(c.get('sessionId')).player_id, activityId.parse(c.req.param('id')))),
   );
@@ -379,6 +369,8 @@ export function createWebApp(runtime: HttpRuntime) {
     '/settings',
     '/password',
     '/import',
+    '/export',
+    '/power-curves',
     '/zwift',
     '/activities',
     '/activities/*',

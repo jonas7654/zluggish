@@ -4,9 +4,7 @@
 
 Zluggish is a self-hosted, open source server implementation of [Zwift](http://zwift.com) written in typescript that implements several features not available in the official app.
 
-This project builds on [zwift-offline](https://github.com/zoffline/zwift-offline) and [its fork](https://github.com/fatsbrown/zwift-offline).
-
-If you are migrating from the legacy zwift-offline app, please read the migration docs below.
+This project is a rewrite of [zwift-offline](https://github.com/zoffline/zwift-offline) and [its fork](https://github.com/fatsbrown/zwift-offline). If you are migrating from either, see [Migrating](#migrating).
 
 ## Features
 
@@ -289,42 +287,17 @@ Remove the private password file after recovery. The `--admin` option also enabl
 
 Set `network.host: '::'` in `zluggish.config.ts`, or choose per-listener `host` values under `network.api`, `network.cdn`, `network.tcp` and `network.udp`. Configure a client-reachable `server.advertisedIp` and matching firewall/host mappings. IPv6 behavior still needs target-platform testing; the old `ZOFFLINE_SERVER_HOST` variable and Python `run_ipv6.bat` startup path are not used by Node.
 
-## Migration
+## Migrating
 
-### Old storage
+Zluggish is a rework of the legacy zwift-offline app. Here are the key differences:
 
-These instructions apply to legacy singleplayer and multiplayer installations. Fresh storage uses web app setup and does not need conversion.
+* Codebase rewritten in Typescript
+* Separate webapp for configuring server settings and rider profiles
+* Improved persistence layer and settings management
 
-1. Stop every server using the storage. Back up the entire `storage/` directory, including `zluggish.db` (or legacy `zwift-offline.db`), profiles, activities, preferences, credentials and signing/encryption keys. Keep the previous release/image for rollback.
-2. Install and build the Node packages using the source instructions above. Start with a restored storage copy; do not run old and new servers against the same directory.
-3. For original marker/text/INI/JSON configuration, migrate directly to TypeScript. Choose a new destination that does not already exist:
+We aim to import and convert your storage automatically, but we strongly suggest you backup your zwift-offline folder before attempting the upgrade.
 
-   ```sh
-   pnpm --dir server cli --storage-dir /path/to/storage config migrate --dry-run
-   pnpm --dir server cli --storage-dir /path/to/storage config migrate --output /path/to/zluggish.config.ts
-   ```
-
-   JSONC-only installations must recreate operator settings in `zluggish.config.ts` manually. Neither `storage/config.jsonc` nor the old JSONC example is loaded by this server. See the [typed config example](examples/zluggish.config.ts). Rider preference overrides are stored in SQLite, not embedded in operator source: config migration writes `storage/settings.db`, and the first server start merges it into `storage/zluggish.db`.
-
-4. Convert old accounts explicitly:
-
-   ```sh
-   pnpm --dir server cli --storage-dir /path/to/storage accounts migrate
-   pnpm --dir server cli --config /path/to/zluggish.config.ts config validate
-   pnpm --dir server cli --config /path/to/zluggish.config.ts config typecheck
-   ```
-
-   Use `--solo-player 42` on account/config migration when the intended legacy solo profile needs an explicit choice. Use the local folder number, which may differ from an imported official player ID. The old `--settings-source` and `--server-dir` flags are not supported; resolve conflicting preferences explicitly before migration.
-
-5. Start the server once. The first start merges `settings.db` and the rider files (profiles, progression, bookmarks, credentials and token caches) into `zluggish.db`. It backs up the old stores to `storage/backups/storage-v6-<time>/` first and keeps the old files. After you confirm the server works, preview and remove the imported old files with `storage clean-legacy` (see the [admin CLI guide](server/README.md#storage-and-upload-commands)).
-
-6. Inspect storage, IP, listener, TLS and credential paths in the generated config. Set `ZLUGGISH_CONFIG` or pass `--config` at startup. Inside Docker, mount config and storage and use their container paths. Re-select riders after startup and exercise ride/save/restart before switching production.
-
-Config migration does not create accounts or modify the original activity database. Account migration is a separate offline operation with a database backup. Existing profile folders and numeric local IDs are retained. Ambiguous solo ownership and conflicting preference values are rejected instead of guessed. Existing usernames are retained. Legacy password hashes are removed and existing sessions for those riders are revoked. Migrated riders have no password and cannot sign in. Complete setup in the web app, then set their passwords in Manage. New passwords use Argon2id. Native clients require a new local password. Rerunning account migration preserves Argon2id passwords.
-
-A durable `.config-migration.json` journal makes config publication resumable. If interrupted, rerun the same command with the same destination; do not delete the journal or overwrite a subsequently edited config. Account database backups use `.accounts-<timestamp>.bak` suffixes. Preserve original marker/credential files until the migrated setup has been tested.
-
-Rollback means stopping Node and restoring a matching pre-migration storage/config snapshot for the old release. Running an old binary against the new database is not rollback. Restoring an older snapshot discards subsequent progress; retain later FIT files separately.
+After the upgrade, you will need to set user passwords again.
 
 ## Extra features
 

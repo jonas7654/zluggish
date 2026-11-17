@@ -146,10 +146,10 @@ async function waitReady(session: CookieSession, upload: string, delay = 1000) {
 }
 
 export class StravaRepository {
-  authorizationUrl(clientId: string, state: string) {
+  authorizationUrl(clientId: string, state: string, redirectUri = redirect) {
     return `${site}/oauth/authorize?${new URLSearchParams({
       client_id: clientId,
-      redirect_uri: redirect,
+      redirect_uri: redirectUri,
       approval_prompt: 'auto',
       response_type: 'code',
       scope: 'activity:write',

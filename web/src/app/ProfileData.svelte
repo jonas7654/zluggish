@@ -24,6 +24,8 @@
     onrider: () => Promise<void>;
   } = $props();
 
+  let recreate = $state(false);
+  let confirm = $state(false);
   let filenames = $state<string[]>([]);
   let review = $state<Review | null>(null);
   let connection = $state<Connection | null>(null);
@@ -61,7 +63,13 @@
   }
 
   onMount(() => {
-    if (path === '/import') return;
+    if (path === '/import' || path === '/power-curves') return;
+    if (path === '/export') {
+      void run(async () => {
+        filenames = (await request<{ filenames: string[] }>('/api/me/export')).filenames;
+      });
+      return;
+    }
 
     void run(async () => {
       const body = await request<{ filenames: string[]; review: Review | null }>('/api/me/import');
@@ -72,7 +80,38 @@
   });
 </script>
 
-{#if path === '/import'}
+{#if path === '/export'}
+  <section class="panel">
+    <p>Download your rider data.</p>
+    {#each filenames as filename (filename)}
+      <p><a href={`/api/me/export/${encodeURIComponent(filename)}`} download={filename}>Download {filename}</a></p>
+    {:else}
+      <p>No files available to export.</p>
+    {/each}
+  </section>
+{:else if path === '/power-curves'}
+  <form
+    class="panel"
+    onsubmit={(e) => {
+      e.preventDefault();
+      void run(async () => {
+        const result = await request<{ message: string }>('/api/me/power-curves', 'POST', {
+          confirm,
+          create: recreate,
+        });
+        confirm = false;
+        message = result.message;
+      });
+    }}
+  >
+    <label><input type="checkbox" bind:checked={recreate} disabled={busy} /> Recreate from saved activities</label>
+    <label
+      ><input type="checkbox" bind:checked={confirm} required disabled={busy} /> I confirm: Delete existing power curves?
+      Rebuilding may take some time.</label
+    >
+    <button disabled={busy || !confirm}>Delete existing power curves</button>
+  </form>
+{:else if path === '/import'}
   <p>Choose how to import your profile data.</p>
   <nav class="import-options" aria-label="Import source">
     <a
@@ -96,7 +135,7 @@
       <span class="option-description">Connect to Zwift and download your rider data.</span>
     </a>
   </nav>
-{:else}
+{:else if path === '/import/local' || path === '/zwift'}
   <nav aria-label="Profile data">
     <a
       href="/import"
@@ -108,7 +147,7 @@
   </nav>
 {/if}
 {#if message}<p class="notice" class:failed role={failed ? 'alert' : 'status'}>{message}</p>{/if}
-{#if path !== '/import' && review}
+{#if path !== '/import' && path !== '/export' && path !== '/power-curves' && review}
   <form
     class="panel"
     onsubmit={(e) => {
@@ -142,7 +181,6 @@
     >
   </form>
 {:else if path === '/import/local'}
-  <p>Your local rider ID and password remain unchanged.</p>
   <form
     class="panel"
     enctype="multipart/form-data"
@@ -158,7 +196,7 @@
     {/each}
     <button class="primary" disabled={busy || !filenames.length}>Review import</button>
   </form>
-{:else if connection}
+{:else if path === '/zwift' && connection}
   <p>
     {connection.connected
       ? 'Credentials saved. Leave username and password blank to keep them.'

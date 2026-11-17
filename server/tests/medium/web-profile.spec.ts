@@ -138,3 +138,34 @@ await test('web Zwift credentials stay encrypted and downloaded data waits for r
   assert.equal(await responseStatus(request('/api/me/zwift', 'DELETE', {})), 200);
   assert.equal(f.services.connections.has(f.rider.player_id, 'zwift'), false);
 });
+
+await test('web exports only the signed-in rider data and power curve changes require confirmation', async (t) => {
+  const f = await mediumFixture(t);
+  const web = createWebApp(f);
+  const { id, session } = f.services.management.sessions.create(f.accounts.identityOf(f.rider));
+  const data = new Uint8Array([1, 2, 3]);
+  f.services.documents.put(f.rider.player_id, 'streaks.bin', data);
+  const request = (path: string, method = 'GET', body?: object) =>
+    web.request(`http://local:8080${path}`, {
+      method,
+      headers: {
+        Cookie: `zluggish_web_session=${id}`,
+        Origin: 'http://local:8080',
+        'X-CSRF-Token': session.csrf,
+        'Content-Type': 'application/json',
+      },
+      ...(body && { body: JSON.stringify(body) }),
+    });
+
+  assert.equal(await responseStatus(web.request('http://local:8080/api/me/export/streaks.bin')), 401);
+  const list = await request('/api/me/export');
+  const exported = await list.json();
+  assert.ok(exported.filenames.includes('streaks.bin'));
+  const download = await request('/api/me/export/streaks.bin');
+  assert.equal(download.status, 200);
+  assert.match(download.headers.get('Content-Disposition') ?? '', /streaks.bin/);
+  assert.deepEqual(new Uint8Array(await download.arrayBuffer()), data);
+  assert.equal(await responseStatus(request('/api/me/export/zwift_credentials.bin')), 400);
+  assert.equal(await responseStatus(request('/api/me/power-curves', 'POST', { confirm: false, create: false })), 400);
+  assert.equal(await responseStatus(request('/api/me/power-curves', 'POST', { confirm: true, create: false })), 200);
+});

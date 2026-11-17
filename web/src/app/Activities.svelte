@@ -51,7 +51,14 @@
   let detail = $state<Detail | null>(null);
   let failure = $state('');
 
-  const selectedId = $derived(/^\/activities\/(\d+)$/.exec(path)?.[1] ?? null);
+  let page = $state(0);
+  let showList = $state(false);
+  const ordered = $derived([...(activities ?? [])].sort(
+    (a, b) => (started(b)?.getTime() ?? -Infinity) - (started(a)?.getTime() ?? -Infinity),
+  ));
+  const selectedId = $derived(/^\/activities\/(\d+)$/.exec(path)?.[1] ?? (showList ? null : ordered[0]?.id ?? null));
+  let hasMore = $state(false);
+  let requestVersion = 0;
 
   const started = (a: Summary) => {
     const time = Date.parse(a.startDate ?? '');
@@ -62,10 +69,6 @@
   /** Newest first, grouped by the month the activity started, with that month's totals. */
   const months = $derived.by(() => {
     const groups: { key: string; label: string; activities: Summary[]; distance: number; time: number }[] = [];
-
-    const ordered = [...(activities ?? [])].sort(
-      (a, b) => (started(b)?.getTime() ?? -Infinity) - (started(a)?.getTime() ?? -Infinity),
-    );
 
     for (const activity of ordered) {
       const date = started(activity);
@@ -152,12 +155,15 @@
       ] as const
     ).filter(([, value]) => value > 0);
 
-  async function loadList() {
+  async function loadList(currentPage: number) {
+    const version = ++requestVersion;
     try {
-      const body = await api<{ activities: Summary[] }>('/api/me/activities');
+      const body = await api<{ activities: Summary[]; hasMore: boolean }>(`/api/me/activities?page=${currentPage}`);
+      if (version !== requestVersion) return;
       activities = body.activities;
+      hasMore = body.hasMore;
     } catch (error) {
-      failure = error instanceof Error ? error.message : 'Activities could not be loaded.';
+      if (version === requestVersion) failure = error instanceof Error ? error.message : 'Activities could not be loaded.';
     }
   }
 
@@ -176,7 +182,7 @@
   }
 
   $effect(() => {
-    void loadList();
+    void loadList(page);
   });
 
   $effect(() => {
@@ -190,8 +196,8 @@
   function open(event: MouseEvent, href: string) {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
+    showList = href === '/activities';
     go(href);
-    document.getElementById('activity-detail')?.focus();
   }
 </script>
 
@@ -199,7 +205,7 @@
 
 {#if activities === null}
   {#if !failure}<p role="status">Loading activities…</p>{/if}
-{:else if activities.length === 0}
+{:else if activities.length === 0 && page === 0}
   <section class="panel narrow">
     <p>No activities yet. Activities you finish in the game appear here, with their FIT files and images.</p>
   </section>
@@ -212,7 +218,7 @@
             <h2 id="month-{month.key}">{month.label}</h2>
             <p class="totals">
               {month.activities.length}
-              {month.activities.length === 1 ? 'activity' : 'activities'}, {km(month.distance)}, {hours(month.time)}
+              {month.activities.length === 1 ? 'activity' : 'activities'}, {km(month.distance)}, {hours(month.time)}{#if page > 0 || hasMore} (on this page){/if}
             </p>
           </div>
           <ul class="plain">
@@ -254,6 +260,13 @@
           </ul>
         </section>
       {/each}
+      {#if page > 0 || hasMore}
+        <nav class="pagination" aria-label="Activity pages">
+          <button type="button" disabled={page === 0} onclick={() => page--}>Previous</button>
+          <span>Page {page + 1}</span>
+          <button type="button" disabled={!hasMore} onclick={() => page++}>Next</button>
+        </nav>
+      {/if}
     </div>
 
     <div class="detail">
@@ -417,6 +430,14 @@
   .notice.failed {
     color: var(--alarm);
     border-left: 3px solid #ff6b57;
+  }
+
+  .pagination {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    margin-top: 1.5rem;
   }
 
   .month + .month {

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { DownloadFile } from '#src/enum';
 import type { Hono, Context } from 'hono';
 import { ApplicationError } from '#src/errors';
 import { importFilenameSchema } from '#src/dtos/profile-import.dto';
@@ -62,6 +63,35 @@ export function webProfileRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
 
     return c.json({ review: review(c) });
   }
+
+  app.get('/api/me/export', (c) => {
+    const { rider } = context(c);
+
+    return c.json({
+      filenames: Object.values(DownloadFile).filter((name) => runtime.services.documents.has(rider.player_id, name)),
+    });
+  });
+  app.get('/api/me/export/:filename', (c) => {
+    const { rider } = context(c);
+    const filename = z.enum(DownloadFile).parse(c.req.param('filename'));
+    const data = runtime.services.documents.get(rider.player_id, filename);
+
+    if (!data) throw new ApplicationError(404, 'File not found.');
+
+    return c.body(new Uint8Array(data), 200, {
+      'Content-Type': 'application/octet-stream',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+    });
+  });
+  app.post('/api/me/power-curves', async (c) => {
+    const { rider } = context(c);
+    const input = z.object({ confirm: z.literal(true), create: z.boolean() }).parse(await c.req.json());
+
+    if (input.create) runtime.services.activities.rebuildPowerCurves(rider.player_id);
+    else runtime.services.integrations.deletePowerCurve(rider.player_id);
+
+    return c.json({ message: input.create ? 'Power curves rebuild queued.' : 'Power curves deleted.' });
+  });
 
   app.get('/api/me/import', (c) => {
     context(c);

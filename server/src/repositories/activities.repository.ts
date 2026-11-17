@@ -240,7 +240,7 @@ export class ActivitiesRepository {
   }
 
   /** A rider's own activities, newest first, with whether each holds a FIT payload and how many ready images. */
-  ownActivities(player: number | bigint, id?: IntegerInput) {
+  ownActivities(player: number | bigint, id?: IntegerInput, page?: number) {
     let selection = query
       .selectFrom('activity')
       .select([
@@ -255,7 +255,10 @@ export class ActivitiesRepository {
 
     if (id !== undefined) selection = selection.where('id', '=', integer(id));
 
-    return this.executor.all(selection.orderBy('date', 'desc'), true);
+    selection = selection.orderBy('date', 'desc').orderBy('id', 'desc');
+    if (page !== undefined) selection = selection.limit(21).offset(page * 20);
+
+    return this.executor.all(selection, true);
   }
 
   activityById(id: IntegerInput) {

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import ProfileData from './ProfileData.svelte';
+  import Connections from './Connections.svelte';
   import Activities from './Activities.svelte';
   import Layout from '../components/Layout.svelte';
   import RiderRow from '../components/RiderRow.svelte';
@@ -105,7 +106,6 @@
   let dropping = $state(false);
   let currentPassword = $state('');
   let settings = $state<RiderSettings | null>(null);
-  let integrationLinks = $state<{ label: string; href: string }[]>([]);
   let ghosts = $state(false);
   let stravaMethod = $state('paid');
   let bridgeFolder = $state('');
@@ -168,14 +168,18 @@
             : path === '/import/local'
               ? 'Import local files'
               : path === '/import'
-                ? 'Import profile data'
-                : path === '/zwift'
-                  ? 'Zwift connection'
-                  : path === '/settings'
-                    ? 'Settings'
-                    : path === '/password'
-                      ? 'Password'
-                      : 'Profile',
+                ? 'Import'
+                : path === '/export'
+                  ? 'Export'
+                  : path === '/power-curves'
+                    ? 'Power curves'
+                    : path === '/zwift'
+                      ? 'Zwift connection'
+                      : path === '/settings'
+                        ? 'Settings'
+                        : path === '/password'
+                          ? 'Password'
+                          : 'Profile',
   );
 
   const name = (r: Rider) => `${r.first_name} ${r.last_name}`.trim();
@@ -365,7 +369,6 @@
 
   async function loadSettings() {
     settings = await api('/api/me/settings');
-    integrationLinks = (await api('/api/me/integration-links')).links;
     applySettings(settings!);
   }
 
@@ -694,11 +697,9 @@
     <nav class="menu" aria-label="Main">
       {@render link('/', 'Profile', title === 'Profile')}
       {@render link('/activities', 'Activities', title === 'Activities')}
-      {@render link(
-        '/import',
-        'Import profile data',
-        path === '/import' || path === '/import/local' || path === '/zwift',
-      )}
+      {@render link('/import', 'Import', path === '/import' || path === '/import/local' || path === '/zwift')}
+      {@render link('/export', 'Export', path === '/export')}
+      {@render link('/power-curves', 'Power curves', path === '/power-curves')}
       {@render link('/settings', 'Settings', path === '/settings')}
       {@render link('/password', 'Password', path === '/password')}
       {#if administrator}
@@ -714,7 +715,7 @@
 <div class="app">
   <Layout
     {title}
-    heading={title !== 'Profile'}
+    heading={title !== 'Profile' && title !== 'Activities' && path !== '/password'}
     page={manage ? 'manage' : 'account'}
     {version}
     {zwiftVersion}
@@ -1431,7 +1432,7 @@
         {/if}
       </div>
     {:else}
-      {#if path === '/import' || path === '/import/local' || path === '/zwift'}
+      {#if path === '/import' || path === '/import/local' || path === '/zwift' || path === '/export' || path === '/power-curves'}
         {#key path}<ProfileData
             {path}
             request={api}
@@ -1457,19 +1458,7 @@
             {@render settingsFields(settings)}
             <button class="primary" disabled={busy}>Save settings</button>
           </form>
-          <section class="panel narrow">
-            <h2>Connections</h2>
-            <p class="muted">
-              Manage activity uploads and planned workouts. Connection pages may ask you to sign in again.
-            </p>
-            <nav aria-label="Connections">
-              <ul>
-                {#each integrationLinks as connection (connection.label)}
-                  <li><a href={connection.href}>{connection.label}</a></li>
-                {/each}
-              </ul>
-            </nav>
-          </section>
+          <Connections {api} />
         {/if}
       {:else if path === '/password'}
         <form
@@ -1635,17 +1624,12 @@
 
 {#snippet settingsFields(current: RiderSettings)}
   <label class="check"><input type="checkbox" bind:checked={ghosts} /> Ride with ghosts</label>
-  <p class="source">{'ghosts.enabled' in current.overrides ? 'Set for this rider' : 'Server default'}</p>
   <label for="strava-method">Strava upload method</label>
   <select id="strava-method" bind:value={stravaMethod}>
     <option value="paid">Strava API</option>
     <option value="free">Session cookie</option>
   </select>
-  <p class="source">{'uploads.strava.method' in current.overrides ? 'Set for this rider' : 'Server default'}</p>
   <TextField id="bridge-folder" label="TrainingPeaks export folder" bind:value={bridgeFolder} maxlength={500} />
-  <p class="source">
-    {'workouts.trainingpeaks.bridgeFolder' in current.overrides ? 'Set for this rider' : 'Server default'}
-  </p>
 {/snippet}
 
 {#if pending}
@@ -1819,13 +1803,8 @@
   .lead {
     margin-top: 0;
   }
-  .muted,
-  .source {
+  .muted {
     color: var(--muted);
-  }
-  .source {
-    margin: 0.25rem 0 0.5rem;
-    font-size: 0.8125rem;
   }
   .num {
     font-variant-numeric: tabular-nums;

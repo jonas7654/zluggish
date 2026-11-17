@@ -432,3 +432,7 @@ form > .error {
     transition: none !important;
   }
 }
+
+[data-page='dashboard'] form fieldset > div:first-of-type label {
+  margin-top: 0;
+}

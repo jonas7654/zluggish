@@ -66,13 +66,6 @@ export function settingsRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
           ],
           'Save preferences',
         ),
-        ...downloadable.options
-          .filter((name) => runtime.services.documents.has(rider.player_id, name))
-          .map((name) =>
-            makeForm(`download-${name}`, '/download', [hidden('filename', name)], `Download ${name}`, {
-              navigation: true,
-            }),
-          ),
       ]),
       c.req.method === 'POST' ? `/settings/${rider.username}/` : undefined,
     );

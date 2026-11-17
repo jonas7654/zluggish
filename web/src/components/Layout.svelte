@@ -305,6 +305,7 @@
     color: var(--muted);
     font-size: 0.8125rem;
     font-variant-numeric: tabular-nums;
+    text-transform: none;
   }
   .version:hover {
     color: var(--text);
