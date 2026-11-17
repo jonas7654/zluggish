@@ -456,6 +456,90 @@ export class ActivitiesService extends BaseService {
       : summary;
   }
 
+  /** A rider's own activities for the web app. The rider owns them, so fitness privacy does not apply. */
+  own(player: number, id?: string) {
+    return this.activitiesRepository.ownActivities(player, id).map((row) => {
+      const activity = this.protobufRepository.decode(ActivitySchema, row);
+      const elapsed = Date.parse(activity.endDate) - Date.parse(activity.startDate);
+
+      return {
+        id: String(activity.id),
+        name: activity.name,
+        world: Number(activity.courseId),
+        sport: activity.sport === Sport.RUNNING ? 'running' : 'cycling',
+        startDate: activity.startDate || null,
+        endDate: activity.endDate || null,
+        distanceInMeters: activity.distanceInMeters,
+        totalElevation: activity.totalElevation,
+        movingTimeInMs: Number(activity.movingTimeInMs) || (Number.isFinite(elapsed) && elapsed > 0 ? elapsed : 0),
+        calories: activity.calories,
+        avgWatts: activity.avgWatts,
+        maxWatts: activity.maxWatts,
+        normalizedPower: activity.normalizedPower,
+        tss: activity.tss,
+        avgHeartRate: activity.avgHeartRate,
+        maxHeartRate: activity.maxHeartRate,
+        avgCadence: activity.avgCadence,
+        maxCadence: activity.maxCadence,
+        avgSpeed: activity.avgSpeed,
+        maxSpeed: activity.maxSpeed,
+        fit: Number(row.has_fit) === 1,
+        images: Number(row.image_count),
+      };
+    });
+  }
+
+  /** One own activity with its ready images and chart. The chart is null while its job runs. */
+  ownDetail(player: number, id: string) {
+    const [activity] = this.own(player, id);
+
+    if (!activity) throw new ApplicationError(404, 'Activity not found.');
+
+    const images = z
+      .array(z.object({ id: z.number(), state: z.string() }))
+      .parse(this.activitiesRepository.listActivityImage(player, id))
+      .filter((row) => row.state === 'ready')
+      .map((row) => row.id);
+
+    const fileId = activity.fit ? this.chartFile(BigInt(id)) : null;
+
+    const chart =
+      fileId === null ? null : JSON.parse(this.filesRepository.readFileSync(this.chartPath(fileId), 'utf8'));
+
+    return { ...activity, imageIds: images, chart, chartPending: activity.fit && chart === null };
+  }
+
+  /** The canonical FIT payload of an own activity, with a filename safe for a download header. */
+  ownFit(player: number, id: string) {
+    const stored = this.activitiesRepository.fit(id);
+
+    if (!stored?.fit || stored.player !== player) throw new ApplicationError(404, 'FIT file not found.');
+
+    const base = stored.filename
+      .normalize('NFKD')
+      .replaceAll(/[^\w. -]/g, '_')
+      .replace(/^[.\s]+/, '');
+
+    return {
+      fit: stored.fit,
+      filename: base ? (base.toLowerCase().endsWith('.fit') ? base : `${base}.fit`) : `${id}.fit`,
+    };
+  }
+
+  /** A ready image of an own activity. */
+  ownImage(player: number, activity: string, image: number) {
+    const ready = z
+      .array(z.object({ id: z.number(), state: z.string() }))
+      .parse(this.activitiesRepository.listActivityImage(player, activity))
+      .some((row) => row.id === image && row.state === 'ready');
+
+    const path = resolve(this.context.profiles.folder(player), 'images', `${image}.jpg`);
+
+    if (!ready || !this.filesRepository.existsSync(path)) throw new ApplicationError(404, 'Image not found.');
+
+    return this.filesRepository.readFileSync(path);
+  }
+
   recentActivities(...values: Parameters<ActivitiesRepository['recentActivities']>) {
     return this.activitiesRepository.recentActivities(...values);
   }

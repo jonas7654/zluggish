@@ -73,8 +73,8 @@ export async function mediumBrowser(f: Awaited<ReturnType<typeof mediumFixture>>
   });
 
   assert.equal(selected.status, 302);
-  // Reading the import form obtains the new session's token without triggering workout sync.
-  const profile = await request(`/profile/${rider.username}/`);
+  // Reading the settings form obtains the new session's token without triggering workout sync.
+  const profile = await request(`/settings/${rider.username}/`);
   assert.equal(profile.status, 200);
 
   return { request, form, upload };

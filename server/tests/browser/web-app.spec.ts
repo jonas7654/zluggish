@@ -82,15 +82,18 @@ for (const existing of [false, true])
       await page.keyboard.press('Escape');
       assert.equal(await page.getByRole('alertdialog').count(), 0);
 
-      // My account never shows the marker.
-      await page.getByRole('link', { name: 'My account', exact: true }).click();
-      await page.getByRole('heading', { name: 'My account' }).waitFor();
+      // Every page is one item in the side menu.
+      await page.getByRole('button', { name: 'Menu', exact: true }).click();
+      await page.getByRole('link', { name: 'Profile', exact: true }).click();
+      await page.getByRole('heading', { name: 'Profile' }).waitFor();
       assert.equal(await page.locator('.app.management').count(), 0);
+      await page.getByRole('button', { name: 'Menu', exact: true }).click();
       await page.getByRole('button', { name: 'Sign out', exact: true }).click();
       await page.getByLabel('Login name', { exact: true }).fill('owner');
       await page.getByLabel('Password', { exact: true }).fill('test-password');
       await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-      await page.getByRole('link', { name: 'Manage', exact: true }).click();
+      await page.getByRole('button', { name: 'Menu', exact: true }).click();
+      await page.getByRole('link', { name: 'Riders', exact: true }).click();
       await page.getByRole('heading', { name: 'Confirm your password to manage the server.' }).waitFor();
       await page.getByLabel('Password', { exact: true }).fill('test-password');
       await page.getByRole('button', { name: 'Confirm', exact: true }).click();

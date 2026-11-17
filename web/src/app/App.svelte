@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
+  import ProfileData from './ProfileData.svelte';
+  import Activities from './Activities.svelte';
   import Layout from '../components/Layout.svelte';
   import RiderRow from '../components/RiderRow.svelte';
   import TextField from './TextField.svelte';
@@ -52,14 +54,6 @@
 
   type Pending = { title: string; detail: string; label: string; destructive: boolean; confirm: () => Promise<void> };
 
-  const filters = [
-    ['all', 'All'],
-    ['enabled', 'Enabled'],
-    ['disabled', 'Disabled'],
-    ['administrator', 'Administrators'],
-    ['no-password', 'No password'],
-  ] as const;
-
   const botCommands = [
     ['group', 'Group bots around the rider'],
     ['groupall', 'Group all bots around the rider'],
@@ -100,7 +94,7 @@
   let first = $state('');
   let last = $state('');
 
-  // My account.
+  // Profile.
   let currentPassword = $state('');
   let settings = $state<RiderSettings | null>(null);
   let ghosts = $state(false);
@@ -109,7 +103,6 @@
 
   // Riders.
   let search = $state('');
-  let filter = $state<(typeof filters)[number][0]>('all');
   let page = $state(0);
   let creating = $state(false);
   let newFirst = $state('');
@@ -142,18 +135,11 @@
   const administrator = $derived(rider?.role === 'administrator');
   const selectedId = $derived(Number(/^\/manage\/riders\/(\d+)$/.exec(path)?.[1] ?? 0));
   const selected = $derived(riders.find((r) => r.player_id === selectedId) ?? null);
-  const withoutPassword = $derived(riders.filter((r) => !r.has_password).length);
   const connected = $derived(riders.filter((r) => r.connected));
 
   const filtered = $derived(
-    riders.filter(
-      (r) =>
-        `${r.player_id} ${r.username} ${r.first_name} ${r.last_name}`.toLowerCase().includes(search.toLowerCase()) &&
-        (filter === 'all' ||
-          (filter === 'no-password' && !r.has_password) ||
-          (filter === 'administrator' && r.role === 'administrator') ||
-          (filter === 'enabled' && r.enabled === 1) ||
-          (filter === 'disabled' && !r.enabled)),
+    riders.filter((r) =>
+      `${r.player_id} ${r.username} ${r.first_name} ${r.last_name}`.toLowerCase().includes(search.toLowerCase()),
     ),
   );
 
@@ -168,11 +154,17 @@
         ? 'Server'
         : manage
           ? 'Riders'
-          : path === '/settings'
-            ? 'My settings'
-            : path === '/password'
-              ? 'Change password'
-              : 'My account',
+          : path === '/activities' || path.startsWith('/activities/')
+            ? 'Activities'
+            : path === '/import'
+              ? 'Import profile data'
+              : path === '/zwift'
+                ? 'Zwift connection'
+                : path === '/settings'
+                  ? 'Settings'
+                  : path === '/password'
+                    ? 'Password'
+                    : 'Profile',
   );
 
   const name = (r: Rider) => `${r.first_name} ${r.last_name}`.trim();
@@ -189,11 +181,15 @@
     return known ? name(known) : `Rider ${event.actor_player_id}`;
   }
 
-  async function api(url: string, method = 'GET', data?: ApiPayload) {
+  async function api(url: string, method = 'GET', data?: ApiPayload | FormData) {
+    const headers = new Headers({ 'X-CSRF-Token': csrf });
+
+    if (!(data instanceof FormData)) headers.set('Content-Type', 'application/json');
+
     const response = await fetch(url, {
       method,
-      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
-      ...(data !== undefined && { body: JSON.stringify(data) }),
+      headers,
+      ...(data !== undefined && { body: data instanceof FormData ? data : JSON.stringify(data) }),
     });
 
     const body = await response.json();
@@ -611,16 +607,36 @@
   {#if r.connected}<span class="chip riding">Riding now</span>{/if}
 {/snippet}
 
-{#snippet bar()}
-  {#if rider}<nav class="top" aria-label="Main">
-      {@render link('/', 'My account', !manage)}
-      {#if administrator}{@render link('/manage', 'Manage', manage)}{/if}
-      <button class="link" disabled={busy} onclick={() => run(signOut)}>Sign out</button>
-    </nav>{/if}
+{#snippet menu()}
+  {#if rider}
+    <div class="me"><RiderRow initials={initials(rider)} name={name(rider)} detail={rider.username} /></div>
+    <nav class="menu" aria-label="Main">
+      {@render link('/', 'Profile', title === 'Profile')}
+      {@render link('/activities', 'Activities', title === 'Activities')}
+      {@render link('/import', 'Import profile data', path === '/import')}
+      {@render link('/zwift', 'Zwift connection', path === '/zwift')}
+      {@render link('/settings', 'Settings', path === '/settings')}
+      {@render link('/password', 'Password', path === '/password')}
+      {#if administrator}
+        <p class="group">Manage</p>
+        {@render link('/manage', 'Riders', manage && path !== '/manage/server')}
+        {@render link('/manage/server', 'Server', path === '/manage/server')}
+      {/if}
+    </nav>
+    <button class="sign-out" disabled={busy} onclick={() => run(signOut)}>Sign out</button>
+  {/if}
 {/snippet}
 
 <div class="app">
-  <Layout {title} page={manage ? 'manage' : 'account'} {version} actions={bar} onhome={() => { void navigate('/'); }}>
+  <Layout
+    {title}
+    page={manage ? 'manage' : 'account'}
+    {version}
+    menu={rider ? menu : undefined}
+    onhome={() => {
+      void navigate('/');
+    }}
+  >
     {#if message}<p class="notice" class:failed role={failed ? 'alert' : 'status'}>{message}</p>{/if}
 
     {#if loading}<p role="status">Loading…</p>
@@ -772,11 +788,6 @@
         </form>
       {/if}
     {:else if manage && administrator}
-      <nav class="sub" aria-label="Manage">
-        {@render link('/manage', 'Riders', path !== '/manage/server')}
-        {@render link('/manage/server', 'Server', path === '/manage/server')}
-      </nav>
-
       <div>
         {#if path === '/manage/server'}
           <div class="columns">
@@ -1031,37 +1042,13 @@
                 }}>Create rider</button
               >{/if}
           </div>
-          <div class="pills" role="group" aria-label="Filter riders">
-            {#each filters as [value, label] (value)}<button
-                aria-pressed={filter === value}
-                onclick={() => {
-                  filter = value;
-                  page = 0;
-                }}>{label}</button
-              >{/each}
-          </div>
-
-          {#if withoutPassword > 0 && filter !== 'no-password'}
-            <p class="warning">
-              {withoutPassword === 1 ? '1 rider has' : `${withoutPassword} riders have`} no password and cannot sign in.
-              Set a password for each rider.
-              <button
-                class="link"
-                onclick={() => {
-                  filter = 'no-password';
-                  page = 0;
-                }}>Show {withoutPassword === 1 ? 'this rider' : 'these riders'}</button
-              >
-            </p>
-          {/if}
-
           <div class="riders">
             <div>
               {#if riders.length <= 1}
                 <p class="empty">No other riders yet. Create a rider so that somebody else can ride on this server.</p>
               {/if}
               {#if filtered.length === 0 && riders.length > 1}
-                <p class="empty">No riders match. Clear the search or choose another filter.</p>
+                <p class="empty">No riders match. Clear the search.</p>
               {/if}
               <ul class="plain list">
                 {#each filtered.slice(page * pageSize, page * pageSize + pageSize) as r (r.player_id)}<li>
@@ -1071,7 +1058,7 @@
                       onclick={() => openRider(r)}
                       ><span class="identity"
                         ><RiderRow initials={initials(r)} name={name(r)} detail={r.username} /></span
-                      ><span class="facts"><span class="num id">#{r.player_id}</span>{@render chips(r)}</span></button
+                      ><span class="facts">{@render chips(r)}</span></button
                     >
                   </li>{/each}
               </ul>
@@ -1264,7 +1251,9 @@
                       <button disabled={busy}>Set password</button>
                     </form>
                   {:else}
-                    <p class="muted">Change your own password in My account.</p>
+                    <p class="muted">
+                      Change your own password on {@render link('/password', 'the Password page', false)}.
+                    </p>
                   {/if}
 
                   <div class="inset">
@@ -1356,12 +1345,18 @@
         {/if}
       </div>
     {:else}
-      <nav class="sub" aria-label="My account">
-        {@render link('/', 'Overview', path !== '/settings' && path !== '/password')}
-        {@render link('/settings', 'Settings', path === '/settings')}
-        {@render link('/password', 'Password', path === '/password')}
-      </nav>
-      {#if path === '/settings'}
+      {#if path === '/import' || path === '/zwift'}
+        {#key path}<ProfileData
+            {path}
+            request={api}
+            {navigate}
+            onrider={async () => {
+              rider = (await api('/api/me')).rider;
+            }}
+          />{/key}
+      {:else if path === '/activities' || path.startsWith('/activities/')}
+        <Activities {path} {api} {go} />
+      {:else if path === '/settings'}
         {#if settings}
           <form
             class="panel narrow"
@@ -1501,43 +1496,55 @@
 {/if}
 
 <style>
-  .top {
+  /* The side menu: who is signed in, then one flat list of pages. */
+  .me {
     display: flex;
     align-items: center;
-    gap: 1.25rem;
-    margin: 0 0 0 1.25rem;
+    gap: 0.85rem;
+    min-width: 0;
+    padding: 0.2rem 4rem 1.1rem 1.25rem;
+    border-bottom: 1px solid var(--line);
   }
-  .top :global(a),
-  .sub :global(a) {
-    padding-block: 0.2rem;
-    border-bottom: 2px solid transparent;
+  .me :global(.who > span) {
+    font-weight: 800;
   }
-  .top :global(a[aria-current]),
-  .sub :global(a[aria-current]) {
-    border-bottom-color: var(--orange);
+  .menu {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    gap: 0;
+    margin: 0.75rem 0 0;
   }
-  .sub {
-    align-items: baseline;
-  }
-
-  button.link {
+  .menu :global(a),
+  button.sign-out {
+    display: block;
+    width: 100%;
     margin: 0;
-    padding: 0;
+    padding: 0.85rem 1.25rem 0.85rem 1.5rem;
     border: 0;
-    background: none;
-    font-size: 0.8125rem;
-    text-decoration: underline;
-    text-decoration-thickness: 2px;
-    text-underline-offset: 3px;
+    border-left: 4px solid transparent;
+    border-radius: 0;
+    font-size: 0.9375rem;
+    text-align: left;
   }
-  .top button.link {
+  .menu :global(a:hover),
+  button.sign-out:hover {
+    background: rgb(255 255 255 / 0.08);
     text-decoration: none;
   }
-  .warning button.link {
-    color: var(--alarm);
-    font-size: inherit;
-    text-transform: none;
-    letter-spacing: 0;
+  /* The current page carries Zwift orange along the edge of the menu. */
+  .menu :global(a[aria-current]) {
+    border-left-color: var(--orange);
+    background: var(--glass-raised);
+  }
+  .group {
+    margin: 1.25rem 0 0.3rem 1.75rem;
+    color: var(--muted);
+    font-size: 0.8125rem;
+  }
+  button.sign-out {
+    margin-top: auto;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
   }
 
   .panel {
@@ -1582,14 +1589,6 @@
   .notice.failed {
     color: var(--alarm);
     border-left: 3px solid #ff6b57;
-  }
-  .warning {
-    max-width: none;
-    padding: 0.7rem 0.9rem;
-    border-left: 3px solid #ff6b57;
-    border-radius: 0 10px 10px 0;
-    background: linear-gradient(rgb(255 90 70 / 0.16), rgb(255 90 70 / 0.16)), var(--glass);
-    color: var(--alarm);
   }
   .empty {
     color: var(--muted);
@@ -1773,10 +1772,6 @@
     margin: 0;
     max-width: none;
   }
-  .id {
-    color: var(--muted);
-    font-weight: 600;
-  }
   .detail-head {
     display: flex;
     align-items: center;
@@ -1945,19 +1940,6 @@
   }
 
   @media (max-width: 500px) {
-    /* The bar wraps: brand on the first line, navigation on the second. */
-    .app :global(.bar) {
-      flex-wrap: wrap;
-      row-gap: 0.5rem;
-    }
-    .app :global(.bar .version) {
-      display: none;
-    }
-    .top {
-      flex: 1 0 100%;
-      margin: 0;
-      gap: 1rem;
-    }
     button.rider .identity {
       flex: 1 0 100%;
     }

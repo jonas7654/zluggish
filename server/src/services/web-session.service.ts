@@ -7,6 +7,7 @@ export interface WebSession {
   identity: string;
   expires: number;
   confirmedUntil: number;
+  pendingImport?: string;
 }
 
 /** Only signed-in riders hold server state. Anonymous requests use a double-submit CSRF

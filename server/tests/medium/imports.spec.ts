@@ -69,7 +69,7 @@ for (const item of cases) {
       assert.deepEqual(stored(), Buffer.from(item.before));
       const review = await browser.request(`/profile/${f.rider.username}/confirm/`);
       assert.equal(review.status, 200);
-      assert.match(await review.text(), new RegExp(item.name.replaceAll('.', '\\.')));
+      assert.match(await review.text(), /Manage this in the web app/);
     };
 
     await upload();

@@ -177,7 +177,7 @@ await test('launcher downloads and connection controls use persisted database do
 
   f.services.connections.save(player, 'zwift', ['zwift-user', 'secret']);
   const zwift = await browser.request(`/zwift/${f.rider.username}/`);
-  assert.match(await zwift.text(), /Remove credentials/);
+  assert.match(await zwift.text(), /Manage this in the web app/);
   f.services.documents.put(player, 'strava_token.txt', 'saved-token');
   f.services.documents.put(player, 'garth/oauth1_token.json', '{}');
   f.services.documents.put(player, 'garth/oauth2_token.json', '{}');

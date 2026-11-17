@@ -9,10 +9,19 @@ import { createWebApp } from '#src/http/web-app';
 import { PlayerStateSchema } from '#src/protocol/generated/udp-node-msgs_pb';
 import { Simulation } from '#src/world/simulation';
 import { worldTime } from '#src/world/state';
+import { ActivitySchema } from '#src/protocol/generated/activity_pb';
+import { binary, mediumFixture } from '#tests/medium/support';
 import { runtimeFixture } from '#tests/support/runtime';
+import { z } from 'zod';
 import { responseStatus } from '#tests/support/html';
 
 const flush = () => Promise.resolve();
+
+async function json(request: Response | Promise<Response>) {
+  const response = await request;
+
+  return response.json();
+}
 
 await test('requests without cookies allocate no web sessions, and anonymous writes need the CSRF cookie', async (t) => {
   const f = runtimeFixture(t);
@@ -278,4 +287,79 @@ await test('a public URL pins the accepted origin and marks https cookies Secure
   assert.equal(await responseStatus(check('https://local:8080')), 403);
   assert.equal(await responseStatus(check('https://zluggish.example.com:8443')), 403);
   assert.equal(await responseStatus(check('https://zluggish.example.com')), 200);
+});
+
+await test('riders list, inspect and download only their own activities in the web app', async (t) => {
+  const f = await mediumFixture(t);
+  const web = createWebApp(f);
+  const fit = readFileSync(new URL('../fixtures/ride.fit', import.meta.url));
+
+  const data = {
+    playerId: BigInt(f.rider.player_id),
+    courseId: 6n,
+    name: 'Volcano loop',
+    startDate: new Date().toISOString(),
+    distanceInMeters: 3000,
+    fitFilename: 'ride.fit',
+    fit,
+  };
+
+  const posted = await f.request(`/api/profiles/${f.rider.player_id}/activities`, {
+    method: 'POST',
+    ...binary(ActivitySchema, data),
+  });
+
+  const { id } = z.object({ id: z.number() }).parse(await posted.json());
+  f.services.activities.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }));
+  const image = await f.services.activities.saveImage(f.rider.player_id, String(id), new Uint8Array([0xff, 0xd8, 1]));
+
+  const as = (rider: typeof f.rider) => {
+    const { id: session } = f.services.management.sessions.create(f.accounts.identityOf(rider));
+
+    return (path: string) =>
+      web.request(`http://local:8080${path}`, { headers: { Cookie: `zluggish_web_session=${session}` } });
+  };
+
+  const owner = as(f.rider);
+  const other = as(f.other);
+
+  const list = await json(owner('/api/me/activities'));
+  assert.deepEqual(
+    list.activities.map((a: { id: string; name: string; fit: boolean; images: number; world: number }) => [
+      a.id,
+      a.name,
+      a.fit,
+      a.images,
+      a.world,
+    ]),
+    [[String(id), 'Volcano loop', true, 1, 6]],
+  );
+  const others = await json(other('/api/me/activities'));
+  assert.deepEqual(others.activities, []);
+
+  const pending = await json(owner(`/api/me/activities/${id}`));
+  assert.deepEqual([pending.imageIds, pending.chart, pending.chartPending], [[image], null, true]);
+  await f.services.jobs.drain();
+  const detail = await json(owner(`/api/me/activities/${id}`));
+  assert.equal(detail.chartPending, false);
+  assert.ok(detail.chart.timeInSec.length > 0);
+
+  const download = await owner(`/api/me/activities/${id}/fit`);
+  assert.equal(download.status, 200);
+  assert.equal(download.headers.get('Content-Disposition'), 'attachment; filename="ride.fit"');
+  assert.deepEqual(Buffer.from(await download.arrayBuffer()), fit);
+
+  const jpg = await owner(`/api/me/activities/${id}/images/${image}?download`);
+  assert.equal(jpg.headers.get('Content-Type'), 'image/jpeg');
+  assert.match(jpg.headers.get('Content-Disposition') ?? '', /attachment/);
+  assert.deepEqual([...new Uint8Array(await jpg.arrayBuffer())], [0xff, 0xd8, 1]);
+
+  for (const path of [
+    `/api/me/activities/${id}`,
+    `/api/me/activities/${id}/fit`,
+    `/api/me/activities/${id}/images/${image}`,
+  ])
+    assert.equal(await responseStatus(other(path)), 404);
+  assert.equal(await responseStatus(owner('/api/me/activities/1%27')), 400);
+  assert.equal(await responseStatus(web.request(`http://local:8080/api/me/activities`)), 401);
 });

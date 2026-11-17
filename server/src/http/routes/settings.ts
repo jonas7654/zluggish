@@ -44,42 +44,36 @@ export function settingsRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     return gamePage(
       c,
       runtime,
-      model(
-        c,
-        'settings',
-        'Rider settings',
-        [
-          makeForm(
-            'preferences',
-            `/settings/${rider.username}/`,
-            [
-              hidden('revision', String(runtime.services.settings.revision(rider.player_id))),
-              checkbox('enableghosts', 'Enable ghosts', settings.ghosts.enabled),
-              field('bridge_folder', 'TrainingPeaks export folder', {
-                value: settings.workouts.trainingpeaks.bridgeFolder,
-                maxLength: 500,
-              }),
-              field('strava_method', 'Strava method', {
-                type: 'select',
-                value: settings.uploads.strava.method,
-                options: [
-                  { value: 'paid', label: 'API' },
-                  { value: 'free', label: 'Session cookie' },
-                ],
-              }),
-            ],
-            'Save preferences',
+      model(c, 'settings', 'Rider settings', [
+        makeForm(
+          'preferences',
+          `/settings/${rider.username}/`,
+          [
+            hidden('revision', String(runtime.services.settings.revision(rider.player_id))),
+            checkbox('enableghosts', 'Enable ghosts', settings.ghosts.enabled),
+            field('bridge_folder', 'TrainingPeaks export folder', {
+              value: settings.workouts.trainingpeaks.bridgeFolder,
+              maxLength: 500,
+            }),
+            field('strava_method', 'Strava method', {
+              type: 'select',
+              value: settings.uploads.strava.method,
+              options: [
+                { value: 'paid', label: 'API' },
+                { value: 'free', label: 'Session cookie' },
+              ],
+            }),
+          ],
+          'Save preferences',
+        ),
+        ...downloadable.options
+          .filter((name) => runtime.services.documents.has(rider.player_id, name))
+          .map((name) =>
+            makeForm(`download-${name}`, '/download', [hidden('filename', name)], `Download ${name}`, {
+              navigation: true,
+            }),
           ),
-          ...downloadable.options
-            .filter((name) => runtime.services.documents.has(rider.player_id, name))
-            .map((name) =>
-              makeForm(`download-${name}`, '/download', [hidden('filename', name)], `Download ${name}`, {
-                navigation: true,
-              }),
-            ),
-        ],
-        { links: [{ href: `/profile/${rider.username}/`, label: 'Restore rider data or import a profile' }] },
-      ),
+      ]),
       c.req.method === 'POST' ? `/settings/${rider.username}/` : undefined,
     );
   });

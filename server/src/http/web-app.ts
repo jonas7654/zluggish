@@ -1,4 +1,6 @@
+import { webProfileRoutes } from '#src/http/web-profile';
 import { Hono } from 'hono';
+import { HTTPException } from 'hono/http-exception';
 import type { Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
@@ -10,7 +12,7 @@ import { peerAddress } from '#src/http/routes/accounts';
 import { resolve } from 'node:path';
 import { packageRoot, packageVersion } from '#src/config/load';
 
-type WebEnv = { Variables: { sessionId: string; csrf: string } };
+export type WebEnv = { Variables: { sessionId: string; csrf: string } };
 
 /** Matches the public URL exactly, or else the host only: a TLS proxy forwards https requests over http. */
 function sameOrigin(origin: string | undefined, url: string, publicUrl: string | null) {
@@ -25,7 +27,7 @@ function sameOrigin(origin: string | undefined, url: string, publicUrl: string |
 
 export function createWebApp(runtime: HttpRuntime) {
   const app = new Hono<WebEnv>();
-  const { management, accounts, durability, files } = runtime.services;
+  const { management, accounts, durability, files, activities } = runtime.services;
   const { sessions } = management;
   const attempts = new Map<string, { count: number; until: number }>();
   const cookie = 'zluggish_web_session';
@@ -48,7 +50,11 @@ export function createWebApp(runtime: HttpRuntime) {
     return () => !id || sessions.sessions.get(id) === before;
   };
 
-  app.use('*', bodyLimit({ maxSize: 64 * 1024 }));
+  app.use('*', async (c, next) => {
+    const upload = c.req.method === 'POST' && c.req.path === '/api/me/import';
+
+    return bodyLimit({ maxSize: upload ? 81 * 1024 * 1024 : 64 * 1024 })(c, next);
+  });
   app.use('*', async (c, next) => {
     c.header('Cache-Control', 'no-store');
     c.header('X-Content-Type-Options', 'nosniff');
@@ -80,11 +86,18 @@ export function createWebApp(runtime: HttpRuntime) {
       if (!sameOrigin(c.req.header('Origin'), c.req.url, publicUrl) || c.req.header('X-CSRF-Token') !== c.get('csrf'))
         throw new ApplicationError(403, 'Reload the page and retry.');
 
-      if (!c.req.header('Content-Type')?.startsWith('application/json'))
+      if (
+        !(c.req.method === 'POST' && c.req.path === '/api/me/import'
+          ? c.req.header('Content-Type')?.startsWith('multipart/form-data;')
+          : c.req.header('Content-Type')?.startsWith('application/json'))
+      )
         throw new ApplicationError(400, 'JSON required.');
     }
 
-    if (['/api/setup', '/api/setup/key', '/api/session', '/api/session/confirm'].includes(c.req.path) && c.req.method === 'POST') {
+    if (
+      ['/api/setup', '/api/setup/key', '/api/session', '/api/session/confirm'].includes(c.req.path) &&
+      c.req.method === 'POST'
+    ) {
       const now = Date.now();
 
       for (const [key, value] of attempts) if (value.until <= now) attempts.delete(key);
@@ -166,6 +179,38 @@ export function createWebApp(runtime: HttpRuntime) {
     const player = sessions.require(c.get('sessionId')).player_id;
 
     return c.json(management.saveSettings(c.get('sessionId'), player, await c.req.json()));
+  });
+  webProfileRoutes(app, runtime);
+
+  const activityId = z.string().regex(/^\d{1,19}$/);
+  app.get('/api/me/activities', (c) =>
+    c.json({ activities: activities.own(sessions.require(c.get('sessionId')).player_id) }),
+  );
+  app.get('/api/me/activities/:id', (c) =>
+    c.json(activities.ownDetail(sessions.require(c.get('sessionId')).player_id, activityId.parse(c.req.param('id')))),
+  );
+  app.get('/api/me/activities/:id/fit', (c) => {
+    const { fit, filename } = activities.ownFit(
+      sessions.require(c.get('sessionId')).player_id,
+      activityId.parse(c.req.param('id')),
+    );
+
+    return c.body(new Uint8Array(fit), 200, {
+      'Content-Type': 'application/vnd.ant.fit',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+    });
+  });
+  app.get('/api/me/activities/:id/images/:image', (c) => {
+    const id = activityId.parse(c.req.param('id'));
+    const image = z.coerce.number().int().positive().safe().parse(c.req.param('image'));
+    const jpg = activities.ownImage(sessions.require(c.get('sessionId')).player_id, id, image);
+
+    return c.body(jpg, 200, {
+      'Content-Type': 'image/jpeg',
+      ...(c.req.query('download') !== undefined && {
+        'Content-Disposition': `attachment; filename="${id}-${image}.jpg"`,
+      }),
+    });
   });
   app.use('/api/manage/*', async (c, next) => {
     sessions.require(c.get('sessionId'), true);
@@ -287,7 +332,19 @@ export function createWebApp(runtime: HttpRuntime) {
     return c.body(files.read(path), 200, { 'Content-Type': types[ext as keyof typeof types]! });
   });
 
-  for (const path of ['/', '/setup', '/sign-in', '/settings', '/password', '/manage', '/manage/*'])
+  for (const path of [
+    '/',
+    '/setup',
+    '/sign-in',
+    '/settings',
+    '/password',
+    '/import',
+    '/zwift',
+    '/activities',
+    '/activities/*',
+    '/manage',
+    '/manage/*',
+  ])
     app.get(path, (c) => {
       const index = resolve(clientRoot, 'index.html');
 
@@ -298,6 +355,8 @@ export function createWebApp(runtime: HttpRuntime) {
   app.onError((error, c) => {
     if (error instanceof z.ZodError)
       return c.json({ message: 'Check the form fields.', fieldErrors: z.flattenError(error).fieldErrors }, 400);
+
+    if (error instanceof HTTPException) return c.json({ message: error.message }, error.status);
 
     if (error instanceof ApplicationError) return c.json({ message: error.message }, error.status);
 

@@ -1,3 +1,4 @@
+import { calendarLabels, mapChoices } from '#src/http/game/calendar';
 import { checkbox, field, form as makeForm, hidden, model } from '#src/http/game/models';
 import { gamePage } from '#src/http/game/render';
 import { browserJson, gameRedirect } from '#src/http/game/results';
@@ -341,6 +342,12 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       .array(climbSchema)
       .parse(JSON.parse(runtime.services.files.read(resolve(runtime.assets, 'data/climbs.txt'), 'utf8')));
 
+    const calendar = calendarLabels(
+      runtime.services.files.read(resolve(runtime.assets, 'cdn/gameassets/MapSchedule_v2.xml'), 'utf8'),
+      runtime.services.files.read(resolve(runtime.assets, 'cdn/gameassets/PortalRoadSchedule_v1.xml'), 'utf8'),
+      climbs,
+    );
+
     const settings = runtime.services.settings.resolveRiderSettings(
       runtime.config.riderDefaults,
       runtime.services.settings.read(user.player_id),
@@ -354,17 +361,6 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
         'dashboard',
         `${user.first_name} ${user.last_name}`,
         [
-          makeForm('retry-uploads', `/user/${user.username}/`, [], 'Retry failed uploads'),
-          makeForm(
-            'retry-unknown-uploads',
-            `/user/${user.username}/`,
-            [hidden('ambiguous', '1')],
-            'Retry failed uploads and uploads with an unknown result',
-            {
-              confirmation:
-                'Check the provider first. Retrying an upload with an unknown result can create a duplicate.',
-            },
-          ),
           makeForm(
             'launch',
             '/start-zwift',
@@ -373,26 +369,15 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
                 type: 'select',
                 value: 'CALENDAR',
                 options: [
-                  { value: 'CALENDAR', label: 'Calendar' },
-                  ...[
-                    [2, 'Richmond'],
-                    [6, 'Watopia'],
-                    [7, 'London'],
-                    [8, 'New York'],
-                    [9, 'Innsbruck'],
-                    [11, 'Yorkshire'],
-                    [13, 'Makuri Islands'],
-                    [14, 'France'],
-                    [15, 'Paris'],
-                    [17, 'Scotland'],
-                  ].map(([id, name]) => ({ value: String(id), label: String(name) })),
+                  { value: 'CALENDAR', label: calendar.map },
+                  ...mapChoices.map(({ value, label }) => ({ value, label })),
                 ],
               }),
               field('climb', 'Climb', {
                 type: 'select',
                 value: 'CALENDAR',
                 options: [
-                  { value: 'CALENDAR', label: 'Calendar' },
+                  { value: 'CALENDAR', label: calendar.climb },
                   ...climbs.map((climb) => ({ value: climb.road, label: climb.name })),
                 ],
               }),
@@ -405,13 +390,7 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
         ],
         {
           back: { href: '/login/', label: 'Choose another rider' },
-          uploads: runtime.services.uploads.status(user.player_id).slice(0, 100),
-          paragraphs: [
-            'Check the provider before retrying a failed upload: it may have received the activity before the connection failed.',
-          ],
           links: [
-            ['profile', 'Profile'],
-            ['zwift', 'Zwift connection'],
             ['reset', 'Password'],
             ['settings', 'Settings'],
             ['strava', 'Strava'],

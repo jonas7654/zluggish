@@ -1,4 +1,5 @@
-import { checkbox, field, form as makeForm, hidden, model, secret } from '#src/http/game/models';
+import { movedToWeb } from '#src/http/game/web-page';
+import { checkbox, field, form as makeForm, model, secret } from '#src/http/game/models';
 import { gamePage } from '#src/http/game/render';
 import { gameRedirect } from '#src/http/game/results';
 import { RemovableCredentialFile, StravaMethod } from '#src/enum';
@@ -97,61 +98,8 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     );
   }
 
-  function zwiftPage(c: Env, rider: Rider, message = '', failed = false, redirect?: string) {
-    const connected = !!connections.read(rider.player_id, 'zwift');
-
-    const settings = runtime.services.settings.resolveRiderSettings(
-      runtime.config.riderDefaults,
-      runtime.services.settings.read(rider.player_id),
-    );
-
-    return gamePage(
-      c,
-      runtime,
-      model(
-        c,
-        'connection',
-        'Zwift connection',
-        [
-          makeForm(
-            'zwift-connection',
-            `/zwift/${rider.username}/`,
-            [
-              hidden('action', 'settings'),
-              field('username', 'Username', { autocomplete: 'username' }),
-              secret('password', 'Password', connected),
-              checkbox('upload', 'Upload activities to Zwift', settings.uploads.zwift.enabled),
-              checkbox('click', 'Enable Zwift Click authentication', settings.devices.zwiftClick.enabled),
-            ],
-            'Save connection',
-          ),
-          ...(connected
-            ? [
-                makeForm(
-                  'zwift-import',
-                  `/zwift/${rider.username}/`,
-                  [
-                    hidden('action', 'import'),
-                    checkbox('profile', 'Download profile and economy'),
-                    checkbox('achievements', 'Download achievements'),
-                  ],
-                  'Download and review import',
-                ),
-                makeForm('remove-zwift', '/delete/zwift_credentials.bin', [], 'Remove credentials', {
-                  confirmation: 'Remove Zwift credentials?',
-                }),
-              ]
-            : []),
-        ],
-        {
-          message,
-          failed,
-          paragraphs: [connected ? 'Credentials saved.' : 'Save your official Zwift credentials to connect.'],
-          links: [{ href: `/profile/${rider.username}/`, label: 'Import local files' }],
-        },
-      ),
-      redirect,
-    );
+  function zwiftPage(c: Env, _rider: Rider, message = '', failed = false) {
+    return movedToWeb(c, runtime, 'Zwift connection', '/zwift', message, failed);
   }
 
   app.on(['GET', 'POST'], '/zwift/:username/', async (c) => {
@@ -434,7 +382,7 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     if (file.data.startsWith('garmin') || file.data.startsWith('garth'))
       return garminPage(c, rider, `Removed ${file.data}.`, false, `/garmin/${rider.username}/`);
 
-    return zwiftPage(c, rider, `Removed ${file.data}.`, false, `/settings/${rider.username}/`);
+    return gameRedirect(c, `/settings/${rider.username}/`);
   });
 
   app.on(['GET', 'POST'], '/power_curves/:username/', async (c) => {

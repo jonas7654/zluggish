@@ -1,5 +1,4 @@
-import { checkbox, field, form as makeForm, hidden, model } from '#src/http/game/models';
-import { gamePage } from '#src/http/game/render';
+import { movedToWeb } from '#src/http/game/web-page';
 import { gameRedirect } from '#src/http/game/results';
 import { profileUpdateSchema } from '#src/dtos/profiles.dto';
 import { importFilenameSchema } from '#src/dtos/profile-import.dto';
@@ -53,31 +52,7 @@ export function profileRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       return gameRedirect(c, `/profile/${rider.username}/confirm/`);
     }
 
-    return gamePage(
-      c,
-      runtime,
-      model(
-        c,
-        'import',
-        'Import profile data',
-        [
-          makeForm(
-            'import-files',
-            `/profile/${rider.username}/`,
-            [
-              hidden('source', 'files'),
-              ...importFilenameSchema.options.map((name) => field(name, name, { type: 'file' })),
-            ],
-            'Review import',
-            { multipart: true },
-          ),
-        ],
-        {
-          paragraphs: ['Your local rider ID and password remain unchanged.'],
-          links: [{ href: `/zwift/${rider.username}/`, label: 'Download from Zwift or manage connection' }],
-        },
-      ),
-    );
+    return movedToWeb(c, runtime, 'Import profile data', '/import');
   });
 
   app.on(['GET', 'POST'], '/profile/:username/confirm/', async (c) => {
@@ -120,45 +95,7 @@ export function profileRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       return gameRedirect(c, `/user/${rider.username}/`);
     }
 
-    return gamePage(
-      c,
-      runtime,
-      model(
-        c,
-        'confirm',
-        'Confirm profile import',
-        [
-          makeForm(
-            'confirm-import',
-            `/profile/${rider.username}/confirm/`,
-            [
-              ...(duplicate || mixed
-                ? [
-                    field('confirm_source', 'Confirm this source may differ or be shared with another rider', {
-                      type: 'checkbox',
-                      required: true,
-                    }),
-                  ]
-                : []),
-              checkbox('keep_name', 'Keep local name'),
-            ],
-            'Confirm import',
-            {
-              buttons: [
-                { label: 'Confirm import', name: 'confirm', value: '1' },
-                { label: 'Cancel', name: 'cancel', value: '1', skipValidation: true },
-              ],
-            },
-          ),
-        ],
-        {
-          paragraphs: [
-            `${manifest.firstName} ${manifest.lastName} (${manifest.sourceId ?? 'unknown source'})`,
-            `Replace: ${manifest.files.join(', ')}`,
-          ],
-        },
-      ),
-    );
+    return movedToWeb(c, runtime, 'Confirm profile import', '/import');
   });
 
   function profileResponse(c: Context<RuntimeEnv>, id: number) {
