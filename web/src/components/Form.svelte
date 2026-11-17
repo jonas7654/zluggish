@@ -19,7 +19,7 @@
     csrf: string;
     locked: boolean;
     onpage: (page: GamePageModel) => void;
-    onchange: (name: string, value: string) => void;
+    onchange?: ((name: string, value: string) => void) | undefined;
     onexpire: () => void;
     onfail?: ((message: string) => void) | undefined;
     actions?: Snippet;
@@ -103,9 +103,9 @@
       return;
     }
 
-    // Native navigation is required for downloads and the Zwift protocol handoff.
+    // Native navigation is required for the Zwift protocol handoff.
     if (model.navigation) {
-      if (model.action !== '/download') pending = true;
+      pending = true;
 
       return;
     }
@@ -167,7 +167,7 @@
       if (result.redirectTo) {
         if (!safeNavigation(result.redirectTo)) throw new Error('Unsafe navigation');
 
-        if (['/login/', '/riders/switch/'].includes(model.action) || model.action.startsWith('/reset/')) {
+        if (['/login/', '/riders/switch/'].includes(model.action)) {
           const channel = 'BroadcastChannel' in window ? new BroadcastChannel('zluggish-session-change') : undefined;
           channel?.postMessage('changed');
           channel?.close();
@@ -204,7 +204,6 @@
   bind:this={form}
   method="post"
   action={model.action}
-  enctype={model.multipart ? 'multipart/form-data' : undefined}
   onsubmit={submit}
   data-state={formState}
   novalidate
@@ -232,7 +231,7 @@
               onchange={() => {
                 serverErrors = {};
                 clearMessage();
-                onchange(field.name, String(draft[field.name]));
+                onchange?.(field.name, String(draft[field.name]));
               }}
             >
               {#each field.options ?? [] as option (option.value)}<option value={option.value}>{option.label}</option
@@ -252,18 +251,6 @@
                 clearMessage();
               }}
             />
-          {:else if field.type === 'file'}
-            <input
-              type="file"
-              {id}
-              name={field.name}
-              onchange={(event) => {
-                draft[field.name] = Array.from(event.currentTarget.files ?? [])
-                  .map((file) => `${file.name} (${file.size} bytes)`)
-                  .join(', ');
-              }}
-            />
-            <p>{draft[field.name]}</p>
           {:else}
             <!-- svelte-ignore a11y_autofocus (only set on single-field steps such as the user password) -->
             <input

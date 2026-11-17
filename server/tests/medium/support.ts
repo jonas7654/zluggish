@@ -4,6 +4,9 @@ import type { TestContext } from 'node:test';
 import type { DescMessage } from '@bufbuild/protobuf';
 import { create, fromBinary, toBinary } from '@bufbuild/protobuf';
 import { runtimeFixture } from '#tests/support/runtime';
+import { createWebApp } from '#src/http/web-app';
+import type { User } from '#src/repositories/accounts.repository';
+import type { JsonValue } from '#src/dtos/management.dto';
 
 export async function mediumFixture(t: TestContext) {
   const network = t.mock.method(globalThis, 'fetch', () => {
@@ -73,9 +76,34 @@ export async function mediumBrowser(f: Awaited<ReturnType<typeof mediumFixture>>
   });
 
   assert.equal(selected.status, 302);
-  // Reading the settings form obtains the new session's token without triggering workout sync.
-  const profile = await request(`/settings/${rider.username}/`);
-  assert.equal(profile.status, 200);
+  // The dashboard carries the new session's token.
+  const dashboard = await request(selected.headers.get('Location')!);
+  assert.equal(dashboard.status, 200);
 
   return { request, form, upload };
+}
+
+/** A signed-in web app session for the rider: JSON or multipart requests with its CSRF token. */
+export function mediumWeb(f: ReturnType<typeof runtimeFixture>, rider: User) {
+  const app = createWebApp(f);
+  const { id, session } = f.services.management.sessions.create(f.accounts.identityOf(rider));
+
+  const request = (path: string, method = 'GET', data?: FormData | Record<string, JsonValue>, csrf = session.csrf) => {
+    const headers = new Headers({
+      Cookie: `zluggish_web_session=${id}`,
+      Origin: 'http://local:8080',
+      'X-CSRF-Token': csrf,
+    });
+
+    // Fetch sets the multipart boundary itself.
+    if (!(data instanceof FormData)) headers.set('Content-Type', 'application/json');
+
+    return app.request(`http://local:8080${path}`, {
+      method,
+      headers,
+      ...(data && { body: data instanceof FormData ? data : JSON.stringify(data) }),
+    });
+  };
+
+  return { app, request };
 }

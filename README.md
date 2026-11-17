@@ -212,7 +212,7 @@ Connections belong to the signed-in user and are managed under **Settings → Co
 
 Two upload methods are available. Choose one with **Strava upload method** in **Settings**:
 
-- **API application:** obtain a client ID and secret from [Strava API settings](https://www.strava.com/settings/api), set the authorization callback domain to `launcher.zwift.com`, save the credentials under **Connections → Strava API** and choose **Authorize with Strava**. Existing `storage/<local-player-id>/strava_token.txt` files are reused. API access depends on Strava's current application/account policy.
+- **API application:** obtain a client ID and secret from [Strava API settings](https://www.strava.com/settings/api), set the authorization callback domain to the web app's hostname (the host of `network.web.publicUrl`, or the address you open the web app at), save the credentials under **Connections → Strava API** and choose **Authorize**. Existing `storage/<local-player-id>/strava_token.txt` files are reused. API access depends on Strava's current application/account policy.
 - **Browser session cookie:** sign in to Strava in a browser, open developer tools, find `_strava4_session` under Application/Storage → Cookies, and paste it into **Strava session cookie**. Select the session-cookie upload method and use **Test session**. Treat this cookie as a credential.
 
 Screenshot upload uses the session-cookie method rather than the API. The old Python authorization helper is no longer needed or included.
@@ -229,9 +229,9 @@ Existing `oauth1_token.json` and `oauth2_token.json` files from garth can remain
 
 <details><summary>Intervals.icu and planned workouts</summary>
 
-Open **Settings → Connections → Intervals.icu**. Copy the athlete ID and API key from [Intervals.icu settings](https://intervals.icu/settings), under Developer Settings, and save them there. The provider refreshes automatically when you sign in to the web app. Android game login also refreshes Intervals.icu when reusing saved login tokens. Automatic network refreshes have a five-second deadline and retain cached workouts on failure; the provider page also has a manual sync button. Cycling workouts appear in the launcher; completed activities can be uploaded and paired with their planned workout.
+Open **Settings → Connections → Intervals.icu**. Copy the athlete ID and API key from [Intervals.icu settings](https://intervals.icu/settings), under Developer Settings, and save them there. The provider refreshes automatically when you sign in to the launcher. Android game login also refreshes Intervals.icu when reusing saved login tokens. Automatic network refreshes have a five-second deadline and retain cached workouts on failure; **Sync workouts** under **Settings → Connections → Intervals.icu** refreshes them on demand. Cycling workouts appear in the launcher; completed activities can be uploaded and paired with their planned workout.
 
-Exported TrainingPeaks `.zwo` files can be imported through a local bridge folder. Set **TrainingPeaks export folder** in **Settings** or the `workouts.trainingpeaks.bridgeFolder` preference; paths must be accessible to the server, including inside Docker when used.
+Exported TrainingPeaks `.zwo` files can be imported through a local bridge folder. Set **TrainingPeaks export folder** in **Settings** or the `workouts.trainingpeaks.bridgeFolder` preference, then choose **Import workouts** under **Settings → Connections → TrainingPeaks**; paths must be accessible to the server, including inside Docker when used.
 
 </details>
 
@@ -589,7 +589,7 @@ Progress includes elapsed seconds and distance in metres; a counter reset is
 flagged. Reconnecting transport does not start another ride. A ride ends on
 logout, inactivity cleanup, or shutdown; this does not imply that an activity was
 saved. Only successful durable finalization emits `activity.saved`, with recovery
-marked separately. External upload failures require a retry from the web app.
+marked separately. External upload failures require a retry from the web app, under **Settings → Connections → Activity uploads**.
 
 Companion phone registration emits `companion.registered`. It does not establish
 a persistent connection, so logs do not claim a companion disconnect. Repeated

@@ -1,5 +1,4 @@
 import type { User } from '#src/repositories/accounts.repository';
-import type { BrowserSession } from '#src/services/browser-session.service';
 import type { GarminClient, MfaState } from 'garminconnect-js';
 import type { RepositoryContext } from '#src/context';
 import type { FitnessRepository } from '#src/repositories/fitness.repository';
@@ -20,18 +19,9 @@ export class IntegrationsService extends BaseService {
     super(context.accounts.repositories);
   }
 
-  /** Browser-keyed authorization: login -> mfa -> verifying -> committed/removed.
+  /** Session-keyed authorization: login -> mfa -> verifying -> committed/removed.
   A replacement attempt fences both old callbacks and token-file publication.
   */
-  authorizeGarmin(key: string, browser: BrowserSession, rider: User, code?: string) {
-    return this.authorizeGarminSession(
-      key,
-      () => this.context.sessions.current(key, browser, this.context.accounts.identityOf(rider)),
-      rider,
-      code,
-    );
-  }
-
   async authorizeGarminSession(key: string, live: () => boolean, rider: User, code?: string) {
     const identity = this.context.accounts.identityOf(rider);
 
@@ -107,14 +97,6 @@ export class IntegrationsService extends BaseService {
       if (this.garminAttempts.get(key) === attempt) this.garminAttempts.delete(key);
       throw error;
     }
-  }
-
-  authorizeStrava(key: string, browser: BrowserSession, rider: User, code: string) {
-    return this.authorizeStravaSession(
-      () => this.context.sessions.current(key, browser, this.context.accounts.identityOf(rider)),
-      rider,
-      code,
-    );
   }
 
   async authorizeStravaSession(live: () => boolean, rider: User, code: string) {

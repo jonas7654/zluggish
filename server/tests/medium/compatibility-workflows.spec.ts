@@ -5,6 +5,7 @@ import { AssetFiles } from '#src/repositories/files.repository';
 import { ImportsService } from '#src/services/profile-import.service';
 import { WorkoutsService } from '#src/services/workout.service';
 import { runtimeFixture } from '#tests/support/runtime';
+import { mediumWeb } from '#tests/medium/support';
 import { create, fromBinary, toBinary } from '@bufbuild/protobuf';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
@@ -66,28 +67,20 @@ await test('all rider state files stage, cancel, publish and recover with durabl
   assert.throws(() => imports.prepare(fresh, { 'economy_config.txt': Buffer.from('{"cycling_levels":"invalid"}') }));
 });
 
-await test('browser restore accepts empty protobuf state and waits for review before publishing', async (t) => {
+await test('web restore accepts empty protobuf state and waits for review before publishing', async (t) => {
   const f = runtimeFixture(t);
   const user = await f.accounts.create('Restore Rider', 'test-password');
-  const session = f.sessions.open();
-  session.session.identity = f.accounts.identityOf(user);
-  const headers = { Cookie: `zluggish_session=${session.id}` };
+  const web = mediumWeb(f, user);
   const form = new FormData();
-  form.set('csrf_token', session.session.csrf);
   form.set('user_storage.bin', new File([], 'user_storage.bin'));
   form.set('streaks.bin', new File([], 'streaks.bin'));
-  const response = await f.app.request(`/profile/${user.username}/`, { method: 'POST', headers, body: form });
-  assert.equal(response.status, 302);
-  assert.ok(session.session.pendingImport);
+  const response = await web.request('/api/me/import', 'POST', form);
+  assert.equal(response.status, 200);
+  const { review } = await response.json();
+  assert.ok(review.stage);
   assert.equal(f.services.documents.has(user.player_id, 'streaks.bin'), false);
-
-  const published = await f.app.request(`/profile/${user.username}/confirm/`, {
-    method: 'POST',
-    headers,
-    body: new URLSearchParams({ csrf_token: session.session.csrf, confirm: '1', confirm_source: 'on' }),
-  });
-
-  assert.equal(published.status, 302);
+  const published = await web.request('/api/me/import/confirm', 'POST', { stage: review.stage, confirmSource: true });
+  assert.equal(published.status, 200);
   assert.equal(f.services.documents.get(user.player_id, 'streaks.bin')?.length, 0);
   assert.equal(f.services.documents.get(user.player_id, 'user_storage.bin')?.length, 0);
 });
@@ -95,27 +88,16 @@ await test('browser restore accepts empty protobuf state and waits for review be
 await test('Zwift connection encrypts secrets and official downloads stage a rider-preserving import', async (t) => {
   const f = runtimeFixture(t);
   const user = await f.accounts.create('Local Rider', 'test-password');
-  const session = f.sessions.open();
-  session.session.identity = f.accounts.identityOf(user);
-  const headers = { Cookie: `zluggish_session=${session.id}` };
+  const web = mediumWeb(f, user);
 
-  const form = (fields: Record<string, string>) =>
-    f.app.request(`/zwift/${user.username}/`, {
-      method: 'POST',
-      headers,
-      body: new URLSearchParams({ ...fields, csrf_token: session.session.csrf }),
-    });
-
-  const saved = await form({
-    action: 'settings',
+  const saved = await web.request('/api/me/zwift', 'PUT', {
     username: 'official@example.test',
     password: 'super-secret',
-    upload: 'on',
-    click: 'on',
+    upload: true,
+    click: true,
   });
 
-  const html = await saved.text();
-  assert.doesNotMatch(html, /super-secret|official@example.test/);
+  assert.doesNotMatch(await saved.text(), /super-secret|official@example.test/);
   const connections = f.accounts.repositories.connectionsRepository;
   assert.deepEqual(connections.read(user.player_id, 'zwift'), ['official@example.test', 'super-secret']);
   assert.equal(
@@ -162,35 +144,25 @@ await test('Zwift connection encrypts secrets and official downloads stage a rid
       );
     throw new Error(`Unexpected request ${url}`);
   });
-  const downloaded = await form({ action: 'import', profile: 'on', achievements: 'on' });
-  assert.equal(downloaded.status, 302);
+  const downloaded = await web.request('/api/me/zwift/import', 'POST', { profile: true, achievements: true });
+  assert.equal(downloaded.status, 200);
+  const { review } = await downloaded.json();
   assert.equal(f.profiles.get(user.player_id).firstName, 'Local');
-  assert.ok(session.session.pendingImport);
-
-  const confirm = await f.app.request(`/profile/${user.username}/confirm/`, {
-    method: 'POST',
-    headers,
-    body: new URLSearchParams({ csrf_token: session.session.csrf, confirm: '1' }),
-  });
-
-  assert.equal(confirm.status, 302);
+  const confirm = await web.request('/api/me/import/confirm', 'POST', { stage: review.stage });
+  assert.equal(confirm.status, 200);
   assert.equal(f.profiles.get(user.player_id).id, BigInt(user.player_id));
   assert.equal(f.profiles.get(user.player_id).firstName, 'Official');
   assert.equal(f.accounts.get(user.player_id)?.official_player_id, '999');
   assert.ok(calls.some((url) => url.endsWith('/tokens/logout')));
   t.mock.method(globalThis, 'fetch', () => Promise.resolve(new Response(null, { status: 503 })));
-  const failed = await form({ action: 'import', profile: 'on' });
-  assert.match(await failed.text(), /Download failed/);
+  const failed = await web.request('/api/me/zwift/import', 'POST', { profile: true, achievements: false });
+  assert.equal(failed.status, 400);
+  const { message } = await failed.json();
+  assert.match(message, /Download failed/);
   assert.equal(f.profiles.get(user.player_id).firstName, 'Official');
-  assert.equal(session.session.pendingImport, null);
-
-  const csrf = await f.app.request(`/zwift/${user.username}/`, {
-    method: 'POST',
-    headers,
-    body: new URLSearchParams({ action: 'settings' }),
-  });
-
-  assert.equal(csrf.status, 400);
+  const pending = await web.request('/api/me/import');
+  const { review: remaining } = await pending.json();
+  assert.equal(remaining, null);
 });
 
 const xml =

@@ -9,15 +9,10 @@ export interface BrowserSession {
   csrf: string;
   identity: string | null;
   selected: boolean;
-  pendingImport: string | null;
   touched: number;
 }
 
-type BrowserEvent =
-  | { type: 'login'; identity: string }
-  | { type: 'clear-selection' }
-  | { type: 'stage-import'; stage: string }
-  | { type: 'finish-import' };
+type BrowserEvent = { type: 'login'; identity: string } | { type: 'clear-selection' };
 
 const identityPayload = z.object({ session_cookie: z.string() });
 
@@ -76,7 +71,6 @@ export class SessionsService extends BaseService {
       csrf: this.cryptoRepository.randomBytes(32).toString('base64url'),
       identity: null,
       selected: false,
-      pendingImport: null,
       touched: now,
     };
 
@@ -85,7 +79,7 @@ export class SessionsService extends BaseService {
     return { id: token, session };
   }
 
-  /** Identity, launch selection and staged import are independent session dimensions. */
+  /** Identity and launch selection are independent session dimensions. */
   transition(session: BrowserSession, event: BrowserEvent) {
     switch (event.type) {
       case 'login': {
@@ -96,16 +90,6 @@ export class SessionsService extends BaseService {
 
       case 'clear-selection': {
         session.selected = false;
-        break;
-      }
-
-      case 'stage-import': {
-        session.pendingImport = event.stage;
-        break;
-      }
-
-      case 'finish-import': {
-        session.pendingImport = null;
         break;
       }
     }

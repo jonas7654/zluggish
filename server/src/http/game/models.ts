@@ -15,14 +15,6 @@ export function checkbox(name: string, label: string, value = false): GameField 
   return field(name, label, { type: 'checkbox', value });
 }
 
-export function secret(name: string, label: string, saved = false): GameField {
-  return field(name, label, {
-    type: 'password',
-    placeholder: saved ? 'Saved; leave blank to keep' : '',
-    autocomplete: 'new-password',
-  });
-}
-
 export function form(
   id: string,
   action: string,

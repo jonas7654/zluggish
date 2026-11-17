@@ -14,7 +14,7 @@ export function validation(form: GameForm, draft: Record<string, string | boolea
   const errors: Record<string, string[]> = {};
 
   for (const field of form.fields) {
-    if (!visible(field, draft) || field.type === 'hidden' || field.type === 'file') continue;
+    if (!visible(field, draft) || field.type === 'hidden') continue;
     const value = draft[field.name];
 
     if (field.required && !value) errors[field.name] = ['This field is required.'];

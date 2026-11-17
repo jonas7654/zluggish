@@ -10,6 +10,7 @@ import type { TestContext } from 'node:test';
 import { z } from 'zod';
 import { create, toBinary } from '@bufbuild/protobuf';
 import { PlayerProfileSchema } from '#src/protocol/generated/profile_pb';
+import type { User } from '#src/repositories/accounts.repository';
 
 async function browserFixture(t: TestContext) {
   const network = t.mock.method(globalThis, 'fetch', () => {
@@ -34,6 +35,21 @@ async function browserFixture(t: TestContext) {
   const webAddress = z.object({ port: z.number() }).parse(web.address());
 
   return { ...f, origin, browser, webOrigin: `http://127.0.0.1:${webAddress.port}` };
+}
+
+/** Signs in to the web app as an administrator created by first-time setup. */
+async function webSignIn(page: Page, f: Awaited<ReturnType<typeof browserFixture>>, rider: User) {
+  await f.services.management.setup({
+    mode: 'existing',
+    key: f.services.management.issueSetupKey()!,
+    player_id: rider.player_id,
+    password: 'test-password',
+  });
+  await page.goto(`${f.webOrigin}/sign-in`);
+  await page.getByLabel('Login name', { exact: true }).fill(rider.username);
+  await page.getByLabel('Password', { exact: true }).fill('test-password');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await page.getByRole('heading', { name: 'Profile', exact: true }).waitFor();
 }
 
 async function signIn(page: Page, origin: string, id: number, password = 'test-password', remember = false) {
@@ -105,88 +121,35 @@ for (const javaScriptEnabled of [true, false]) {
   });
 }
 
-await test('preferences keep drafts on failures, block double submits and lock on session expiry', async (t) => {
+await test('a session change locks the dashboard instead of acting as another user', async (t) => {
   const f = await browserFixture(t);
-  const rider = await f.accounts.create('Preferences Rider', 'test-password');
-  f.settings.save(rider.player_id, { 'uploads.strava.method': 'free' });
+  const rider = await f.accounts.create('Locked Rider', 'test-password');
   const context = await f.browser.newContext();
   const page = await context.newPage();
   await signIn(page, f.origin, rider.player_id);
-  await page.goto(`${f.origin}/settings/${rider.username}/`);
-  assert.equal(await page.getByLabel('Strava method').inputValue(), 'free');
-  const folder = page.getByLabel('TrainingPeaks export folder');
-  await folder.fill('draft-folder');
-  await page.getByText('Unsaved changes', { exact: true }).waitFor();
-  const { promise: held, resolve: release } = Promise.withResolvers<void>();
-  let posts = 0;
-  await page.route('**/settings/**', async (route) => {
-    if (route.request().method() !== 'POST') return route.continue();
-    posts++;
-    await held;
-    await route.continue();
-  });
-  await page.getByRole('button', { name: 'Save preferences' }).click();
-  assert.equal(await page.getByRole('button', { name: 'Submitting…' }).isDisabled(), true);
-  await page
-    .locator('form')
-    .first()
-    .evaluate((element: HTMLFormElement) => element.requestSubmit());
-  release();
-  await page.getByText('Saved.', { exact: true }).waitFor();
-  assert.equal(posts, 1);
-  assert.equal(f.settings.read(rider.player_id)['workouts.trainingpeaks.bridgeFolder'], 'draft-folder');
-  await page.unroute('**/settings/**');
-  await folder.fill('keep-on-error');
-  await page.route('**/settings/**', (route) =>
-    route.fulfill({
-      status: 400,
-      json: { ok: false, message: 'Folder refused', fieldErrors: { bridge_folder: ['Choose another folder'] } },
-    }),
-  );
-  await page.getByRole('button', { name: 'Save preferences' }).click();
-  await page.getByText('Choose another folder', { exact: true }).waitFor();
-  assert.equal(await folder.inputValue(), 'keep-on-error');
-  assert.equal(await folder.evaluate((element) => element === document.activeElement), true);
-  await page.unroute('**/settings/**');
-  await page.route('**/settings/**', (route) => route.abort());
-  await page.getByRole('button', { name: 'Save preferences' }).click();
-  await page.getByText('Could not submit. Your draft is kept. Try again.', { exact: true }).waitFor();
-  assert.equal(await folder.inputValue(), 'keep-on-error');
-  await page.unroute('**/settings/**');
   f.sessions.browsers.clear();
-  await page.getByRole('button', { name: 'Save preferences' }).click();
+  await page.getByRole('button', { name: 'Switch rider' }).click();
   await page.getByRole('button', { name: 'Reload this page' }).waitFor();
-  assert.equal(await page.getByRole('button', { name: 'Save preferences' }).isDisabled(), true);
+  assert.equal(await page.getByRole('button', { name: 'Start Zwift' }).isDisabled(), true);
   await context.close();
 });
 
-await test('connections preserve blank saved secrets and show conditional fields and Garmin MFA', async (t) => {
+await test('the launcher switches users without JavaScript', async (t) => {
   const f = await browserFixture(t);
-  const rider = await f.accounts.create('Connected Rider', 'test-password');
-  const context = await f.browser.newContext();
+  const rider = await f.accounts.create('Plain Rider', 'test-password');
+  t.mock.method(f.services.workouts, 'syncWorkoutsAutomatically', () => Promise.resolve());
+  const context = await f.browser.newContext({ javaScriptEnabled: false });
   const page = await context.newPage();
   await signIn(page, f.origin, rider.player_id);
-  await page.goto(`${f.origin}/strava/${rider.username}/`);
-  await page.getByLabel('Client ID').fill('123');
-  await page.getByLabel('Client secret').fill('private-client-secret');
-  await page.getByRole('button', { name: 'Save API credentials' }).click();
-  await page.getByText('Credentials saved.', { exact: true }).first().waitFor();
-  assert.equal(await page.getByLabel('Client secret').inputValue(), '');
-  await page.getByLabel('Client ID').fill('456');
-  await page.getByRole('button', { name: 'Save API credentials' }).click();
-  await page.getByText('Credentials saved.', { exact: true }).first().waitFor();
-  assert.deepEqual(f.services.connections.read(rider.player_id, 'strava'), ['456', 'private-client-secret']);
-  await page.getByLabel('Upload method').selectOption('free');
-  assert.equal(await page.getByLabel('Client secret').isVisible(), false);
-  assert.equal(await page.getByLabel('_strava4_session').isVisible(), true);
-  await page.goto(`${f.origin}/garmin/${rider.username}/`);
-  await page.getByLabel('Username').fill('garmin-user');
-  await page.getByLabel('Password', { exact: true }).fill('garmin-secret');
-  await page.getByRole('button', { name: 'Save credentials' }).click();
-  await page.getByRole('button', { name: 'Authorize with Garmin' }).waitFor();
-  t.mock.method(f.services.integrations, 'authorizeGarmin', () => Promise.resolve('mfa' as const));
-  await page.getByRole('button', { name: 'Authorize with Garmin' }).click();
-  await page.getByLabel('Verification code').waitFor();
+  assert.equal(
+    await page
+      .getByRole('link')
+      .filter({ hasText: /settings/i })
+      .count(),
+    0,
+  );
+  await Promise.all([page.waitForURL('**/login/'), page.getByRole('button', { name: 'Switch rider' }).click()]);
+  await page.getByRole('button', { name: 'Plain Rider' }).waitFor();
   await context.close();
 });
 
@@ -236,19 +199,67 @@ await test('import review requires source confirmation and cancel bypasses valid
   await context.close();
 });
 
-await test('upload polling pauses while hidden and stops when all jobs are terminal', async (t) => {
+await test('web connections keep saved secrets, show Garmin MFA and run workout sync and session tests', async (t) => {
+  const f = await browserFixture(t);
+  const rider = await f.accounts.create('Connected Rider', 'test-password');
+  t.mock.method(f.services.integrations, 'authorizeGarminSession', () => Promise.resolve('mfa' as const));
+  t.mock.method(f.services.integrations, 'checkSession', () => Promise.resolve(true));
+  t.mock.method(f.services.workouts, 'sync', () => Promise.resolve('Synced 2 Intervals.icu workouts.'));
+  const context = await f.browser.newContext();
+  const page = await context.newPage();
+  await webSignIn(page, f, rider);
+  await page.goto(`${f.webOrigin}/settings`);
+  const strava = page.locator('form').filter({ has: page.getByLabel('Client ID') });
+  await strava.getByLabel('Client ID').fill('123');
+  await strava.getByLabel('Client secret').fill('private-client-secret');
+  await strava.getByRole('button', { name: 'Save credentials' }).click();
+  await page.getByText('Credentials saved.', { exact: true }).waitFor();
+  assert.equal(await strava.getByLabel('Client secret').inputValue(), '');
+  await strava.getByLabel('Client ID').fill('456');
+  await strava.getByRole('button', { name: 'Save credentials' }).click();
+  await page.getByText('Credentials saved.', { exact: true }).waitFor();
+  assert.deepEqual(f.services.connections.read(rider.player_id, 'strava'), ['456', 'private-client-secret']);
+
+  await page.getByLabel('_strava4_session').fill('session-cookie');
+  await page.getByRole('button', { name: 'Save session cookie' }).click();
+  await page.getByText('Session cookie saved.', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Test session' }).click();
+  await page.getByText('Session is valid.', { exact: true }).waitFor();
+
+  const garmin = page.locator('form').filter({ has: page.getByLabel('Email') });
+  await garmin.getByLabel('Email').fill('garmin-user');
+  await garmin.getByLabel('Password').fill('garmin-secret');
+  await garmin.getByRole('button', { name: 'Save credentials' }).click();
+  await page.getByText('Credentials saved.', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Authorize' }).nth(1).click();
+  await page.getByLabel('Verification code').waitFor();
+
+  const intervals = page.locator('form').filter({ has: page.getByLabel('Athlete ID') });
+  await intervals.getByLabel('Athlete ID').fill('42');
+  await intervals.getByLabel('API key').fill('intervals-secret');
+  await intervals.getByRole('button', { name: 'Save credentials' }).click();
+  await page.getByText('Credentials saved.', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Sync workouts' }).click();
+  await page.getByText('Synced 2 Intervals.icu workouts.', { exact: true }).waitFor();
+  await context.close();
+});
+
+await test('web upload list polls while uploads run, pauses while hidden and retries failures', async (t) => {
   const f = await browserFixture(t);
   const rider = await f.accounts.create('Uploading Rider', 'test-password');
-  let terminal = false;
+  let state = 'pending';
 
   const status = t.mock.method(f.services.uploads, 'status', () => [
-    { activity_id: 1, provider: 'strava', state: terminal ? 'sent' : 'pending' },
+    { activity_id: 1, provider: 'strava', state, last_error: null },
   ]);
 
+  const retry = t.mock.method(f.services.uploads, 'retry', () => Promise.resolve());
   const context = await f.browser.newContext();
   const page = await context.newPage();
   await page.clock.install();
-  await signIn(page, f.origin, rider.player_id);
+  await webSignIn(page, f, rider);
+  await page.goto(`${f.webOrigin}/settings`);
+  await page.getByText('Activity 1: strava — pending', { exact: true }).waitFor();
   const initial = status.mock.callCount();
   await page.evaluate(() => {
     // Browser callback runs in the page's DOM environment.
@@ -258,7 +269,7 @@ await test('upload polling pauses while hidden and stops when all jobs are termi
   });
   await page.clock.runFor(15_000);
   assert.equal(status.mock.callCount(), initial);
-  terminal = true;
+  state = 'failed';
   await page.evaluate(() => {
     // Browser callback runs in the page's DOM environment.
     const { document } = globalThis;
@@ -266,105 +277,12 @@ await test('upload polling pauses while hidden and stops when all jobs are termi
     document.dispatchEvent(new Event('visibilitychange'));
   });
   await page.clock.runFor(5100);
-  await page.getByText('Activity 1: strava — sent', { exact: true }).waitFor();
+  await page.getByText('Activity 1: strava — failed', { exact: true }).waitFor();
   const stopped = status.mock.callCount();
   await page.clock.runFor(15_000);
   assert.equal(status.mock.callCount(), stopped);
-  await context.close();
-});
-
-await test('a rider switch discards drafts and ignores a late save response', async (t) => {
-  const f = await browserFixture(t);
-  const rider = await f.accounts.create('First Rider', 'test-password');
-  const other = await f.accounts.create('Second Rider', 'test-password');
-  const context = await f.browser.newContext();
-  const page = await context.newPage();
-  await signIn(page, f.origin, rider.player_id);
-  await page.goto(`${f.origin}/settings/${rider.username}/`);
-  const folder = page.getByLabel('TrainingPeaks export folder');
-  const baseline = await folder.inputValue();
-  await folder.fill('old-rider-draft');
-  const { promise: held, resolve: release } = Promise.withResolvers<void>();
-  const { promise: received, resolve: captured } = Promise.withResolvers<void>();
-  await page.route('**/settings/**', async (route) => {
-    const response = await route.fetch();
-    captured();
-    await held;
-    await route.fulfill({ response });
-  });
-  await page.getByRole('button', { name: 'Save preferences' }).click();
-  await received;
-  const second = await context.newPage();
-  await signIn(second, f.origin, other.player_id);
-  await page.getByRole('button', { name: 'Reload this page' }).waitFor();
-  release();
-  assert.equal(await folder.inputValue(), baseline);
-  assert.equal(await page.getByRole('button', { name: 'Save preferences' }).isDisabled(), true);
-  assert.equal(f.settings.read(other.player_id)['workouts.trainingpeaks.bridgeFolder'], undefined);
-  await context.close();
-});
-
-await test('plain forms save settings and connections, link to web imports and change passwords', async (t) => {
-  const f = await browserFixture(t);
-  const rider = await f.accounts.create('Plain Rider', 'test-password');
-  t.mock.method(f.services.workouts, 'syncWorkoutsAutomatically', () => Promise.resolve());
-  const context = await f.browser.newContext({ javaScriptEnabled: false });
-  const page = await context.newPage();
-  await signIn(page, f.origin, rider.player_id);
-
-  const visit = async (path: string) => {
-    const response = await page.goto(`${f.origin}/${path}/${rider.username}/`);
-    assert.equal(response?.status(), 200);
-    const reloaded = await page.reload();
-    assert.equal(reloaded?.status(), 200);
-  };
-
-  const submit = async (label: string) => {
-    await Promise.all([page.waitForNavigation(), page.getByRole('button', { name: label, exact: true }).click()]);
-  };
-
-  await visit('settings');
-  await page.getByLabel('TrainingPeaks export folder').fill('plain-folder');
-  await submit('Save preferences');
-  assert.equal(f.settings.read(rider.player_id)['workouts.trainingpeaks.bridgeFolder'], 'plain-folder');
-  await visit('zwift');
-  await page.getByText('Manage this in the web app on port 8080.', { exact: true }).waitFor();
-  await visit('strava');
-  await page.getByLabel('Upload method').selectOption('paid');
-  await submit('Save method');
-  await page.getByLabel('Client ID').fill('123');
-  await page.getByLabel('Client secret').fill('strava-secret');
-  await submit('Save API credentials');
-  assert.deepEqual(f.services.connections.read(rider.player_id, 'strava'), ['123', 'strava-secret']);
-  await visit('garmin');
-  await page.getByLabel('Username').fill('garmin-user');
-  await page.getByLabel('Password', { exact: true }).fill('garmin-secret');
-  await submit('Save credentials');
-  await visit('intervals');
-  await page.getByLabel('Athlete ID').fill('42');
-  await page.getByLabel('API key').fill('intervals-secret');
-  await submit('Save connection');
-  assert.deepEqual(f.services.connections.read(rider.player_id, 'intervals'), ['42', 'intervals-secret']);
-  await visit('trainingpeaks');
-  await page.getByLabel('Export folder').fill('plain-training-folder');
-  await submit('Save folder');
-  assert.equal(f.settings.read(rider.player_id)['workouts.trainingpeaks.bridgeFolder'], 'plain-training-folder');
-  await visit('profile');
-
-  await page.getByText('Manage this in the web app on port 8080.', { exact: true }).waitFor();
-  await visit('power_curves');
-  await page.getByLabel(/I confirm:/).check();
-  await submit('Delete existing power curves');
-  await page.goto(`${f.origin}/user/${rider.username}/`);
-  assert.equal(await page.getByRole('button', { name: 'Reload bots', exact: true }).count(), 0);
-  await visit('reset');
-  await page.getByLabel('Current password').fill('test-password');
-  await page.getByLabel('New password').fill('new-local-password');
-  await page.getByLabel('Confirm password').fill('new-local-password');
-  await submit('Save');
-  await page.waitForURL('**/login/');
-  await signIn(page, f.origin, rider.player_id, 'new-local-password');
-  await visit('reset');
-  assert.equal(await page.getByLabel('Remove password', { exact: true }).count(), 0);
+  await page.getByRole('button', { name: 'Retry failed uploads' }).click();
+  await page.getByText('Retry requested. Check the provider before retrying again.', { exact: true }).waitFor();
+  assert.deepEqual(retry.mock.calls[0]?.arguments, [rider.player_id, false]);
   await context.close();
 });

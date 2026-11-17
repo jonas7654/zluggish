@@ -3,16 +3,16 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { z } from 'zod';
 
-await test('Svelte SSR settings keeps identity, CSRF, multipart and static asset boundaries', async (t) => {
+await test('Svelte SSR dashboard keeps identity, CSRF and static asset boundaries', async (t) => {
   const f = await mediumFixture(t);
-  const unauthorized = await f.app.request(`/settings/${f.rider.username}/`);
+  const unauthorized = await f.app.request(`/user/${f.rider.username}/`);
   assert.equal(unauthorized.status, 401);
   const browser = await mediumBrowser(f);
-  const page = await browser.request(`/settings/${f.rider.username}/`);
+  const page = await browser.request(`/user/${f.rider.username}/`);
   assert.equal(page.status, 200);
   assert.equal(page.headers.get('Cache-Control'), 'no-store');
   const html = await page.text();
-  assert.match(html, /User settings/);
+  assert.match(html, /Start Zwift/);
   assert.match(html, /name="csrf_token"/);
 
   const props = z
@@ -35,114 +35,92 @@ await test('Svelte SSR settings keeps identity, CSRF, multipart and static asset
     const missing = await f.app.request(path);
     assert.equal(missing.status, 404);
   }
+});
 
-  const form = new FormData();
-  form.set('csrf_token', props.csrf);
-  form.set('revision', String(f.settings.revision(f.rider.player_id)));
-  form.set('bridge_folder', 'test-folder');
-  form.set('strava_method', 'free');
+await test('the launcher no longer serves the pages that moved to the web app', async (t) => {
+  const f = await mediumFixture(t);
+  const browser = await mediumBrowser(f);
+  const { username } = f.rider;
 
-  const checked = await browser.request(`/settings/${f.rider.username}/`, {
-    method: 'POST',
-    headers: { Accept: 'application/json' },
-    body: form,
-  });
+  for (const path of [
+    `/settings/${username}/`,
+    `/reset/${username}/`,
+    `/zwift/${username}/`,
+    `/strava/${username}/`,
+    `/garmin/${username}/`,
+    `/intervals/${username}/`,
+    `/trainingpeaks/${username}/`,
+    `/power_curves/${username}/`,
+    `/profile/${username}/`,
+    `/profile/${username}/confirm/`,
+    '/strava_auth',
+    '/authorization',
+    '/garmin_auth',
+    '/ui/status/uploads',
+  ]) {
+    const response = await browser.request(path);
+    assert.equal(response.status, 404, path);
+  }
 
-  assert.equal(checked.status, 200);
-  const result = await checked.json();
-  assert.equal(result.ok, true);
-  assert.equal(f.settings.read(f.rider.player_id)['workouts.trainingpeaks.bridgeFolder'], 'test-folder');
-  form.set('csrf_token', 'invalid');
-  const rejected = await browser.request(`/settings/${f.rider.username}/`, { method: 'POST', body: form });
-  assert.equal(rejected.status, 400);
+  for (const path of ['/download', '/delete/strava_token.txt', `/intervals/${username}/sync`]) {
+    const response = await browser.form(path);
+    assert.equal(response.status, 404, path);
+  }
 });
 
 await test('serialized props and SSR escape user content', async (t) => {
   const f = await mediumFixture(t);
-  f.settings.save(f.rider.player_id, { 'workouts.trainingpeaks.bridgeFolder': '</script><script>evil()</script>&' });
+  f.accounts.repository.updateImportedProfile(f.rider.player_id, '</script><script>evil()</script>&', 'Rider', 1);
   const browser = await mediumBrowser(f);
-  const page = await browser.request(`/settings/${f.rider.username}/`);
+  const page = await browser.request(`/user/${f.rider.username}/`);
   const html = await page.text();
   assert.ok(!html.includes('</script><script>evil()'));
   assert.match(html, /\\u003c/);
 });
 
-await test('upload and session probes never create anonymous sessions or trigger workout sync', async (t) => {
+await test('session probes never create anonymous sessions or trigger workout sync', async (t) => {
   const f = await mediumFixture(t);
   const before = f.sessions.browsers.size;
-
-  for (const path of ['/ui/status/uploads', '/ui/status/session']) {
-    const response = await f.app.request(path, { headers: { Accept: 'application/json' } });
-    assert.equal(response.status, 401);
-    assert.equal(response.headers.get('Set-Cookie'), null);
-    assert.equal(f.sessions.browsers.size, before);
-  }
+  const anonymous = await f.app.request('/ui/status/session', { headers: { Accept: 'application/json' } });
+  assert.equal(anonymous.status, 401);
+  assert.equal(anonymous.headers.get('Set-Cookie'), null);
+  assert.equal(f.sessions.browsers.size, before);
 
   const browser = await mediumBrowser(f);
   const sync = t.mock.method(f.services.workouts, 'syncWorkoutsAutomatically', () => Promise.resolve());
-
-  const status = t.mock.method(f.services.uploads, 'status', (id: number) => {
-    assert.equal(id, f.rider.player_id);
-
-    return Array.from({ length: 150 }, (_, index) => ({ activity_id: index, provider: 'strava', state: 'pending' }));
-  });
-
-  const response = await browser.request('/ui/status/uploads', { headers: { Accept: 'application/json' } });
-  assert.equal(response.status, 200);
-  assert.equal(response.headers.get('Cache-Control'), 'no-store');
-  const body = await response.json();
-  assert.equal(body.jobs.length, 100);
-  assert.equal(status.mock.callCount(), 1);
+  const live = await browser.request('/ui/status/session', { headers: { Accept: 'application/json' } });
+  assert.equal(live.status, 204);
+  assert.equal(live.headers.get('Cache-Control'), 'no-store');
   assert.equal(sync.mock.callCount(), 0);
 });
 
-await test('JSON mutations keep the session rider as owner, return canonical values and reject stale contexts', async (t) => {
+await test('JSON form posts return redirects and reject expired tokens and stale contexts', async (t) => {
   const f = await mediumFixture(t);
   const browser = await mediumBrowser(f);
-  const path = `/settings/${f.other.username}/`;
-  const page = await browser.request(path);
-  const html = await page.text();
+  const page = await browser.request(`/user/${f.rider.username}/`);
 
   const props = z
     .object({ csrf: z.string() })
-    .parse(JSON.parse(/id="launcher-props">([^<]+)<\/script>/.exec(html)![1]!));
+    .parse(JSON.parse(/id="launcher-props">([^<]+)<\/script>/.exec(await page.text())![1]!));
 
-  const post = (fields: Record<string, string>, context = props.csrf) =>
-    browser.request(path, {
+  const post = (csrf: string, context = props.csrf) =>
+    browser.request('/riders/switch/', {
       method: 'POST',
       headers: { Accept: 'application/json', 'X-Game-Context': context },
-      body: new URLSearchParams({
-        csrf_token: props.csrf,
-        revision: String(f.settings.revision(f.rider.player_id)),
-        bridge_folder: 'new-folder',
-        strava_method: 'free',
-        ...fields,
-      }),
+      body: new URLSearchParams({ csrf_token: csrf }),
     });
 
-  const saved = await post({ 'uploads.zwift.enabled': 'on' });
-  assert.equal(saved.status, 200);
-  const result = await saved.json();
-  assert.equal(result.ok, true);
-  assert.equal(result.data.page.kind, 'settings');
-  assert.equal(f.settings.read(f.rider.player_id)['workouts.trainingpeaks.bridgeFolder'], 'new-folder');
-  assert.equal(f.settings.read(f.rider.player_id)['uploads.zwift.enabled'], undefined);
-  assert.equal(f.settings.read(f.other.player_id)['workouts.trainingpeaks.bridgeFolder'], undefined);
-  const invalid = await post({ bridge_folder: 'x'.repeat(501) });
-  assert.equal(invalid.status, 400);
-  const invalidBody = await invalid.json();
-  assert.equal(invalidBody.ok, false);
-  assert.ok(invalidBody.fieldErrors.bridge_folder.length);
-  assert.equal(invalidBody.reload, undefined);
-  const csrf = await post({ csrf_token: 'expired' });
-  assert.equal(csrf.status, 400);
-  const csrfBody = await csrf.json();
-  assert.equal(csrfBody.reload, true);
-  const stale = await post({ bridge_folder: 'must-not-save' }, 'another-rider-context');
+  const expired = await post('expired');
+  assert.equal(expired.status, 400);
+  const { reload: expiredReload } = await expired.json();
+  assert.equal(expiredReload, true);
+  const stale = await post(props.csrf, 'another-rider-context');
   assert.equal(stale.status, 409);
-  const staleBody = await stale.json();
-  assert.equal(staleBody.reload, true);
-  assert.equal(f.settings.read(f.rider.player_id)['workouts.trainingpeaks.bridgeFolder'], 'new-folder');
+  const { reload: staleReload } = await stale.json();
+  assert.equal(staleReload, true);
+  const switched = await post(props.csrf);
+  assert.equal(switched.status, 200);
+  assert.deepEqual(await switched.json(), { ok: true, data: {}, redirectTo: '/login/' });
 });
 
 await test('browser JSON errors do not change game API responses and never serialize saved secrets', async (t) => {
@@ -150,52 +128,17 @@ await test('browser JSON errors do not change game API responses and never seria
   const game = await f.app.request('/api/profiles/me', { headers: { Accept: 'application/json' } });
   assert.equal(game.status, 401);
   assert.ok(!game.headers.get('Content-Type')?.includes('application/json'));
-  const browser = await mediumBrowser(f);
   f.services.connections.save(f.rider.player_id, 'garmin', ['public-user', 'never-send-garmin-password']);
   f.services.connections.save(f.rider.player_id, 'strava', ['123', 'never-send-client-secret']);
   f.services.connections.save(f.rider.player_id, 'intervals', ['42', 'never-send-api-key']);
+  f.services.connections.save(f.rider.player_id, 'zwift', ['zwift-user', 'never-send-zwift-password']);
+  t.mock.method(f.services.workouts, 'syncWorkoutsAutomatically', () => Promise.resolve());
+  const browser = await mediumBrowser(f);
 
-  for (const provider of ['garmin', 'strava', 'intervals', 'zwift']) {
-    const page = await browser.request(`/${provider}/${f.rider.username}/`);
+  for (const path of ['/login/', `/user/${f.rider.username}/`]) {
+    const page = await browser.request(path);
     assert.equal(page.status, 200);
-    assert.equal(page.headers.get('Cache-Control'), 'no-store');
     const html = await page.text();
     assert.ok(!html.includes('never-send-'));
   }
-});
-
-await test('launcher downloads and connection controls use persisted database documents', async (t) => {
-  const f = await mediumFixture(t);
-  const browser = await mediumBrowser(f);
-  const player = f.rider.player_id;
-  f.services.documents.put(player, 'economy_config.txt', 'database economy');
-  // Downloads moved to the web app; the legacy form endpoint still serves saved documents.
-  const download = await browser.form('/download', { filename: 'economy_config.txt' });
-  assert.equal(download.status, 200);
-  assert.equal(await download.text(), 'database economy');
-
-  f.services.connections.save(player, 'zwift', ['zwift-user', 'secret']);
-  const zwift = await browser.request(`/zwift/${f.rider.username}/`);
-  assert.match(await zwift.text(), /Manage this in the web app/);
-  f.services.documents.put(player, 'strava_token.txt', 'saved-token');
-  f.services.documents.put(player, 'garth/oauth1_token.json', '{}');
-  f.services.documents.put(player, 'garth/oauth2_token.json', '{}');
-
-  for (const [provider, file] of [
-    ['strava', 'strava_token.txt'],
-    ['garmin', 'garth/oauth1_token.json'],
-  ] as const) {
-    const page = await browser.request(`/${provider}/${f.rider.username}/`);
-    const html = await page.text();
-    assert.match(html, /Authorized\./);
-    assert.ok(html.includes(`Remove ${file}`));
-    const rejected = await browser.form(`/delete/${file}`);
-    assert.equal(rejected.status, 400);
-    assert.equal(f.services.documents.has(player, file), true);
-    const removed = await browser.form(`/delete/${file}`, { confirm_action: 'on' });
-    assert.equal(removed.status, 302);
-    assert.equal(f.services.documents.has(player, file), false);
-  }
-
-  assert.equal(f.services.documents.has(player, 'garth/oauth2_token.json'), false);
 });

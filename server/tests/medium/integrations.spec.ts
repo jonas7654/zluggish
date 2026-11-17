@@ -5,6 +5,7 @@ import { UploadsService } from '#src/services/uploads.service';
 import { ActivitySchema } from '#src/protocol/generated/activity_pb';
 import { FeatureRequestSchema, FeatureResponseSchema } from '#src/protocol/generated/variants_pb';
 import { runtimeFixture } from '#tests/support/runtime';
+import { mediumWeb } from '#tests/medium/support';
 import { create, fromBinary, toBinary } from '@bufbuild/protobuf';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -53,55 +54,34 @@ function browser(app: ReturnType<typeof createGameApp>) {
   return client;
 }
 
-await test('Strava credentials are stored encrypted, never echoed, and removal is allow-listed', async (t) => {
+await test('Strava credentials are stored encrypted, never echoed, and disconnecting removes them', async (t) => {
   const f = runtimeFixture(t);
   const user = await f.accounts.create('Strava Rider', 'test-password');
-  const client = browser(f.app);
-  await client.signIn(user.player_id, user.username);
+  const web = mediumWeb(f, user);
 
-  const saved = await client.form(`/strava/${user.username}/`, {
-    client_id: '12345',
-    client_secret: 'very-secret-value',
+  const saved = await web.request('/api/me/connections/strava', 'PUT', {
+    username: '12345',
+    secret: 'very-secret-value',
   });
 
-  const body = await saved.text();
-  assert.match(body, /Credentials saved/);
-  assert.doesNotMatch(body, /very-secret-value/);
+  assert.equal(saved.status, 200);
+  assert.doesNotMatch(await saved.text(), /very-secret-value/);
 
   assert.deepEqual(f.accounts.repositories.connectionsRepository.read(user.player_id, 'strava'), [
     '12345',
     'very-secret-value',
   ]);
 
-  const response3 = await client.form(`/strava/${user.username}/`, {
-    client_id: '',
-    client_secret: '',
-  });
-
-  const empty = await response3.text();
-
-  assert.match(empty, /secret can.+t be empty/);
-
-  await client.form(`/strava/${user.username}/`, { method: 'free' });
-  assert.equal(f.settings.read(user.player_id)['uploads.strava.method'], 'free');
-
-  await client.form(`/strava/${user.username}/`, {
-    _strava4_session: 'cookie-value',
-  });
-
+  const empty = await web.request('/api/me/connections/strava', 'PUT', { username: '', secret: '' });
+  assert.equal(empty.status, 400);
+  await web.request('/api/me/connections/strava/cookie', 'PUT', { cookie: 'cookie-value' });
   assert.equal(f.services.documents.text(user.player_id, 'strava4_session.txt'), 'cookie-value');
   const stored = f.accounts.db.prepare("SELECT data FROM rider_document WHERE name='strava4_session.txt'").get();
   assert.equal(Buffer.from(z.instanceof(Uint8Array).parse(stored?.data)).includes('cookie-value'), false);
-  const response4 = await client.form('/delete/profile.bin', {});
-  assert.equal(response4.status, 403);
-  const response5 = await client.form('/delete/..%2Fprofile.bin', {});
-  assert.equal(response5.status, 403);
-
-  const removed = await client.form('/delete/strava4_session.txt', { confirm_action: 'on' });
-  assert.equal(removed.status, 302);
+  const removed = await web.request('/api/me/connections/strava', 'DELETE');
+  assert.equal(removed.status, 200);
   assert.equal(f.services.documents.has(user.player_id, 'strava4_session.txt'), false);
-  const response6 = await f.app.request('/delete/strava_token.txt');
-  assert.equal(response6.status, 404);
+  assert.equal(f.accounts.repositories.connectionsRepository.read(user.player_id, 'strava'), null);
 });
 
 function activityWithFit() {
@@ -330,28 +310,23 @@ await test('the mobile aggregate composes goals, activities, events and invitati
   assert.equal(body.goals.length, 0);
 });
 
-await test('Strava authorization only completes for the browser that started it', async (t) => {
+await test('Strava authorization only completes for the web session that started it', async (t) => {
   const f = runtimeFixture(t);
   const user = await f.accounts.create('OAuth Rider', 'test-password');
-  const client = browser(f.app);
-  await client.signIn(user.player_id, user.username);
+  const web = mediumWeb(f, user);
   f.accounts.repositories.connectionsRepository.save(user.player_id, 'strava', ['55', 'secret']);
   const calls = stubFetch(t);
-
-  const start = await client.request('/strava_auth');
-  assert.equal(start.status, 302);
-
-  const target = new URL(start.headers.get('Location') ?? '');
+  const start = await web.request('/api/me/connections/strava/authorize', 'POST', {});
+  const { url } = await start.json();
+  const target = new URL(url);
   assert.equal(target.searchParams.get('client_id'), '55');
-  assert.equal(target.searchParams.get('state'), client.csrf);
-
-  const refused = await client.request('/authorization?code=abc&state=other');
-  assert.match(await refused.text(), /canceled/);
+  const state = target.searchParams.get('state')!;
+  const other = mediumWeb(f, user);
+  const refused = await other.request('/api/me/connections/strava/authorize', 'POST', { code: 'abc', state });
+  assert.equal(refused.status, 403);
   assert.equal(calls.length, 0);
   assert.equal(f.services.documents.has(user.player_id, 'strava_token.txt'), false);
-
-  const accepted = await client.request(`/authorization?code=abc&state=${client.csrf}`);
-
-  assert.match(await accepted.text(), /Strava authorized/);
+  const accepted = await web.request('/api/me/connections/strava/authorize', 'POST', { code: 'abc', state });
+  assert.equal(accepted.status, 200);
   assert.equal(f.services.documents.text(user.player_id, 'strava_token.txt'), '55\nsecret\na\nr\n9000000000\n');
 });

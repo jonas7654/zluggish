@@ -79,24 +79,8 @@ await test('Calendar clears pending map and climb selections for the launching c
     });
 
     assert.equal(response2.status, 302);
-    const response3 = await request(`/settings/${f.rider.username}/`);
+    const response3 = await request(`/user/${f.rider.username}/`);
     assert.equal(response3.status, 200);
-
-    const response4 = await form(`/settings/${f.rider.username}/`, {
-      enableghosts: 'on',
-      strava_method: 'free',
-      bridge_folder: '/tmp/workouts',
-      revision: String(f.settings.revision(f.rider.player_id)),
-    });
-
-    assert.equal(response4.status, 302);
-    assert.equal(f.settings.read(f.rider.player_id)['uploads.strava.method'], 'free');
-    f.profiles.save(f.rider.player_id, f.profiles.get(f.rider.player_id));
-    const download = await form('/download', { filename: 'profile.bin' });
-    assert.equal(download.status, 200);
-    assert.match(download.headers.get('Content-Disposition') ?? '', /profile.bin/);
-    const response5 = await form('/download', { filename: '../secret' });
-    assert.equal(response5.status, 400);
     const response6 = await form('/start-zwift', { map: '6', climb: '10001' });
     assert.equal(response6.status, 302);
     assert.equal(f.world.mapOverrides.get(''), '6');

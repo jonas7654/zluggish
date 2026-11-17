@@ -482,6 +482,6 @@ await test('session capacity evicts anonymous sessions and preserves authenticat
   assert.equal(f.sessions.browsers.size, 10_000);
   assert.equal(f.sessions.browsers.has(anonymous.id), false);
   assert.equal(f.sessions.browsers.has(signedIn[0]), true);
-  const profile = await browser.request(`/profile/${f.rider.username}/`);
-  assert.equal(profile.status, 200);
+  const dashboard = await browser.request(`/user/${f.rider.username}/`);
+  assert.equal(dashboard.status, 200);
 });

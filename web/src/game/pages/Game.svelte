@@ -2,13 +2,11 @@
   import { untrack } from 'svelte';
   import Layout from '../../components/Layout.svelte';
   import Form from '../../components/Form.svelte';
-  import Uploads from '../../components/Uploads.svelte';
   import type { GamePageModel } from '../../lib/game-app.dto';
 
   let { page }: { page: GamePageModel } = $props();
   let current = $state(untrack(() => page));
   let locked = $state(false);
-  let selectedMethod = $state(untrack(() => page.stravaMethod ?? 'paid'));
 
   // Counts failures handed up from the user list, so the same message twice is shown and announced again.
   let failures = $state(0);
@@ -68,10 +66,6 @@
   version={current.version}
   zwiftVersion={current.zwiftVersion}
 >
-  {#if current.links?.length}<nav aria-label="User pages">
-      {#each current.links as link (link.href)}<a href={link.href}>{link.label}</a>{/each}
-    </nav>{/if}
-  {#each current.paragraphs ?? [] as text, index (index)}<p>{text}</p>{/each}
   {#key failures}{#if current.message}<p class="notice" role={current.failed ? 'alert' : 'status'}>
         {current.message}
       </p>{/if}{/key}
@@ -79,19 +73,14 @@
       Your session or user changed. <a href="/login/">Sign in</a> or
       <button type="button" onclick={() => location.reload()}>Reload this page</button>.
     </p>{/if}
-  {#if current.uploads}<Uploads initial={current.uploads} csrf={current.csrf} {locked} onexpire={expire} />{/if}
   {#each current.forms as model (model.id)}
-    <div
-      hidden={(current.kind === 'dashboard' && model.id === 'switch') ||
-        (model.method !== undefined && model.method !== selectedMethod)}
-    >
+    <div hidden={current.kind === 'dashboard' && model.id === 'switch'}>
       <Form
         {model}
         csrf={current.csrf}
         {locked}
         onpage={(value) => {
           if (value.kind !== 'message') current = value;
-          else if (value.uploads) current = { ...current, uploads: value.uploads };
         }}
         onexpire={expire}
         onfail={model.user
@@ -100,9 +89,6 @@
               failures++;
             }
           : undefined}
-        onchange={(name, value) => {
-          if (name === 'method') selectedMethod = value === 'free' ? 'free' : 'paid';
-        }}
       >
         {#snippet actions()}
           {#if current.kind === 'dashboard' && model.id === 'launch'}

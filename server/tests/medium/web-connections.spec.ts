@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createWebApp } from '#src/http/web-app';
 import { responseStatus } from '#tests/support/html';
-import { mediumFixture } from '#tests/medium/support';
+import { mediumFixture, mediumWeb } from '#tests/medium/support';
 
 await test('web connections require web authentication and CSRF, isolate riders and hide secrets', async (t) => {
   const f = await mediumFixture(t);
@@ -112,4 +112,64 @@ await test('web Strava authorization consumes state and rejects a completion aft
   release.resolve();
   assert.equal(await responseStatus(pending), 400);
   assert.equal(f.services.documents.has(f.rider.player_id, 'strava_token.txt'), false);
+});
+
+await test('web uploads, workout sync and Strava session tests stay with the signed-in user', async (t) => {
+  const f = await mediumFixture(t);
+  const web = mediumWeb(f, f.rider);
+  const anonymous = createWebApp(f);
+
+  // Without a session, reads are unauthorized and writes already fail the CSRF check.
+  for (const [path, method, expected] of [
+    ['/api/me/uploads', 'GET', 401],
+    ['/api/me/uploads/retry', 'POST', 403],
+    ['/api/me/workouts/sync', 'POST', 403],
+    ['/api/me/connections/strava/test', 'POST', 403],
+  ] as const)
+    assert.equal(await responseStatus(anonymous.request(`http://local:8080${path}`, { method })), expected, path);
+
+  const status = t.mock.method(f.services.uploads, 'status', (id: number) => {
+    assert.equal(id, f.rider.player_id);
+
+    return Array.from({ length: 150 }, (_, index) => ({
+      activity_id: index,
+      provider: 'strava',
+      state: 'failed',
+      last_error: null,
+    }));
+  });
+
+  const listed = await web.request('/api/me/uploads');
+  const { jobs } = await listed.json();
+  assert.equal(jobs.length, 100);
+  assert.equal(status.mock.callCount(), 1);
+  const retry = t.mock.method(f.services.uploads, 'retry', () => Promise.resolve());
+  assert.equal(await responseStatus(web.request('/api/me/uploads/retry', 'POST', {})), 200);
+  assert.equal(await responseStatus(web.request('/api/me/uploads/retry', 'POST', { ambiguous: true })), 200);
+  assert.deepEqual(
+    retry.mock.calls.map((call) => call.arguments),
+    [
+      [f.rider.player_id, false],
+      [f.rider.player_id, true],
+    ],
+  );
+
+  assert.equal(await responseStatus(web.request('/api/me/connections/strava/test', 'POST', {})), 400);
+  f.services.documents.put(f.rider.player_id, 'strava4_session.txt', 'session-cookie\nignored');
+  const check = t.mock.method(f.services.integrations, 'checkSession', () => Promise.resolve(false));
+  const tested = await web.request('/api/me/connections/strava/test', 'POST', {});
+  assert.deepEqual(await tested.json(), { valid: false });
+  assert.deepEqual(check.mock.calls[0]?.arguments, ['session-cookie']);
+  check.mock.mockImplementation(() => Promise.reject(new Error('offline')));
+  assert.equal(await responseStatus(web.request('/api/me/connections/strava/test', 'POST', {})), 503);
+
+  // With both providers configured, the one the user syncs becomes the game's provider.
+  f.services.connections.save(f.rider.player_id, 'intervals', ['42', 'key']);
+  f.settings.save(f.rider.player_id, { 'workouts.trainingpeaks.bridgeFolder': '/missing-folder' });
+  assert.equal(f.services.workouts.provider(f.rider.player_id), 'intervals-icu');
+  const synced = await web.request('/api/me/workouts/sync', 'POST', { provider: 'trainingpeaks' });
+  assert.deepEqual(await synced.json(), { message: 'TrainingPeaks bridge folder is missing.' });
+  assert.equal(f.services.workouts.provider(f.rider.player_id), 'trainingpeaks');
+  assert.equal(f.services.workouts.provider(f.other.player_id), null);
+  assert.equal(await responseStatus(web.request('/api/me/workouts/sync', 'POST', { provider: 'garmin' })), 400);
 });

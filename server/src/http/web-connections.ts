@@ -1,4 +1,5 @@
 import type { Hono } from 'hono';
+import { resolve } from 'node:path';
 import { z } from 'zod';
 import { ApplicationError } from '#src/errors';
 import type { HttpRuntime } from '#src/http/runtime';
@@ -6,9 +7,10 @@ import type { WebEnv } from '#src/http/web-app';
 
 const provider = z.enum(['strava', 'garmin', 'intervals']);
 const credentials = z.strictObject({ username: z.string().trim().min(1).max(500), secret: z.string().max(10_000) });
+const workoutProviders = { intervals: 'intervals-icu', trainingpeaks: 'trainingpeaks' } as const;
 
 export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
-  const { management, connections, documents, integrations, uploads } = runtime.services;
+  const { management, connections, documents, integrations, uploads, workouts, files, profiles } = runtime.services;
   const sessions = management.sessions;
   app.get('/api/me/connections', (c) => {
     const player = sessions.require(c.get('sessionId')).player_id;
@@ -126,5 +128,52 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
     sessions.find(id)!.stravaState = state;
 
     return c.json({ url: integrations.authorizationUrl(client[0], state, redirect) });
+  });
+  app.post('/api/me/connections/strava/test', async (c) => {
+    const player = sessions.require(c.get('sessionId')).player_id;
+    const cookie = documents.text(player, 'strava4_session.txt')?.split(/\r?\n/, 1)[0];
+
+    if (!cookie) throw new ApplicationError(400, 'Save a session cookie first.');
+
+    try {
+      return c.json({ valid: await integrations.checkSession(cookie) });
+    } catch {
+      throw new ApplicationError(503, 'Could not reach Strava. Check your internet connection.');
+    }
+  });
+  app.post('/api/me/workouts/sync', async (c) => {
+    const id = c.get('sessionId');
+    const user = sessions.require(id);
+    const identity = runtime.services.accounts.identityOf(user);
+
+    const input = z.strictObject({ provider: z.enum(['intervals', 'trainingpeaks']) }).parse(await c.req.json());
+
+    // The chosen provider becomes the one the game uses when both are configured.
+    files.write(
+      resolve(profiles.folder(user.player_id), 'active_workout_provider.txt'),
+      workoutProviders[input.provider],
+      true,
+    );
+    let message: string;
+
+    try {
+      message = await workouts.sync(user.player_id);
+    } catch {
+      throw new ApplicationError(503, 'Workout sync failed. Existing workouts were retained.');
+    }
+
+    if (!sessions.current(id, identity)) throw new ApplicationError(401, 'Session changed.');
+
+    return c.json({ message });
+  });
+  app.get('/api/me/uploads', (c) =>
+    c.json({ jobs: uploads.status(sessions.require(c.get('sessionId')).player_id).slice(0, 100) }),
+  );
+  app.post('/api/me/uploads/retry', async (c) => {
+    const player = sessions.require(c.get('sessionId')).player_id;
+    const input = z.strictObject({ ambiguous: z.boolean().default(false) }).parse(await c.req.json());
+    void uploads.retry(player, input.ambiguous);
+
+    return c.json({ ok: true });
   });
 }

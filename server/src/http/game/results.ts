@@ -3,16 +3,7 @@ import type { RuntimeEnv } from '#src/http/runtime';
 import type { Context } from 'hono';
 
 // Explicit browser routes only. Protocol APIs and the native handoff are excluded.
-const routes = [
-  /^\/login\/$/,
-  /^\/riders\/(?:add|switch)\/$/,
-  /^\/(?:user|settings|reset|zwift|strava|garmin|intervals|trainingpeaks|profile|power_curves)\/[^/]+\/$/,
-  /^\/profile\/[^/]+\/confirm\/$/,
-  /^\/(?:intervals|trainingpeaks)\/[^/]+\/sync$/,
-  /^\/(?:garmin_auth|restart|cancelrestart|reloadbots)$/,
-  /^\/delete\/[^/]+$/,
-  /^\/ui\/status\/(?:uploads|session)$/,
-];
+const routes = [/^\/login\/$/, /^\/riders\/(?:add|switch)\/$/, /^\/user\/[^/]+\/$/, /^\/ui\/status\/session$/];
 
 export function browserJson(c: Context<RuntimeEnv>) {
   return c.req.header('Accept')?.includes('application/json') && routes.some((route) => route.test(c.req.path));
@@ -20,11 +11,7 @@ export function browserJson(c: Context<RuntimeEnv>) {
 
 export function navigationPath(path: string) {
   return (
-    /^\/(?:login\/|riders\/add\/|(?:user|settings|profile|zwift|strava|garmin|intervals|trainingpeaks)\/[^/?#]+\/(?:confirm\/)?)$/.test(
-      path,
-    ) &&
-    !path.includes('\\') &&
-    !/%(?:2f|5c)/i.test(path)
+    /^\/(?:login\/|riders\/add\/|user\/[^/?#]+\/)$/.test(path) && !path.includes('\\') && !/%(?:2f|5c)/i.test(path)
   );
 }
 

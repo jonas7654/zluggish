@@ -13,7 +13,6 @@ import { integrationRoutes } from '#src/http/routes/integrations';
 import { profileRoutes } from '#src/http/routes/profiles';
 import { recordRoutes } from '#src/http/routes/records';
 import { relayRoutes } from '#src/http/routes/relay';
-import { settingsRoutes } from '#src/http/routes/settings';
 import { socialRoutes } from '#src/http/routes/social';
 import { staticRoutes } from '#src/http/routes/static';
 import { storageRoutes } from '#src/http/routes/storage';
@@ -82,7 +81,6 @@ export function createGameApp(metadata: PublicMetadata, runtime?: Runtime) {
     relayRoutes(app, runtime);
     activityRoutes(app, runtime);
     storageRoutes(app, runtime);
-    settingsRoutes(app, runtime);
     goalRoutes(app, runtime);
     recordRoutes(app, runtime);
     fitnessRoutes(app, runtime);

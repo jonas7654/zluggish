@@ -114,7 +114,6 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
             csrf: '',
             identity: null,
             selected: false,
-            pendingImport: null,
             touched: Date.now(),
           },
         };
@@ -315,26 +314,8 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     return gameRedirect(c, '/login/');
   });
 
-  app.on(['GET', 'POST'], '/user/:username/', async (c) => {
+  app.get('/user/:username/', async (c) => {
     const user = authenticated(c);
-
-    if (c.req.method === 'POST') {
-      const form = await csrf(c, runtime);
-
-      if (form.ambiguous === '1' && form.confirm_action !== 'on')
-        throw new HTTPException(400, { message: 'Confirm retrying uploads with an unknown result first.' });
-      void runtime.services.uploads.retry(user.player_id, form.ambiguous === '1');
-
-      return gamePage(
-        c,
-        runtime,
-        model(c, 'message', 'Activity uploads', [], {
-          message: 'Retry requested. Check the provider before retrying again.',
-        }),
-        `/user/${user.username}/`,
-      );
-    }
-
     await runtime.services.workouts.syncWorkoutsAutomatically(user.player_id);
 
     const climbs = z
@@ -380,94 +361,11 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     );
   });
 
-  app.on(['GET', 'POST'], '/reset/:username/', async (c) => {
-    const user = authenticated(c);
-
-    if (c.req.method === 'POST') {
-      const form = await csrf(c, runtime);
-
-      if (user.pass_hash && !(await accounts.verify(user, z.string().catch('').parse(form.current_password))))
-        throw new HTTPException(403);
-
-      if (!sessions.current(c.get('browserId'), c.get('browser'), accounts.identityOf(user)))
-        throw new HTTPException(401);
-      // Every rider keeps a password; it can be changed but not removed.
-      const password = z.string().min(1).parse(form.password);
-
-      if (password !== form.confirm_password) throw new HTTPException(400);
-
-      await accounts.changePassword(
-        user.player_id,
-        password,
-        false,
-        () =>
-          !!accounts.identity(accounts.identityOf(user)) &&
-          (!c.get('browserId') || sessions.current(c.get('browserId'), c.get('browser'), accounts.identityOf(user))),
-      );
-      sessions.end(c.get('browserId'));
-
-      return gameRedirect(c, '/login/');
-    }
-
-    return gamePage(
-      c,
-      runtime,
-      model(
-        c,
-        'password',
-        'Local password',
-        [
-          makeForm(
-            'password',
-            `/reset/${user.username}/`,
-            [
-              ...(user.pass_hash
-                ? [
-                    field('current_password', 'Current password', {
-                      type: 'password',
-                      required: true,
-                      autocomplete: 'current-password',
-                    }),
-                  ]
-                : []),
-              field('password', 'New password', {
-                type: 'password',
-                required: true,
-                autocomplete: 'new-password',
-              }),
-              field('confirm_password', 'Confirm password', {
-                type: 'password',
-                required: true,
-                matches: 'password',
-                autocomplete: 'new-password',
-              }),
-            ],
-            'Save',
-          ),
-        ],
-        {
-          paragraphs: [
-            'Saving ends your session and makes every computer that remembers this password ask for it again.',
-          ],
-        },
-      ),
-    );
-  });
-
   app.get('/ui/status/session', (c) => {
     if (!c.get('browserId')) throw new HTTPException(401);
     c.header('Cache-Control', 'no-store');
 
     return c.body(null, 204);
-  });
-
-  app.get('/ui/status/uploads', (c) => {
-    const rider = authenticated(c);
-
-    if (!c.get('browserId')) throw new HTTPException(401);
-    c.header('Cache-Control', 'no-store');
-
-    return c.json({ jobs: runtime.services.uploads.status(rider.player_id).slice(0, 100) });
   });
 
   const launchAliases = [
