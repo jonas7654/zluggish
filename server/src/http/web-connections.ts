@@ -163,7 +163,9 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
     if (!cookie) throw new ApplicationError(400, 'Save a session cookie first.');
 
     try {
-      return c.json({ valid: await integrations.checkSession(cookie) });
+      return c.json({
+        valid: await integrations.checkSession(cookie, (fresh) => documents.put(player, 'strava4_session.txt', fresh)),
+      });
     } catch {
       throw new ApplicationError(503, 'Could not reach Strava. Check your internet connection.');
     }

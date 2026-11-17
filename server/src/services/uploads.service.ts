@@ -119,7 +119,7 @@ export class UploadsService extends BaseService {
 
       if (!stored || stored.player !== player) throw new ApplicationError(404, 'Activity not found.');
 
-      if (!stored.fit || !this.completionRepository.get(BigInt(activity)))
+      if (!stored.fit?.length || !this.uploadPayload(activity))
         throw new ApplicationError(409, 'Only a finished activity with a FIT file can be uploaded.');
 
       if (!this.configured(player).includes(provider))
@@ -137,6 +137,18 @@ export class UploadsService extends BaseService {
     });
 
     return this.drain();
+  }
+
+  /** Imported and older finished activities may predate completion records. Reading
+  their metadata must not replay completion rewards or automatic deliveries.
+  */
+  private uploadPayload(activity: number) {
+    const saved = this.completionRepository.get(BigInt(activity));
+
+    if (saved) return fromBinary(ActivitySchema, saved.payload);
+    const row = this.activitiesRepository.activityById(activity);
+
+    return row?.end_date ? this.protobufRepository.decode(ActivitySchema, row) : null;
   }
 
   /** Failed deliveries become pending. Ambiguous ones need explicit confirmation: the
@@ -217,9 +229,9 @@ export class UploadsService extends BaseService {
       if (!job.valid()) return null;
       const delivery = this.uploadsRepository.get(activity, provider);
       const stored = this.activitiesRepository.fit(activity);
-      const saved = this.completionRepository.get(BigInt(activity));
+      const payload = this.uploadPayload(activity);
 
-      if (!delivery || !stored || stored.player === null || !saved) return null;
+      if (!delivery || !stored?.fit?.length || stored.player === null || !payload) return null;
 
       if (delivery.state === 'sending') {
         this.uploadsRepository.abandon(activity, provider);
@@ -236,7 +248,6 @@ export class UploadsService extends BaseService {
       }
 
       this.uploadsRepository.begin(activity, provider, token);
-      const payload = fromBinary(ActivitySchema, saved.payload);
       payload.fit = stored.fit ?? new Uint8Array();
 
       return { player: stored.player, payload, delivery: { ...delivery, attempt: token } };
@@ -338,7 +349,15 @@ export class UploadsService extends BaseService {
     const cookie = this.riderDocuments.text(player, 'strava4_session.txt')?.split(/\r?\n/, 1)[0] ?? '';
 
     if (!cookie) throw new DeliveryRefusedError('strava_session_missing');
-    await this.stravaRepository.uploadFree(cookie, activity.fitFilename, activity.fit, activity.name, photos);
+    await this.stravaRepository.uploadFree(
+      cookie,
+      activity.fitFilename,
+      activity.fit,
+      activity.name,
+      photos,
+      undefined,
+      (fresh) => this.riderDocuments.put(player, 'strava4_session.txt', fresh),
+    );
   }
 
   async garmin(player: number, activity: Activity) {

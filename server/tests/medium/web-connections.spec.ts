@@ -159,7 +159,11 @@ await test('web uploads, workout sync and Strava session tests stay with the sig
   const check = t.mock.method(f.services.integrations, 'checkSession', () => Promise.resolve(false));
   const tested = await web.request('/api/me/connections/strava/test', 'POST', {});
   assert.deepEqual(await tested.json(), { valid: false });
-  assert.deepEqual(check.mock.calls[0]?.arguments, ['session-cookie']);
+  assert.equal(check.mock.calls[0]?.arguments[0], 'session-cookie');
+
+  // Strava rotates the session cookie; the newest value replaces the stored one.
+  (check.mock.calls[0]?.arguments[1] as (cookie: string) => void)('rotated-cookie');
+  assert.equal(f.services.documents.text(f.rider.player_id, 'strava4_session.txt'), 'rotated-cookie');
   check.mock.mockImplementation(() => Promise.reject(new Error('offline')));
   assert.equal(await responseStatus(web.request('/api/me/connections/strava/test', 'POST', {})), 503);
 

@@ -306,6 +306,9 @@
         await api('/api/me/connections/strava/authorize', 'POST', { code: authorizationCode, state });
         message = 'Strava authorized.';
       }
+    }).then(() => {
+      // Verification is not stored, so a saved session cookie is tested again whenever the page opens.
+      if (connections?.strava.cookie && saved.stravaMethod === 'free') void testCookie();
     });
   });
 </script>
