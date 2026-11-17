@@ -29,7 +29,8 @@ export function createCdn(runtime: Runtime) {
   });
   app.get('*', async (c) => {
     const ip = getConnInfo(c).remote.address ?? '';
-    const path = c.req.path;
+    // Clients patched to a longer CDN host keep each URL's length by shortening /gameassets/ to /g/ or /gg/.
+    const path = c.req.path.replace(/^\/g+\//, '/gameassets/');
 
     const overrides =
       path === '/gameassets/MapSchedule_v2.xml'

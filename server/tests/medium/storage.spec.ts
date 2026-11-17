@@ -367,3 +367,16 @@ await test('bike upgrade unlocks include extra frames, preserve settings and lea
 
   assert.equal(original.attributes[0]?.bikeProgress?.level, 2);
 });
+
+await test('the CDN serves /gameassets/ under the short aliases patched clients use', async (t) => {
+  const f = await mediumFixture(t);
+  const cdn = createCdn(f);
+  const env = { incoming: { socket: { remoteAddress: '127.0.0.1' } } };
+  const expected = readFileSync(resolve(f.assets, 'cdn/gameassets/Zwift_Updates_Root/ZwiftMac_ver_cur.xml'), 'utf8');
+
+  for (const prefix of ['/gameassets/', '/g/', '/gg/']) {
+    const response = await cdn.request(`${prefix}Zwift_Updates_Root/ZwiftMac_ver_cur.xml`, {}, env);
+    assert.equal(response.status, 200, prefix);
+    assert.equal(await response.text(), expected, prefix);
+  }
+});
