@@ -53,9 +53,11 @@
 
   let page = $state(0);
   let showList = $state(false);
+
   const ordered = $derived([...(activities ?? [])].sort(
     (a, b) => (started(b)?.getTime() ?? -Infinity) - (started(a)?.getTime() ?? -Infinity),
   ));
+
   const selectedId = $derived(/^\/activities\/(\d+)$/.exec(path)?.[1] ?? (showList ? null : ordered[0]?.id ?? null));
   let hasMore = $state(false);
   let requestVersion = 0;
@@ -157,8 +159,10 @@
 
   async function loadList(currentPage: number) {
     const version = ++requestVersion;
+
     try {
       const body = await api<{ activities: Summary[]; hasMore: boolean }>(`/api/me/activities?page=${currentPage}`);
+
       if (version !== requestVersion) return;
       activities = body.activities;
       hasMore = body.hasMore;

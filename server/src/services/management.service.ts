@@ -380,7 +380,7 @@ export class ManagementService extends BaseService {
 
   ownProfile(id: string) {
     const user = this.sessions.require(id);
-    const [month, day, year] = this.context.profiles.get(user.player_id).dob.split('/');
+    const [month, day, year] = this.context.profiles.get(user.player_id).dob.split('/', 3);
 
     return {
       user: this.publicUser(this.context.accounts.get(user.player_id)!),

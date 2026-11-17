@@ -7,6 +7,7 @@ import { createWebApp } from '#src/http/web-app';
 await test('administrator user avatars include versions and serve the saved photo', async (t) => {
   const f = runtimeFixture(t);
   const service = f.services.management;
+
   const owner = await service.setup({
     mode: 'new',
     key: service.issueSetupKey()!,
@@ -15,6 +16,7 @@ await test('administrator user avatars include versions and serve the saved phot
     last_name: 'Rider',
     password: 'test-password',
   });
+
   const opened = service.sessions.create(f.accounts.identityOf(owner), Date.now() + 900_000);
   const web = createWebApp(f);
   const headers = { Cookie: `zluggish_web_session=${opened.id}` };

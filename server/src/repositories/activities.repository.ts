@@ -256,6 +256,7 @@ export class ActivitiesRepository {
     if (id !== undefined) selection = selection.where('id', '=', integer(id));
 
     selection = selection.orderBy('date', 'desc').orderBy('id', 'desc');
+
     if (page !== undefined) selection = selection.limit(21).offset(page * 20);
 
     return this.executor.all(selection, true);

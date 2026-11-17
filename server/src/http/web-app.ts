@@ -211,9 +211,11 @@ export function createWebApp(runtime: HttpRuntime) {
       .number()
       .int()
       .min(0)
-      .max(1000000)
+      .max(1_000_000)
       .parse(c.req.query('page') ?? '0');
+
     const rows = activities.own(sessions.require(c.get('sessionId')).player_id, undefined, page);
+
     return c.json({ activities: rows.slice(0, 20), hasMore: rows.length > 20 });
   });
   app.get('/api/me/activities/:id', (c) =>

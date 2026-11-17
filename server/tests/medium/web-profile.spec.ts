@@ -145,7 +145,8 @@ await test('web exports only the signed-in rider data and power curve changes re
   const { id, session } = f.services.management.sessions.create(f.accounts.identityOf(f.rider));
   const data = new Uint8Array([1, 2, 3]);
   f.services.documents.put(f.rider.player_id, 'streaks.bin', data);
-  const request = (path: string, method = 'GET', body?: object) =>
+
+  const request = (path: string, method = 'GET', body?: Record<string, string | boolean>) =>
     web.request(`http://local:8080${path}`, {
       method,
       headers: {

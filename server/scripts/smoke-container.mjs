@@ -191,10 +191,7 @@ try {
     }),
   });
   assert.equal(selected.status, 302);
-  const dashboard = await uiRequest(selected.headers.get('Location'));
-  const settingsPath = /href="(\/settings\/[^"]+)"/.exec(await dashboard.text())?.[1];
-  assert.ok(settingsPath);
-  const prototype = await uiRequest(settingsPath);
+  const prototype = await uiRequest(selected.headers.get('Location'));
   assert.equal(prototype.status, 200);
   assert.match(prototype.headers.get('content-type'), /text\/html/);
   const prototypeHtml = await prototype.text();

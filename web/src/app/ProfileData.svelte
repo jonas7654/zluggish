@@ -64,10 +64,12 @@
 
   onMount(() => {
     if (path === '/import' || path === '/power-curves') return;
+
     if (path === '/export') {
       void run(async () => {
         filenames = (await request<{ filenames: string[] }>('/api/me/export')).filenames;
       });
+
       return;
     }
 
