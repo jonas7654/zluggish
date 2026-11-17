@@ -79,8 +79,8 @@ for (const javaScriptEnabled of [true, false]) {
     await page.getByText('Wrong password. Try again.', { exact: true }).first().waitFor();
     await signIn(page, f.origin, rider.player_id, 'browser-password', true);
 
-    // The back button returns to the rider list without signing out; the remembered rider needs no password.
-    await page.getByRole('link', { name: 'Choose another rider' }).click();
+    // Switching ends the session and returns to the user list; the remembered user needs no password.
+    await page.getByRole('button', { name: 'Switch rider' }).click();
     await page.waitForURL('**/login/');
     await page.getByRole('button', { name: 'New Browser Rider' }).click();
     await page.waitForURL('**/user/**');
@@ -223,12 +223,12 @@ await test('import review requires source confirmation and cancel bypasses valid
     if (cancel) {
       await page.getByRole('button', { name: 'Cancel', exact: true }).click();
     } else {
-      await page.getByLabel('Confirm this source may differ or be shared with another rider').check();
+      await page.getByLabel('Confirm this source may differ or be shared with another user').check();
       await page.getByRole('button', { name: 'Confirm import', exact: true }).click();
     }
 
     await page
-      .getByText(cancel ? 'Import canceled. Your rider data is unchanged.' : 'Profile data imported.', { exact: true })
+      .getByText(cancel ? 'Import canceled. Your user data is unchanged.' : 'Profile data imported.', { exact: true })
       .waitFor();
     assert.equal(f.accounts.get(rider.player_id)?.first_name, cancel ? 'Import' : 'Remote');
   }

@@ -45,16 +45,16 @@ for (const existing of [false, true])
       assert.equal(await page.getByRole('button', { name: 'Change key' }).count(), 0);
 
       if (owner) {
-        await page.getByLabel('Use an existing rider').check();
-        await page.getByLabel('Rider', { exact: true }).selectOption(String(owner.player_id));
+        await page.getByLabel('Use an existing user').check();
+        await page.getByLabel('User', { exact: true }).selectOption(String(owner.player_id));
         assert.equal(await page.getByLabel('Login name', { exact: true }).count(), 0);
-        await page.getByLabel('Rider’s password', { exact: true }).fill('wrong-password');
+        await page.getByLabel('User’s password', { exact: true }).fill('wrong-password');
         await page.getByRole('button', { name: 'Complete setup' }).click();
         await page.getByRole('alert').waitFor();
-        await page.getByLabel('Rider', { exact: true }).waitFor();
-        await page.getByLabel('Rider’s password', { exact: true }).fill('test-password');
+        await page.getByLabel('User', { exact: true }).waitFor();
+        await page.getByLabel('User’s password', { exact: true }).fill('test-password');
       } else {
-        assert.equal(await page.getByLabel('Use an existing rider').count(), 0);
+        assert.equal(await page.getByLabel('Use an existing user').count(), 0);
         await page.getByLabel('Login name', { exact: true }).fill('owner');
         await page.getByLabel('Password', { exact: true }).fill('test-password');
         await page.getByLabel('First name', { exact: true }).fill('First');
@@ -65,12 +65,12 @@ for (const existing of [false, true])
       await page.getByRole('button', { name: 'Complete setup' }).click();
       // Setup lands in the management area.
       await page
-        .getByText('No other riders yet. Create a rider so that somebody else can ride on this server.', {
+        .getByText('No other users yet. Create a user so that somebody else can ride on this server.', {
           exact: true,
         })
         .waitFor();
       assert.equal(await page.locator('main[data-page="manage"]').count(), 1);
-      await page.getByRole('button', { name: 'Create rider' }).click();
+      await page.getByRole('button', { name: 'Create user' }).click();
       // Creating a user is its own page with one form.
       const create = page.locator('form').filter({ has: page.getByLabel('Confirm password', { exact: true }) });
       await create.getByLabel('First name').fill('Second');
@@ -78,9 +78,9 @@ for (const existing of [false, true])
       await create.getByLabel('Login name').fill('second');
       await create.getByLabel('Password', { exact: true }).fill('second-password');
       await create.getByLabel('Confirm password', { exact: true }).fill('second-password');
-      await create.getByRole('button', { name: 'Create rider' }).click();
+      await create.getByRole('button', { name: 'Create user' }).click();
       await page.getByText('Second Rider can now sign in.', { exact: true }).waitFor();
-      assert.match(page.url(), /\/manage\/riders\/\d+$/);
+      assert.match(page.url(), /\/manage\/users\/\d+$/);
 
       // Destructive actions ask first, and the dialog names the rider.
       await page.getByRole('button', { name: 'End sessions', exact: true }).click();

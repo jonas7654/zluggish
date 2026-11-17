@@ -375,6 +375,7 @@ export function createWebApp(runtime: HttpRuntime) {
     '/settings',
     '/password',
     '/import',
+    '/import/*',
     '/export',
     '/power-curves',
     '/zwift',

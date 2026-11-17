@@ -102,7 +102,7 @@ function describeLoadError({ name, code, message, stack }: z.infer<typeof loadEr
 
   if (code === 'MODULE_NOT_FOUND' || code === 'ERR_MODULE_NOT_FOUND')
     return `cannot find the import ${missing ? `'${missing}'` : 'it names'}${where}`;
-  const parse = /^ParseError: (?:[A-Z]:\/: )?([^\n]+)/.exec(message)?.[1]?.trim();
+  const parse = /^ParseError: (?:[A-Z]:[\\/]: )?([^\n]+)/.exec(message)?.[1]?.trim();
 
   if (parse) return `syntax error${where}: ${parse}`;
   const undefinedName = name === 'ReferenceError' ? /^(\S+) is not defined$/.exec(message)?.[1] : undefined;
