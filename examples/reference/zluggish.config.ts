@@ -43,6 +43,9 @@ export default defineConfig({
       port: 443,
       // Serve HTTPS with the certificate from tls below. false serves plain HTTP, for development only.
       useCert: true,
+      // An https origin that patched clients use instead of us-or-rly101.zwift.com, with a publicly trusted
+      // certificate. Login, relay, avatar and upload URLs are handed out on it. null keeps the zwift.com hosts.
+      publicUrl: null,
     },
   },
 
