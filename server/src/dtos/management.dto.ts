@@ -20,7 +20,7 @@ export const loginName = z
 export const password = z.string().min(1).max(1024);
 export const credentials = z.strictObject({ username: loginName, password });
 
-export const newRider = z.strictObject({
+export const newUser = z.strictObject({
   username: loginName,
   password,
   first_name: z.string().trim().min(1).max(50),
@@ -28,7 +28,7 @@ export const newRider = z.strictObject({
 });
 
 export const setupRequest = z.union([
-  newRider.extend({ mode: z.literal('new'), key: z.string().max(200) }),
+  newUser.extend({ mode: z.literal('new'), key: z.string().max(200) }),
   credentials.extend({ mode: z.literal('existing'), key: z.string().max(200) }),
   z.strictObject({
     mode: z.literal('existing'),
@@ -45,7 +45,7 @@ export const mutationRequest = z.strictObject({
   role: z.enum(['rider', 'administrator']).optional(),
 });
 
-export const editRiderRequest = z.strictObject({
+export const editUserRequest = z.strictObject({
   revision: z.number().int().positive(),
   operation: z.string().uuid(),
   username: loginName,
@@ -83,7 +83,7 @@ export const eventRequest = z.strictObject({
   changes: meetupInput.partial().strict().optional(),
 });
 
-/** Chat commands that change bots for every rider. Only the management area may send them. */
+/** Chat commands that change bots for every user. Only the management area may send them. */
 export const botCommand = z.enum([
   'group',
   'groupall',
@@ -96,7 +96,7 @@ export const botCommand = z.enum([
 
 export const serverRequest = z.strictObject({
   operation: z.string().uuid(),
-  rider: z.number().int().positive().optional(),
+  user: z.number().int().positive().optional(),
   command: botCommand.optional(),
   argument: z.string().trim().max(20).optional(),
 });

@@ -1,6 +1,6 @@
 import { ConfigError } from '#src/config/index';
 import { Repositories } from '#src/repositories';
-import type { PasswordActor, Rider } from '#src/repositories/accounts.repository';
+import type { PasswordActor, User } from '#src/repositories/accounts.repository';
 import { AccountsRepository } from '#src/repositories/accounts.repository';
 import { BaseService } from '#src/services/base.service';
 import { resolve } from 'node:path';
@@ -37,11 +37,11 @@ export class AccountsService extends BaseService {
   }
 
   // Setup is one-way: first owner creation commits its marker in the same account transaction.
-  identityOf(rider: Rider) {
+  identityOf(rider: User) {
     return `${rider.player_id}:${rider.auth_version}`;
   }
 
-  identity(identity: string): Rider | null {
+  identity(identity: string): User | null {
     if (!/^\d+:\d+$/.test(identity)) return null;
     const [id = 0, version] = identity.split(':').map(Number);
     const rider = this.get(id);
@@ -50,7 +50,7 @@ export class AccountsService extends BaseService {
   }
 
   /** Direct creation for tests and offline tools. Riders are otherwise created only in the management area. */
-  async create(name: string, password: string, username?: string): Promise<Rider> {
+  async create(name: string, password: string, username?: string): Promise<User> {
     const displayName = name.trim();
 
     if (!displayName || displayName.length > 100) throw new ConfigError('Enter a name between 1 and 100 characters');
@@ -104,7 +104,7 @@ export class AccountsService extends BaseService {
     }
   }
 
-  async verify(rider: Rider, password: string) {
+  async verify(rider: User, password: string) {
     // Spend the same hashing work as a real check, so timing does not reveal the account state.
     if (!rider.enabled || !rider.pass_hash) {
       await this.cryptoRepository.hashPassword(password);

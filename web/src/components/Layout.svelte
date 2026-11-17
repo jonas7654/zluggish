@@ -10,6 +10,7 @@
     zwiftVersion,
     menu,
     onhome,
+    onback,
     children,
   }: {
     title: string;
@@ -22,6 +23,8 @@
     /** Contents of the side menu behind the bar's menu button. The game app has none. */
     menu?: Snippet | undefined;
     onhome?: (() => void) | undefined;
+    /** Follows the back link inside the page instead of loading it again. */
+    onback?: (() => void) | undefined;
     children: Snippet;
   } = $props();
 
@@ -150,7 +153,18 @@
 </dialog>
 <main data-page={page} class:has-menu={!!menu}>
   {#if heading || back}<header>
-      {#if back}<a class="back" href={back.href} aria-label={back.label} title={back.label}></a>{/if}
+      {#if back}<a
+          class="back"
+          href={back.href}
+          aria-label={back.label}
+          title={back.label}
+          onclick={(event) => {
+            if (onback && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
+              event.preventDefault();
+              onback();
+            }
+          }}
+        ></a>{/if}
       <h1>{title}</h1>
     </header>{:else}<h1 class="hidden-heading">{title}</h1>{/if}
   {@render children()}

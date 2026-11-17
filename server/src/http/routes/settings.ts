@@ -44,7 +44,7 @@ export function settingsRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     return gamePage(
       c,
       runtime,
-      model(c, 'settings', 'Rider settings', [
+      model(c, 'settings', 'User settings', [
         makeForm(
           'preferences',
           `/settings/${rider.username}/`,

@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { onMount } from 'svelte';
   import ProfileData from './ProfileData.svelte';
   import Connections from './Connections.svelte';
   import Activities from './Activities.svelte';
   import Layout from '../components/Layout.svelte';
-  import RiderRow from '../components/RiderRow.svelte';
+  import UserRow from '../components/UserRow.svelte';
   import Avatar from '../components/Avatar.svelte';
   import TextField from './TextField.svelte';
 
@@ -12,7 +12,7 @@
 
   type ApiPayload = { [key: string]: ApiValue };
 
-  type Rider = {
+  type User = {
     player_id: number;
     username: string;
     first_name: string;
@@ -25,7 +25,7 @@
     completion_deadline?: number | null;
   };
 
-  type SetupRider = Pick<Rider, 'player_id' | 'username' | 'first_name' | 'last_name' | 'enabled' | 'has_password'>;
+  type SetupUser = Pick<User, 'player_id' | 'username' | 'first_name' | 'last_name' | 'enabled' | 'has_password'>;
 
   type AuditEvent = {
     id: number;
@@ -44,7 +44,7 @@
     fields: { name: string; kind: 'boolean' | 'number' | 'string'; value: string | number | boolean }[];
   };
 
-  type RiderSettings = {
+  type UserSettings = {
     revision: number;
     overrides: Record<string, boolean | string>;
     defaults: {
@@ -72,8 +72,8 @@
   let csrf = '';
   let version = $state('');
   let zwiftVersion = $state('');
-  let rider = $state<Rider | null>(null);
-  let riders = $state<Rider[]>([]);
+  let user = $state<User | null>(null);
+  let users = $state<User[]>([]);
   let complete = $state(true);
   let loading = $state(true);
   let busy = $state(false);
@@ -81,7 +81,7 @@
   let failed = $state(false);
   let errorScope = $state('');
   let fieldErrors = $state<Record<string, string[]>>({});
-  let conflict = $state<Rider | null>(null);
+  let conflict = $state<User | null>(null);
   let pending = $state<Pending | null>(null);
   let operation = crypto.randomUUID();
 
@@ -89,8 +89,8 @@
   let mode = $state<'new' | 'existing'>('new');
   let key = $state('');
   let keyAccepted = $state(false);
-  let setupRiders = $state<SetupRider[]>([]);
-  let setupRiderId = $state<number | null>(null);
+  let setupUsers = $state<SetupUser[]>([]);
+  let setupUserId = $state<number | null>(null);
   let username = $state('');
   let password = $state('');
   let confirmPassword = $state('');
@@ -105,15 +105,14 @@
   let avatarInput = $state<HTMLInputElement>();
   let dropping = $state(false);
   let currentPassword = $state('');
-  let settings = $state<RiderSettings | null>(null);
+  let settings = $state<UserSettings | null>(null);
   let ghosts = $state(false);
   let stravaMethod = $state('paid');
   let bridgeFolder = $state('');
 
-  // Riders.
+  // Users.
   let search = $state('');
   let page = $state(0);
-  let creating = $state(false);
   let newFirst = $state('');
   let newLast = $state('');
   let newLogin = $state('');
@@ -125,7 +124,7 @@
   let targetPassword = $state('');
   let targetConfirm = $state('');
   let audit = $state<AuditEvent[] | null>(null);
-  let riderSettings = $state<RiderSettings | null>(null);
+  let userSettings = $state<UserSettings | null>(null);
 
   // Server.
   let serverConfig = $state<{ rows: [string, string][]; reason: string } | null>(null);
@@ -136,54 +135,60 @@
   let event = $state<ManagedEvent | null>(null);
   let eventDescription = $state('');
   let eventStart = $state('');
-  let botRider = $state<number | null>(null);
+  let botUser = $state<number | null>(null);
   let botCommand = $state<(typeof botCommands)[number][0]>('group');
   let botArgument = $state('');
 
   const manage = $derived(path === '/manage' || path.startsWith('/manage/'));
-  const administrator = $derived(rider?.role === 'administrator');
-  const selectedId = $derived(Number(/^\/manage\/riders\/(\d+)$/.exec(path)?.[1] ?? 0));
-  const selected = $derived(riders.find((r) => r.player_id === selectedId) ?? null);
-  const connected = $derived(riders.filter((r) => r.connected));
+  const administrator = $derived(user?.role === 'administrator');
+  const selectedId = $derived(Number(/^\/manage\/users\/(\d+)$/.exec(path)?.[1] ?? 0));
+  const selected = $derived(users.find((r) => r.player_id === selectedId) ?? null);
+  const connected = $derived(users.filter((r) => r.connected));
 
   const filtered = $derived(
-    riders.filter((r) =>
+    users.filter((r) =>
       `${r.player_id} ${r.username} ${r.first_name} ${r.last_name}`.toLowerCase().includes(search.toLowerCase()),
     ),
   );
 
+  const name = (r: User) => `${r.first_name} ${r.last_name}`.trim();
+  const label = (r: User) => name(r) || r.username;
+
   const pages = $derived(Math.max(1, Math.ceil(filtered.length / pageSize)));
 
   const title = $derived(
-    !rider
+    !user
       ? complete
         ? 'Sign in'
         : 'First administrator'
       : path === '/manage/server'
         ? 'Server'
-        : manage
-          ? 'Riders'
-          : path === '/activities' || path.startsWith('/activities/')
-            ? 'Activities'
-            : path === '/import/local'
-              ? 'Import local files'
-              : path === '/import'
-                ? 'Import'
-                : path === '/export'
-                  ? 'Export'
-                  : path === '/power-curves'
-                    ? 'Power curves'
-                    : path === '/zwift'
-                      ? 'Zwift connection'
-                      : path === '/settings'
-                        ? 'Settings'
-                        : path === '/password'
-                          ? 'Password'
-                          : 'Profile',
+        : path === '/manage/users/new'
+          ? 'Create user'
+          : selected
+            ? label(selected)
+            : manage
+              ? 'Users'
+              : path === '/activities' || path.startsWith('/activities/')
+                ? 'Activities'
+                : path === '/import/local'
+                  ? 'Import local files'
+                  : path === '/import'
+                    ? 'Import'
+                    : path === '/export'
+                      ? 'Export'
+                      : path === '/power-curves'
+                        ? 'Power curves'
+                        : path === '/zwift'
+                          ? 'Zwift connection'
+                          : path === '/settings'
+                            ? 'Settings'
+                            : path === '/password'
+                              ? 'Password'
+                              : 'Profile',
   );
 
-  const name = (r: Rider) => `${r.first_name} ${r.last_name}`.trim();
-  const initials = (r: Rider) => `${r.first_name.charAt(0)}${r.last_name.charAt(0)}`.toUpperCase();
+  const initials = (r: User) => `${r.first_name.charAt(0)}${r.last_name.charAt(0)}`.toUpperCase();
   const time = (value: number) => new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const errors = (scope: string, field: string) => (errorScope === scope ? (fieldErrors[field] ?? []) : []);
 
@@ -191,9 +196,9 @@
     if (event.actor_kind === 'offline operator') return 'Offline operator';
 
     if (event.actor_player_id === null) return 'Setup';
-    const known = riders.find((r) => r.player_id === event.actor_player_id);
+    const known = users.find((r) => r.player_id === event.actor_player_id);
 
-    return known ? name(known) : `Rider ${event.actor_player_id}`;
+    return known ? name(known) : `User ${event.actor_player_id}`;
   }
 
   async function api(url: string, method = 'GET', data?: ApiPayload | FormData | Blob) {
@@ -218,13 +223,13 @@
       // The server answered, so a retry is a new operation. A lost response keeps the ID for a safe retry.
       if (method !== 'GET') operation = crypto.randomUUID();
       fieldErrors = body.fieldErrors ?? {};
-      const scope = selected && `/api/manage/riders/${selected.player_id}`;
+      const scope = selected && `/api/manage/users/${selected.player_id}`;
 
       if (response.status === 409 && scope && (url === scope || url.startsWith(`${scope}/`)))
         conflict = await api(scope);
 
-      if (response.status === 401 && rider) {
-        rider = null;
+      if (response.status === 401 && user) {
+        user = null;
         avatar = undefined;
         avatar = undefined;
         go('/sign-in');
@@ -276,7 +281,7 @@
 
   /** Loads what the current route shows. Direct navigation to any route works. */
   async function enter() {
-    if (!rider) return;
+    if (!user) return;
 
     if (title === 'Profile' || avatar === undefined) await loadProfile();
 
@@ -287,15 +292,18 @@
     }
 
     if (!administrator) return;
-    await loadRiders();
+    await loadUsers();
 
     if (path === '/manage/server') await loadServer();
 
-    if (selected) select(selected);
+    if (selected) {
+      select(selected);
+      await loadDetail(selected);
+    }
   }
 
-  async function loadRiders() {
-    riders = (await api('/api/manage/riders')).riders;
+  async function loadUsers() {
+    users = (await api('/api/manage/users')).users;
   }
 
   async function loadServer() {
@@ -305,7 +313,7 @@
     events = (await api('/api/manage/events')).events;
   }
 
-  function applySettings(body: RiderSettings) {
+  function applySettings(body: UserSettings) {
     ghosts = Boolean(body.overrides['ghosts.enabled'] ?? body.defaults.ghosts.enabled);
     stravaMethod = String(body.overrides['uploads.strava.method'] ?? body.defaults.uploads.strava.method);
     bridgeFolder = String(
@@ -313,12 +321,12 @@
     );
   }
 
-  function applyProfile(body: { rider: Rider; birthday: string; avatar: number | null }) {
-    rider = body.rider;
+  function applyProfile(body: { user: User; birthday: string; avatar: number | null }) {
+    user = body.user;
     avatar = body.avatar;
-    first = body.rider.first_name;
-    last = body.rider.last_name;
-    username = body.rider.username;
+    first = body.user.first_name;
+    last = body.user.last_name;
+    username = body.user.username;
     birthday = body.birthday;
   }
 
@@ -372,26 +380,38 @@
     applySettings(settings!);
   }
 
-  function select(target: Rider) {
+  function select(target: User) {
     editFirst = target.first_name;
     editLast = target.last_name;
     editLogin = target.username;
     targetPassword = '';
     targetConfirm = '';
     audit = null;
-    riderSettings = null;
+    userSettings = null;
     conflict = null;
   }
 
-  async function openRider(target: Rider) {
-    creating = false;
-    go(`/manage/riders/${target.player_id}`);
-    select(target);
-    await tick();
-    document.getElementById('rider-detail')?.focus();
+  async function loadAudit(target: User) {
+    audit = (await api(`/api/manage/users/${target.player_id}/audit`)).events;
   }
 
-  function settingsBody(current: RiderSettings) {
+  /** The user page shows everything at once: history always, settings for anyone but yourself. */
+  async function loadDetail(target: User) {
+    await loadAudit(target);
+
+    if (target.player_id === user?.player_id) return;
+    userSettings = await api(`/api/manage/users/${target.player_id}/settings`);
+    applySettings(userSettings!);
+  }
+
+  async function openUser(target: User) {
+    go(`/manage/users/${target.player_id}`);
+    select(target);
+    window.scrollTo(0, 0);
+    await loadDetail(target);
+  }
+
+  function settingsBody(current: UserSettings) {
     return {
       revision: current.revision,
       operation,
@@ -408,9 +428,9 @@
   async function checkKey() {
     try {
       const body = await api('/api/setup/key', 'POST', { key });
-      setupRiders = body.riders;
-      setupRiderId = null;
-      mode = setupRiders.length ? 'existing' : 'new';
+      setupUsers = body.users;
+      setupUserId = null;
+      mode = setupUsers.length ? 'existing' : 'new';
       keyAccepted = true;
     } catch (error) {
       if (!(error instanceof Error) || error.message !== 'Setup refused.') throw error;
@@ -430,7 +450,7 @@
           mode,
           key,
           password,
-          ...(mode === 'new' ? { username, first_name: first, last_name: last } : { player_id: setupRiderId }),
+          ...(mode === 'new' ? { username, first_name: first, last_name: last } : { player_id: setupUserId }),
         }).catch((error) => {
           // The key stops working when the server restarts, so ask for the new one.
           if (error instanceof Error && error.message === 'Setup refused.' && mode === 'new') {
@@ -442,7 +462,7 @@
         });
 
     const setup = !complete;
-    rider = body.rider;
+    user = body.user;
     password = '';
     confirmPassword = '';
     key = '';
@@ -455,14 +475,14 @@
   async function signOut() {
     await api('/api/session', 'DELETE', {});
     await api('/api/setup');
-    rider = null;
-    riders = [];
+    user = null;
+    users = [];
     go('/sign-in');
   }
 
-  type RiderAction = 'disable' | 'enable' | 'role' | 'revoke-sessions' | 'password';
+  type UserAction = 'disable' | 'enable' | 'role' | 'revoke-sessions' | 'password';
 
-  function ask(action: RiderAction) {
+  function ask(action: UserAction) {
     if (!selected) return;
     const who = name(selected);
     const progress = selected.connected ? ` ${who} is riding now and can lose unsaved ride progress.` : '';
@@ -485,13 +505,13 @@
           ? {
               title: `Remove the administrator role from ${who}?`,
               detail: `${who} can no longer open Manage. All sessions of ${who} end.${progress}`,
-              label: 'Remove role',
+              label: 'Remove administrator',
               destructive: true,
             }
           : {
               title: `Give the administrator role to ${who}?`,
-              detail: `${who} can manage riders and the server. All sessions of ${who} end.${progress}`,
-              label: 'Give role',
+              detail: `${who} can manage users and the server. All sessions of ${who} end.${progress}`,
+              label: 'Make administrator',
               destructive: false,
             },
       'revoke-sessions': {
@@ -506,12 +526,12 @@
         label: 'Set password',
         destructive: false,
       },
-    } satisfies Record<RiderAction, Omit<Pending, 'confirm'>>;
+    } satisfies Record<UserAction, Omit<Pending, 'confirm'>>;
 
     pending = { ...choices[action], confirm: () => mutate(action) };
   }
 
-  async function mutate(action: RiderAction) {
+  async function mutate(action: UserAction) {
     if (!selected) return;
 
     if (action === 'password' && targetPassword !== targetConfirm) {
@@ -519,8 +539,8 @@
       throw new Error('Check the form fields.');
     }
 
-    const result: Rider = await api(
-      `/api/manage/riders/${selected.player_id}/${action}`,
+    const result: User = await api(
+      `/api/manage/users/${selected.player_id}/${action}`,
       action === 'role' ? 'PUT' : 'POST',
       {
         revision: selected.revision,
@@ -532,8 +552,9 @@
 
     targetPassword = '';
     targetConfirm = '';
-    await loadRiders();
-    riders = riders.map((r) => (r.player_id === result.player_id ? { ...r, ...result } : r));
+    await loadUsers();
+    users = users.map((r) => (r.player_id === result.player_id ? { ...r, ...result } : r));
+    await loadAudit(result);
 
     const messages = {
       disable: result.completion_deadline
@@ -543,7 +564,7 @@
       role: result.role === 'administrator' ? 'Administrator role given.' : 'Administrator role removed.',
       'revoke-sessions': 'Sessions ended.',
       password: 'Password set.',
-    } satisfies Record<RiderAction, string>;
+    } satisfies Record<UserAction, string>;
 
     done(messages[action]);
   }
@@ -554,9 +575,9 @@
       throw new Error('Check the form fields.');
     }
 
-    const created: Rider = await api('/api/manage/riders', 'POST', {
+    const created: User = await api('/api/manage/users', 'POST', {
       operation,
-      rider: { username: newLogin, password: newPassword, first_name: newFirst, last_name: newLast },
+      user: { username: newLogin, password: newPassword, first_name: newFirst, last_name: newLast },
     });
 
     newFirst = '';
@@ -564,15 +585,14 @@
     newLogin = '';
     newPassword = '';
     newConfirm = '';
-    creating = false;
-    await loadRiders();
-    await openRider(created);
+    await loadUsers();
+    await openUser(created);
     done(`${name(created)} can now sign in.`);
   }
 
-  async function saveRider() {
+  async function saveUser() {
     if (!selected) return;
-    await api(`/api/manage/riders/${selected.player_id}`, 'PATCH', {
+    await api(`/api/manage/users/${selected.player_id}`, 'PATCH', {
       revision: conflict?.revision ?? selected.revision,
       operation,
       username: editLogin,
@@ -580,8 +600,9 @@
       last_name: editLast,
     });
     conflict = null;
-    await loadRiders();
-    done('Rider saved.');
+    await loadUsers();
+    await loadAudit(selected);
+    done('User saved.');
   }
 
   type ServerAction = 'restart' | 'cancel-restart' | 'reload-bots';
@@ -610,11 +631,11 @@
   }
 
   async function sendBots() {
-    if (botRider === null) throw new Error('Choose a rider who is riding now.');
+    if (botUser === null) throw new Error('Choose a user who is riding now.');
 
     const body: { ok: boolean; message: string | null } = await api('/api/manage/server/bots', 'POST', {
       operation,
-      rider: botRider,
+      user: botUser,
       command: botCommand,
       ...(botCommand === 'peloton' && botArgument && { argument: botArgument }),
     });
@@ -643,7 +664,7 @@
       }
 
       try {
-        rider = (await api('/api/me')).rider;
+        user = (await api('/api/me')).user;
       } catch {
         if (!['/sign-in', '/setup'].includes(path)) go('/sign-in');
 
@@ -677,7 +698,7 @@
     }}>{label}</a
   >{/snippet}
 
-{#snippet chips(r: Rider)}
+{#snippet chips(r: User)}
   {#if r.role === 'administrator'}<span class="chip admin">Administrator</span>{/if}
   {#if !r.enabled}<span class="chip muted">Disabled</span>{/if}
   {#if !r.has_password}<span class="chip alarm">No password</span>{/if}
@@ -685,17 +706,17 @@
 {/snippet}
 
 {#snippet menu()}
-  {#if rider}
+  {#if user}
     <div class="me">
-      <RiderRow
-        initials={initials(rider)}
+      <UserRow
+        initials={initials(user)}
         photo={avatar ? `/api/me/avatar?v=${avatar}` : null}
-        name={name(rider)}
-        detail={rider.username}
+        name={name(user)}
+        detail={user.username}
       />
     </div>
     <nav class="menu" aria-label="Main">
-      {@render link('/', 'Profile', title === 'Profile')}
+      {@render link('/', 'Profile', !manage && title === 'Profile')}
       {@render link('/activities', 'Activities', title === 'Activities')}
       {@render link('/import', 'Import', path === '/import' || path === '/import/local' || path === '/zwift')}
       {@render link('/export', 'Export', path === '/export')}
@@ -704,7 +725,7 @@
       {@render link('/password', 'Password', path === '/password')}
       {#if administrator}
         <p class="group">Manage</p>
-        {@render link('/manage', 'Riders', manage && path !== '/manage/server')}
+        {@render link('/manage', 'Users', manage && path !== '/manage/server')}
         {@render link('/manage/server', 'Server', path === '/manage/server')}
       {/if}
     </nav>
@@ -715,11 +736,15 @@
 <div class="app">
   <Layout
     {title}
-    heading={title !== 'Profile' && title !== 'Activities' && path !== '/password'}
+    heading={!user && title !== 'Profile' && title !== 'Activities' && path !== '/password'}
     page={manage ? 'manage' : 'account'}
+    back={manage && path.startsWith('/manage/users/') ? { href: '/manage', label: 'All users' } : undefined}
+    onback={() => {
+      void navigate('/manage');
+    }}
     {version}
     {zwiftVersion}
-    menu={rider ? menu : undefined}
+    menu={user ? menu : undefined}
     onhome={() => {
       void navigate('/');
     }}
@@ -727,7 +752,7 @@
     {#if message}<p class="notice" class:failed role={failed ? 'alert' : 'status'}>{message}</p>{/if}
 
     {#if loading}<p role="status">Loading…</p>
-    {:else if !rider}
+    {:else if !user}
       {#if path === '/setup' && complete}
         <section class="panel narrow">
           <p>Setup is complete. Sign in with your login name and password.</p>
@@ -749,7 +774,7 @@
               <div class="accepted" role="status">
                 <span><span class="tick" aria-hidden="true">✓</span> Setup key accepted</span>
               </div>
-              {#if setupRiders.length}
+              {#if setupUsers.length}
                 <div
                   class="choice"
                   role="radiogroup"
@@ -760,10 +785,10 @@
                   }}
                 >
                   <label class:checked={mode === 'new'}
-                    ><input type="radio" bind:group={mode} value="new" /> Create a new rider</label
+                    ><input type="radio" bind:group={mode} value="new" /> Create a new user</label
                   >
                   <label class:checked={mode === 'existing'}
-                    ><input type="radio" bind:group={mode} value="existing" /> Use an existing rider</label
+                    ><input type="radio" bind:group={mode} value="existing" /> Use an existing user</label
                   >
                 </div>
               {/if}
@@ -799,21 +824,21 @@
           {/if}
           {#if !complete && keyAccepted && mode === 'existing'}
             <div class="setup-picker">
-              <label for="setup-rider">Rider</label>
-              <p id="setup-rider-hint" class="muted">
-                Choose a rider already on this server to make them the first administrator.
+              <label for="setup-user">User</label>
+              <p id="setup-user-hint" class="muted">
+                Choose a user already on this server to make them the first administrator.
               </p>
               <select
-                id="setup-rider"
-                bind:value={setupRiderId}
+                id="setup-user"
+                bind:value={setupUserId}
                 required
-                aria-describedby="setup-rider-hint"
+                aria-describedby="setup-user-hint"
                 onchange={() => {
                   password = '';
                 }}
               >
-                <option value={null} disabled>Choose a rider</option>
-                {#each setupRiders as r (r.player_id)}
+                <option value={null} disabled>Choose a user</option>
+                {#each setupUsers as r (r.player_id)}
                   <option value={r.player_id} disabled={!r.enabled || !r.has_password}>
                     {`${r.first_name} ${r.last_name}`.trim() || r.username} (#{r.player_id}, {r.username}){!r.enabled
                       ? ' — Disabled'
@@ -823,13 +848,13 @@
                   </option>
                 {/each}
               </select>
-              {#if setupRiders.some((r) => !r.has_password)}
+              {#if setupUsers.some((r) => !r.has_password)}
                 <p class="muted">
-                  Riders without passwords need a password set with the server CLI before they can be used for setup.
+                  Users without passwords need a password set with the server CLI before they can be used for setup.
                 </p>
               {/if}
-              {#if !setupRiders.some((r) => r.enabled && r.has_password)}
-                <p class="muted">No riders are available for setup. Create a new rider to continue.</p>
+              {#if !setupUsers.some((r) => r.enabled && r.has_password)}
+                <p class="muted">No users are available for setup. Create a new user to continue.</p>
               {/if}
             </div>
           {/if}
@@ -847,7 +872,7 @@
             {/if}
             <TextField
               id="sign-in-password"
-              label={!complete && mode === 'existing' ? 'Rider’s password' : 'Password'}
+              label={!complete && mode === 'existing' ? 'User’s password' : 'Password'}
               password
               bind:value={password}
               autocomplete={complete || mode === 'existing' ? 'current-password' : 'new-password'}
@@ -869,7 +894,7 @@
           {/if}
           <button
             class="primary"
-            disabled={busy || (!complete && keyAccepted && mode === 'existing' && setupRiderId === null)}
+            disabled={busy || (!complete && keyAccepted && mode === 'existing' && setupUserId === null)}
             >{complete ? 'Sign in' : keyAccepted ? 'Complete setup' : 'Check key'}</button
           >
         </form>
@@ -880,7 +905,7 @@
           <div class="columns">
             <section class="panel">
               <h2>Restart</h2>
-              <p class="muted">A restart disconnects every rider when the countdown ends.</p>
+              <p class="muted">A restart disconnects every user when the countdown ends.</p>
               <div class="actions">
                 <button
                   class="danger"
@@ -889,7 +914,7 @@
                     serverOperation(
                       'restart',
                       'Restart the server',
-                      'Riders get a countdown in the game. Every rider is disconnected when it ends.',
+                      'Users get a countdown in the game. Every user is disconnected when it ends.',
                       'Restart scheduled.',
                       true,
                     )}>Restart with countdown</button
@@ -928,11 +953,11 @@
             >
               <h2>Bots</h2>
               {#if connected.length === 0}
-                <p class="muted">Bot commands act around a rider who is riding now. Nobody is riding.</p>
+                <p class="muted">Bot commands act around a user who is riding now. Nobody is riding.</p>
               {:else}
-                <label for="bot-rider">Rider</label>
-                <select id="bot-rider" bind:value={botRider} required>
-                  <option value={null} disabled>Choose a rider</option>
+                <label for="bot-user">User</label>
+                <select id="bot-user" bind:value={botUser} required>
+                  <option value={null} disabled>Choose a user</option>
                   {#each connected as r (r.player_id)}<option value={r.player_id}>{name(r)}</option>{/each}
                 </select>
                 <label for="bot-command">Command</label>
@@ -957,7 +982,7 @@
           <section class="panel">
             <h2>World settings</h2>
             {#if worldSettings.length === 0}
-              <p class="muted">No world settings are stored yet. Riders create them with blob and peloton commands.</p>
+              <p class="muted">No world settings are stored yet. Users create them with blob and peloton commands.</p>
             {:else}
               <div class="pills" role="group" aria-label="World settings">
                 {#each worldSettings as item (item.id)}<button
@@ -1020,7 +1045,7 @@
           <section class="panel">
             <h2>Events</h2>
             {#if events.length === 0}
-              <p class="muted">No private events. Riders create them in the Companion app.</p>
+              <p class="muted">No private events. Users create them in the Companion app.</p>
             {:else}
               <ul class="plain">
                 {#each events as item (item.id)}<li>
@@ -1075,7 +1100,7 @@
                       const target = event!;
                       pending = {
                         title: `Delete ${target.name}?`,
-                        detail: 'Invited riders lose the event. This cannot be undone.',
+                        detail: 'Invited users lose the event. This cannot be undone.',
                         label: 'Delete event',
                         destructive: true,
                         confirm: async () => {
@@ -1107,12 +1132,288 @@
               </dl>
             </section>
           {/if}
+        {:else if path === '/manage/users/new'}
+          <form
+            class="panel wide"
+            onsubmit={(e) => {
+              e.preventDefault();
+              void run(create, 'create');
+            }}
+          >
+            <p class="muted lead">
+              The user signs in with this login name and password. New users have no administrator role.
+            </p>
+            <div class="pair">
+              <TextField
+                id="new-first"
+                label="First name"
+                bind:value={newFirst}
+                required
+                maxlength={50}
+                errors={errors('create', 'first_name')}
+              />
+              <TextField
+                id="new-last"
+                label="Last name"
+                bind:value={newLast}
+                maxlength={50}
+                errors={errors('create', 'last_name')}
+              />
+            </div>
+            <TextField
+              id="new-login"
+              label="Login name"
+              bind:value={newLogin}
+              required
+              maxlength={254}
+              errors={errors('create', 'username')}
+            />
+            <div class="pair">
+              <TextField
+                id="new-password"
+                label="Password"
+                password
+                bind:value={newPassword}
+                autocomplete="new-password"
+                required
+                errors={errors('create', 'password')}
+              />
+              <TextField
+                id="new-confirm"
+                label="Confirm password"
+                password
+                bind:value={newConfirm}
+                autocomplete="new-password"
+                required
+                errors={errors('create', 'confirm')}
+              />
+            </div>
+            <div class="actions">
+              <button class="primary" disabled={busy}>Create user</button>
+              <button type="button" disabled={busy} onclick={() => navigate('/manage')}>Cancel</button>
+            </div>
+          </form>
+        {:else if selectedId}
+          {#if selected}
+            <section class="panel summary" aria-label="Account">
+              <Avatar initials={initials(selected)} />
+              <div>
+                <p class="login">{selected.username}</p>
+                <p class="facts">
+                  <span class="chip muted num">Player ID {selected.player_id}</span>
+                  {@render chips(selected)}
+                </p>
+                {#if selected.completion_deadline}
+                  <p class="muted">
+                    The current ride can be saved until <span class="num">{time(selected.completion_deadline)}</span>.
+                  </p>
+                {/if}
+              </div>
+            </section>
+
+            {#if conflict}
+              <div class="conflict" role="alert">
+                <p>This user changed on the server. Your draft is kept. Review the server version:</p>
+                <dl class="config">
+                  <div>
+                    <dt>Name</dt>
+                    <dd>{name(conflict)}</dd>
+                  </div>
+                  <div>
+                    <dt>Login name</dt>
+                    <dd>{conflict.username}</dd>
+                  </div>
+                  <div>
+                    <dt>Role</dt>
+                    <dd>{conflict.role === 'administrator' ? 'Administrator' : 'User'}</dd>
+                  </div>
+                  <div>
+                    <dt>Account</dt>
+                    <dd>{conflict.enabled ? 'Enabled' : 'Disabled'}</dd>
+                  </div>
+                </dl>
+                <button
+                  onclick={() => {
+                    users = users.map((r) => (r.player_id === conflict!.player_id ? conflict! : r));
+                    conflict = null;
+                  }}>Use the server version</button
+                >
+              </div>
+            {/if}
+
+            <div class="columns">
+              <form
+                class="panel"
+                onsubmit={(e) => {
+                  e.preventDefault();
+                  void run(saveUser, 'edit');
+                }}
+              >
+                <h2>Name and login</h2>
+                {#if selected.connected}<p class="muted">Names can change only while the user is not riding.</p>{/if}
+                <div class="pair">
+                  <TextField
+                    id="edit-first"
+                    label="First name"
+                    bind:value={editFirst}
+                    required
+                    maxlength={50}
+                    errors={errors('edit', 'first_name')}
+                  />
+                  <TextField
+                    id="edit-last"
+                    label="Last name"
+                    bind:value={editLast}
+                    maxlength={50}
+                    errors={errors('edit', 'last_name')}
+                  />
+                </div>
+                <TextField
+                  id="edit-login"
+                  label="Login name"
+                  bind:value={editLogin}
+                  required
+                  maxlength={254}
+                  errors={errors('edit', 'username')}
+                />
+                <button disabled={busy || selected.connected}>Save user</button>
+              </form>
+
+              {#if selected.player_id !== user.player_id}
+                <form
+                  class="panel"
+                  onsubmit={(e) => {
+                    e.preventDefault();
+                    ask('password');
+                  }}
+                >
+                  <h2>{selected.has_password ? 'Password' : 'Set a password'}</h2>
+                  {#if !selected.has_password}<p class="muted">
+                      This user cannot sign in until a password is set.
+                    </p>{/if}
+                  <TextField
+                    id="target-password"
+                    label="New password"
+                    password
+                    bind:value={targetPassword}
+                    autocomplete="new-password"
+                    required
+                    errors={errors('password', 'password')}
+                  />
+                  <TextField
+                    id="target-confirm"
+                    label="Confirm password"
+                    password
+                    bind:value={targetConfirm}
+                    autocomplete="new-password"
+                    required
+                    errors={errors('password', 'confirm')}
+                  />
+                  <button disabled={busy}>Set password</button>
+                </form>
+              {:else}
+                <section class="panel">
+                  <h2>Password</h2>
+                  <p class="muted">
+                    Change your own password on {@render link('/password', 'the Password page', false)}.
+                  </p>
+                </section>
+              {/if}
+
+              <section class="panel">
+                <h2>Access</h2>
+                <ul class="plain access">
+                  <li>
+                    <div>
+                      <h3>Sign-in</h3>
+                      <p class="muted">
+                        {selected.enabled ? 'This user can sign in.' : 'Disabled. This user cannot sign in.'}
+                      </p>
+                    </div>
+                    {#if selected.enabled}<button class="danger" disabled={busy} onclick={() => ask('disable')}
+                        >Disable</button
+                      >{:else}<button disabled={busy} onclick={() => ask('enable')}>Enable</button>{/if}
+                  </li>
+                  <li>
+                    <div>
+                      <h3>Role</h3>
+                      <p class="muted">
+                        {selected.role === 'administrator'
+                          ? 'Administrator. Can manage users and the server.'
+                          : 'User. Rides and manages their own account.'}
+                      </p>
+                    </div>
+                    <button class:danger={selected.role === 'administrator'} disabled={busy} onclick={() => ask('role')}
+                      >{selected.role === 'administrator' ? 'Remove administrator' : 'Make administrator'}</button
+                    >
+                  </li>
+                  <li>
+                    <div>
+                      <h3>Sessions</h3>
+                      <p class="muted">Signs the user out everywhere, also in the game.</p>
+                    </div>
+                    <button class="danger" disabled={busy} onclick={() => ask('revoke-sessions')}>End sessions</button>
+                  </li>
+                </ul>
+              </section>
+
+              {#if selected.player_id !== user.player_id}
+                {#if userSettings}
+                  <form
+                    class="panel"
+                    onsubmit={(e) => {
+                      e.preventDefault();
+                      void run(async () => {
+                        userSettings = await api(
+                          `/api/manage/users/${selected!.player_id}/settings`,
+                          'PATCH',
+                          settingsBody(userSettings!),
+                        );
+                        await loadAudit(selected!);
+                        done('User settings saved.');
+                      }, 'user-settings');
+                    }}
+                  >
+                    <h2>Settings</h2>
+                    {@render settingsFields(userSettings)}
+                    <button disabled={busy}>Save settings</button>
+                  </form>
+                {/if}
+              {:else}
+                <section class="panel">
+                  <h2>Settings</h2>
+                  <p class="muted">
+                    Change your own settings on {@render link('/settings', 'the Settings page', false)}.
+                  </p>
+                </section>
+              {/if}
+            </div>
+
+            {#if audit}
+              <section class="panel">
+                <h2>Change history</h2>
+                {#if audit.length === 0}<p class="muted">No changes recorded yet.</p>{:else}
+                  <ol class="plain history">
+                    {#each audit as item (item.id)}<li>
+                        <span>{item.action.replaceAll('-', ' ')}</span>
+                        <span class="muted">{actor(item)}</span>
+                        <time class="num muted" datetime={new Date(item.timestamp).toISOString()}
+                          >{new Date(item.timestamp).toLocaleString()}</time
+                        >
+                      </li>{/each}
+                  </ol>
+                {/if}
+              </section>
+            {/if}
+          {:else if !busy}
+            <p class="empty">This user does not exist. {@render link('/manage', 'Show all users', false)}</p>
+          {/if}
         {:else}
-          <div class="riders-head">
+          <div class="users-head">
             <div class="search">
-              <label for="rider-search">Search riders</label>
+              <label for="user-search">Search users</label>
               <input
-                id="rider-search"
+                id="user-search"
                 type="search"
                 bind:value={search}
                 oninput={() => {
@@ -1121,314 +1422,40 @@
                 placeholder="Name, login name or player ID"
               />
             </div>
-            {#if !creating}<button
-                class="primary"
-                onclick={() => {
-                  creating = true;
-                  go('/manage');
-                }}>Create rider</button
-              >{/if}
+            <button class="primary" disabled={busy} onclick={() => navigate('/manage/users/new')}>Create user</button>
           </div>
-          <div class="riders">
-            <div>
-              {#if riders.length <= 1}
-                <p class="empty">No other riders yet. Create a rider so that somebody else can ride on this server.</p>
-              {/if}
-              {#if filtered.length === 0 && riders.length > 1}
-                <p class="empty">No riders match. Clear the search.</p>
-              {/if}
-              <ul class="plain list">
-                {#each filtered.slice(page * pageSize, page * pageSize + pageSize) as r (r.player_id)}<li>
-                    <button
-                      class="rider"
-                      aria-current={selected?.player_id === r.player_id ? 'true' : undefined}
-                      onclick={() => openRider(r)}
-                      ><span class="identity"
-                        ><RiderRow initials={initials(r)} name={name(r)} detail={r.username} /></span
-                      ><span class="facts">{@render chips(r)}</span></button
-                    >
-                  </li>{/each}
-              </ul>
-              {#if pages > 1}
-                <div class="pager">
-                  <button disabled={page === 0} onclick={() => page--}>Previous</button>
-                  <span class="num muted">Page {page + 1} of {pages}</span>
-                  <button disabled={page + 1 >= pages} onclick={() => page++}>Next</button>
-                </div>
-              {/if}
-            </div>
-
-            <div class="detail">
-              {#if creating}
-                <form
-                  class="panel"
-                  onsubmit={(e) => {
+          {#if users.length <= 1}
+            <p class="empty">No other users yet. Create a user so that somebody else can ride on this server.</p>
+          {/if}
+          {#if filtered.length === 0 && users.length > 1}
+            <p class="empty">No users match. Clear the search.</p>
+          {/if}
+          <ul class="plain list">
+            {#each filtered.slice(page * pageSize, page * pageSize + pageSize) as r (r.player_id)}<li>
+                <a
+                  class="user"
+                  href={`/manage/users/${r.player_id}`}
+                  onclick={(e) => {
+                    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
                     e.preventDefault();
-                    void run(create, 'create');
+                    void run(() => openUser(r));
                   }}
+                  ><span class="identity"><UserRow initials={initials(r)} name={label(r)} detail={r.username} /></span
+                  ><span class="facts">{@render chips(r)}</span><span class="num muted id">#{r.player_id}</span><svg
+                    class="go"
+                    viewBox="0 0 24 24"
+                    aria-hidden="true"><path d="M9.5 5.5 16 12l-6.5 6.5" /></svg
+                  ></a
                 >
-                  <h2>Create rider</h2>
-                  <p class="muted">
-                    The rider signs in with this login name and password. New riders have no administrator role.
-                  </p>
-                  <TextField
-                    id="new-first"
-                    label="First name"
-                    bind:value={newFirst}
-                    required
-                    maxlength={50}
-                    errors={errors('create', 'first_name')}
-                  />
-                  <TextField
-                    id="new-last"
-                    label="Last name"
-                    bind:value={newLast}
-                    maxlength={50}
-                    errors={errors('create', 'last_name')}
-                  />
-                  <TextField
-                    id="new-login"
-                    label="Login name"
-                    bind:value={newLogin}
-                    required
-                    maxlength={254}
-                    errors={errors('create', 'username')}
-                  />
-                  <TextField
-                    id="new-password"
-                    label="Password"
-                    password
-                    bind:value={newPassword}
-                    autocomplete="new-password"
-                    required
-                    errors={errors('create', 'password')}
-                  />
-                  <TextField
-                    id="new-confirm"
-                    label="Confirm password"
-                    password
-                    bind:value={newConfirm}
-                    autocomplete="new-password"
-                    required
-                    errors={errors('create', 'confirm')}
-                  />
-                  <div class="actions">
-                    <button class="primary" disabled={busy}>Create rider</button>
-                    <button type="button" onclick={() => (creating = false)}>Cancel</button>
-                  </div>
-                </form>
-              {:else if selected}
-                <section class="panel" id="rider-detail" tabindex="-1" aria-labelledby="rider-name">
-                  <div class="detail-head">
-                    <span class="identity"
-                      ><RiderRow initials={initials(selected)} name={name(selected)} detail={selected.username} /></span
-                    >
-                    <span class="num id">#{selected.player_id}</span>
-                  </div>
-                  <h2 id="rider-name" class="visually-hidden">{name(selected)}</h2>
-                  <p class="facts">
-                    {@render chips(selected)}
-                    {#if selected.enabled && selected.has_password && selected.role !== 'administrator'}<span
-                        class="chip muted">Rider</span
-                      >{/if}
-                  </p>
-                  {#if selected.completion_deadline}
-                    <p class="muted">
-                      The current ride can be saved until <span class="num">{time(selected.completion_deadline)}</span>.
-                    </p>
-                  {/if}
-
-                  {#if conflict}
-                    <div class="conflict" role="alert">
-                      <p>This rider changed on the server. Your draft is kept. Review the server version:</p>
-                      <dl class="config">
-                        <div>
-                          <dt>Name</dt>
-                          <dd>{name(conflict)}</dd>
-                        </div>
-                        <div>
-                          <dt>Login name</dt>
-                          <dd>{conflict.username}</dd>
-                        </div>
-                        <div>
-                          <dt>Role</dt>
-                          <dd>{conflict.role === 'administrator' ? 'Administrator' : 'Rider'}</dd>
-                        </div>
-                        <div>
-                          <dt>Account</dt>
-                          <dd>{conflict.enabled ? 'Enabled' : 'Disabled'}</dd>
-                        </div>
-                      </dl>
-                      <button
-                        onclick={() => {
-                          riders = riders.map((r) => (r.player_id === conflict!.player_id ? conflict! : r));
-                          conflict = null;
-                        }}>Use the server version</button
-                      >
-                    </div>
-                  {/if}
-
-                  <form
-                    class="inset"
-                    onsubmit={(e) => {
-                      e.preventDefault();
-                      void run(saveRider, 'edit');
-                    }}
-                  >
-                    <h3>Name and login</h3>
-                    {#if selected.connected}<p class="muted">
-                        Names can change only while the rider is not riding.
-                      </p>{/if}
-                    <TextField
-                      id="edit-first"
-                      label="First name"
-                      bind:value={editFirst}
-                      required
-                      maxlength={50}
-                      errors={errors('edit', 'first_name')}
-                    />
-                    <TextField
-                      id="edit-last"
-                      label="Last name"
-                      bind:value={editLast}
-                      maxlength={50}
-                      errors={errors('edit', 'last_name')}
-                    />
-                    <TextField
-                      id="edit-login"
-                      label="Login name"
-                      bind:value={editLogin}
-                      required
-                      maxlength={254}
-                      errors={errors('edit', 'username')}
-                    />
-                    <button disabled={busy || selected.connected}>Save rider</button>
-                  </form>
-
-                  {#if selected.player_id !== rider.player_id}
-                    <form
-                      class="inset"
-                      onsubmit={(e) => {
-                        e.preventDefault();
-                        ask('password');
-                      }}
-                    >
-                      <h3>{selected.has_password ? 'Password' : 'Set a password'}</h3>
-                      {#if !selected.has_password}<p class="muted">
-                          This rider cannot sign in until a password is set.
-                        </p>{/if}
-                      <TextField
-                        id="target-password"
-                        label="New password"
-                        password
-                        bind:value={targetPassword}
-                        autocomplete="new-password"
-                        required
-                        errors={errors('password', 'password')}
-                      />
-                      <TextField
-                        id="target-confirm"
-                        label="Confirm password"
-                        password
-                        bind:value={targetConfirm}
-                        autocomplete="new-password"
-                        required
-                        errors={errors('password', 'confirm')}
-                      />
-                      <button disabled={busy}>Set password</button>
-                    </form>
-                  {:else}
-                    <p class="muted">
-                      Change your own password on {@render link('/password', 'the Password page', false)}.
-                    </p>
-                  {/if}
-
-                  <div class="inset">
-                    <h3>Access</h3>
-                    <div class="actions">
-                      {#if selected.enabled}<button class="danger" disabled={busy} onclick={() => ask('disable')}
-                          >Disable</button
-                        >{:else}<button disabled={busy} onclick={() => ask('enable')}>Enable</button>{/if}
-                      <button
-                        class:danger={selected.role === 'administrator'}
-                        disabled={busy}
-                        onclick={() => ask('role')}
-                        >{selected.role === 'administrator'
-                          ? 'Remove administrator role'
-                          : 'Give administrator role'}</button
-                      >
-                      <button class="danger" disabled={busy} onclick={() => ask('revoke-sessions')}>End sessions</button
-                      >
-                    </div>
-                  </div>
-
-                  <div class="inset">
-                    <h3>More</h3>
-                    <div class="actions">
-                      {#if selected.player_id !== rider.player_id}<button
-                          disabled={busy}
-                          onclick={() =>
-                            run(async () => {
-                              riderSettings = await api(`/api/manage/riders/${selected!.player_id}/settings`);
-                              applySettings(riderSettings!);
-                            })}>Rider settings</button
-                        >{/if}
-                      <button
-                        disabled={busy}
-                        onclick={() =>
-                          run(async () => {
-                            audit = (await api(`/api/manage/riders/${selected!.player_id}/audit`)).events;
-                          })}>Change history</button
-                      >
-                    </div>
-                  </div>
-
-                  {#if riderSettings}
-                    <form
-                      class="inset"
-                      onsubmit={(e) => {
-                        e.preventDefault();
-                        void run(async () => {
-                          riderSettings = await api(
-                            `/api/manage/riders/${selected!.player_id}/settings`,
-                            'PATCH',
-                            settingsBody(riderSettings!),
-                          );
-                          done('Rider settings saved.');
-                        }, 'rider-settings');
-                      }}
-                    >
-                      <h3>Rider settings</h3>
-                      {@render settingsFields(riderSettings)}
-                      <div class="actions">
-                        <button disabled={busy}>Save rider settings</button>
-                        <button type="button" onclick={() => (riderSettings = null)}>Close</button>
-                      </div>
-                    </form>
-                  {/if}
-
-                  {#if audit}
-                    <div class="inset">
-                      <h3>Change history</h3>
-                      {#if audit.length === 0}<p class="muted">No changes recorded yet.</p>{:else}
-                        <ol class="plain history">
-                          {#each audit as item (item.id)}<li>
-                              <span>{item.action.replaceAll('-', ' ')}</span>
-                              <span class="muted">{actor(item)}</span>
-                              <time class="num muted" datetime={new Date(item.timestamp).toISOString()}
-                                >{new Date(item.timestamp).toLocaleString()}</time
-                              >
-                            </li>{/each}
-                        </ol>
-                      {/if}
-                    </div>
-                  {/if}
-                </section>
-              {:else if riders.length > 0}
-                <p class="empty">Choose a rider to see their account, set a password, or change their access.</p>
-              {/if}
+              </li>{/each}
+          </ul>
+          {#if pages > 1}
+            <div class="pager">
+              <button disabled={page === 0} onclick={() => page--}>Previous</button>
+              <span class="num muted">Page {page + 1} of {pages}</span>
+              <button disabled={page + 1 >= pages} onclick={() => page++}>Next</button>
             </div>
-          </div>
+          {/if}
         {/if}
       </div>
     {:else}
@@ -1437,8 +1464,8 @@
             {path}
             request={api}
             {navigate}
-            onrider={async () => {
-              rider = (await api('/api/me')).rider;
+            onuser={async () => {
+              user = (await api('/api/me')).user;
             }}
           />{/key}
       {:else if path === '/activities' || path.startsWith('/activities/')}
@@ -1472,7 +1499,7 @@
               }
               await api('/api/me/password', 'POST', { current_password: currentPassword, password });
               await api('/api/setup');
-              rider = null;
+              user = null;
               avatar = undefined;
               currentPassword = '';
               password = '';
@@ -1520,7 +1547,7 @@
             void run(async () => {
               applyProfile(
                 await api('/api/me/profile', 'PATCH', {
-                  revision: rider!.revision,
+                  revision: user!.revision,
                   operation,
                   username,
                   first_name: first,
@@ -1550,7 +1577,7 @@
                 dropping = false;
                 uploadPhoto(e.dataTransfer?.files[0]);
               }}
-              ><Avatar initials={initials(rider)} photo={avatar ? `/api/me/avatar?v=${avatar}` : null} /><span
+              ><Avatar initials={initials(user)} photo={avatar ? `/api/me/avatar?v=${avatar}` : null} /><span
                 class="change"
                 aria-hidden="true">{avatar ? 'Change' : 'Choose'}</span
               ></button
@@ -1622,7 +1649,7 @@
   </Layout>
 </div>
 
-{#snippet settingsFields(current: RiderSettings)}
+{#snippet settingsFields(current: UserSettings)}
   <label class="check"><input type="checkbox" bind:checked={ghosts} /> Ride with ghosts</label>
   <label for="strava-method">Strava upload method</label>
   <select id="strava-method" bind:value={stravaMethod}>
@@ -1735,7 +1762,7 @@
   .photo button {
     margin-top: 0;
   }
-  /* The rider's circle, at the size the game shows it on the profile card. */
+  /* The user's circle, at the size the game shows it on the profile card. */
   button.portrait {
     position: relative;
     flex: none;
@@ -1889,7 +1916,7 @@
     color: var(--text);
   }
 
-  .riders-head {
+  .users-head {
     display: flex;
     align-items: end;
     justify-content: space-between;
@@ -1897,11 +1924,11 @@
     flex-wrap: wrap;
     margin-bottom: 1rem;
   }
-  .riders-head .primary {
+  .users-head .primary {
     margin: 0;
   }
   .search {
-    flex: 1 1 18rem;
+    flex: 0 1 28rem;
   }
   .search label {
     margin-top: 0;
@@ -1928,28 +1955,6 @@
     background: var(--glass-raised);
   }
 
-  .riders {
-    display: grid;
-    gap: 1rem;
-    align-items: start;
-  }
-  @media (min-width: 62rem) {
-    .riders,
-    .riders-head {
-      display: grid;
-      grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
-    }
-    .riders-head .primary {
-      justify-self: end;
-    }
-    .detail > .empty {
-      margin-top: 0;
-    }
-    .detail {
-      position: sticky;
-      top: 1rem;
-    }
-  }
   .plain {
     list-style: none;
     margin: 0;
@@ -1958,7 +1963,7 @@
   .list li + li {
     margin-top: 0.4rem;
   }
-  button.rider,
+  a.user,
   button.row {
     display: flex;
     align-items: center;
@@ -1970,7 +1975,10 @@
     border: 2px solid transparent;
     border-radius: 12px;
     background: var(--glass);
+    box-sizing: border-box;
+    color: var(--text);
     font-size: 0.9375rem;
+    text-decoration: none;
     text-transform: none;
     letter-spacing: 0;
     text-align: left;
@@ -1979,12 +1987,38 @@
     margin-top: 0.4rem;
     font-weight: 600;
   }
-  button.rider:hover,
+  a.user:hover,
   button.row:hover {
     background: var(--glass-raised);
     border-color: var(--orange);
   }
-  button.rider[aria-current],
+  a.user:focus-visible {
+    outline: 2px solid var(--text);
+    outline-offset: 2px;
+  }
+  /* The row opens the user's page: the chips stay together on the right, then the ID and a chevron. */
+  a.user .identity {
+    flex: 1 1 auto;
+  }
+  a.user .id {
+    flex: none;
+    min-width: 3rem;
+    font-size: 0.8125rem;
+    text-align: right;
+  }
+  .go {
+    flex: none;
+    width: 1.25rem;
+    height: 1.25rem;
+    fill: none;
+    stroke: var(--muted);
+    stroke-width: 2.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  a.user:hover .go {
+    stroke: var(--orange);
+  }
   button.row[aria-pressed='true'] {
     background: var(--glass-raised);
     border-color: var(--text);
@@ -2004,22 +2038,71 @@
     margin: 0;
     max-width: none;
   }
-  .detail-head {
+  /* The user page opens like the profile card in the game: the circle in Zwift orange, then who they are. */
+  .summary {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    margin-bottom: 0.75rem;
+    gap: 1.5rem;
   }
-  .detail-head + h2 + .facts {
-    justify-content: flex-start;
+  .summary :global(.avatar) {
+    flex: none;
+    width: 5.5rem;
+    height: 5.5rem;
+    margin: 5px;
+    font-size: 1.6rem;
+    box-shadow: 0 0 0 5px var(--orange);
   }
-  .detail-head :global(.who > span) {
-    font-size: 1.125rem;
+  .summary p {
+    margin: 0;
+  }
+  .summary .login {
+    font-size: 1.0625rem;
     font-weight: 800;
+    overflow-wrap: anywhere;
   }
-  .detail :global(.panel:focus) {
-    outline: none;
+  .summary .facts {
+    justify-content: flex-start;
+    margin: 0.5rem 0 0;
+  }
+  .summary .facts + p {
+    margin-top: 0.6rem;
+  }
+  .pair {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+    gap: 0 1rem;
+  }
+  .wide {
+    max-width: 44rem;
+  }
+  .wide input:not([type='checkbox']) {
+    max-width: none;
+  }
+  .columns > .panel {
+    margin-bottom: 1rem;
+  }
+  .columns h2 + p {
+    margin-top: 0;
+  }
+  /* Each access control says what it is now, with the action that changes it beside it. */
+  .access li {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.5rem 1rem;
+    padding: 0.75rem 0;
+    border-top: 1px solid var(--line);
+  }
+  .access li:first-child {
+    padding-top: 0;
+    border-top: 0;
+  }
+  .access p {
+    margin: 0.1rem 0 0;
+    font-size: 0.875rem;
+  }
+  .access button {
+    margin: 0;
   }
 
   /* Status uses text and color together, never color alone. */
@@ -2118,6 +2201,15 @@
     grid-column: 1 / -1;
     font-size: 0.8125rem;
   }
+  @media (min-width: 40rem) {
+    .history li {
+      grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto;
+      align-items: baseline;
+    }
+    .history time {
+      grid-column: auto;
+    }
+  }
   .conflict {
     margin: 0.75rem 0;
     padding: 0.75rem 0.9rem;
@@ -2162,23 +2254,33 @@
       transform: translateY(6px);
     }
   }
-  .visually-hidden {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    white-space: nowrap;
-  }
 
   @media (max-width: 500px) {
-    button.rider .identity {
+    a.user .identity {
       flex: 1 0 100%;
+    }
+    a.user .id,
+    .go {
+      display: none;
+    }
+    .summary {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 1rem;
+    }
+    .summary .facts {
+      padding-left: 0;
+    }
+    .access li {
+      grid-template-columns: 1fr;
+    }
+    .access button {
+      justify-self: start;
     }
     .panel {
       padding: 0.9rem;
     }
-    button.rider {
+    a.user {
       flex-wrap: wrap;
     }
     .facts {

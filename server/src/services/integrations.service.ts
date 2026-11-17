@@ -1,4 +1,4 @@
-import type { Rider } from '#src/repositories/accounts.repository';
+import type { User } from '#src/repositories/accounts.repository';
 import type { BrowserSession } from '#src/services/browser-session.service';
 import type { GarminClient, MfaState } from 'garminconnect-js';
 import type { RepositoryContext } from '#src/context';
@@ -23,7 +23,7 @@ export class IntegrationsService extends BaseService {
   /** Browser-keyed authorization: login -> mfa -> verifying -> committed/removed.
   A replacement attempt fences both old callbacks and token-file publication.
   */
-  authorizeGarmin(key: string, browser: BrowserSession, rider: Rider, code?: string) {
+  authorizeGarmin(key: string, browser: BrowserSession, rider: User, code?: string) {
     return this.authorizeGarminSession(
       key,
       () => this.context.sessions.current(key, browser, this.context.accounts.identityOf(rider)),
@@ -32,7 +32,7 @@ export class IntegrationsService extends BaseService {
     );
   }
 
-  async authorizeGarminSession(key: string, live: () => boolean, rider: Rider, code?: string) {
+  async authorizeGarminSession(key: string, live: () => boolean, rider: User, code?: string) {
     const identity = this.context.accounts.identityOf(rider);
 
     for (const [id, entry] of this.garminAttempts) if (entry.expires < Date.now()) this.garminAttempts.delete(id);
@@ -109,7 +109,7 @@ export class IntegrationsService extends BaseService {
     }
   }
 
-  authorizeStrava(key: string, browser: BrowserSession, rider: Rider, code: string) {
+  authorizeStrava(key: string, browser: BrowserSession, rider: User, code: string) {
     return this.authorizeStravaSession(
       () => this.context.sessions.current(key, browser, this.context.accounts.identityOf(rider)),
       rider,
@@ -117,7 +117,7 @@ export class IntegrationsService extends BaseService {
     );
   }
 
-  async authorizeStravaSession(live: () => boolean, rider: Rider, code: string) {
+  async authorizeStravaSession(live: () => boolean, rider: User, code: string) {
     const credentials = this.connectionsRepository.read(rider.player_id, 'strava');
 
     if (!credentials) throw new Error('Missing Strava credentials');

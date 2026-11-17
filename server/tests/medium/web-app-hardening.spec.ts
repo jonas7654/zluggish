@@ -161,7 +161,7 @@ await test('bot commands run only from the management area, once per operation',
   };
 
   const operation = crypto.randomUUID();
-  const input = { operation, rider: owner.player_id, command: 'group' as const };
+  const input = { operation, user: owner.player_id, command: 'group' as const };
   await assert.rejects(service.serverOperation(opened.id, 'bots', input, flush, dispatch), /riding now/);
   f.world.online.set(id, create(PlayerStateSchema, { id, worldTime: worldTime() }));
 

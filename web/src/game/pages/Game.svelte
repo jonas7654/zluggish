@@ -10,7 +10,7 @@
   let locked = $state(false);
   let selectedMethod = $state(untrack(() => page.stravaMethod ?? 'paid'));
 
-  // Counts failures handed up from the rider list, so the same message twice is shown and announced again.
+  // Counts failures handed up from the user list, so the same message twice is shown and announced again.
   let failures = $state(0);
 
   function expire() {
@@ -65,7 +65,7 @@
   version={current.version}
   zwiftVersion={current.zwiftVersion}
 >
-  {#if current.links?.length}<nav aria-label="Rider pages">
+  {#if current.links?.length}<nav aria-label="User pages">
       {#each current.links as link (link.href)}<a href={link.href}>{link.label}</a>{/each}
     </nav>{/if}
   {#each current.paragraphs ?? [] as text, index (index)}<p>{text}</p>{/each}
@@ -73,12 +73,15 @@
         {current.message}
       </p>{/if}{/key}
   {#if locked}<p class="error" role="alert">
-      Your session or rider changed. <a href="/login/">Sign in</a> or
+      Your session or user changed. <a href="/login/">Sign in</a> or
       <button type="button" onclick={() => location.reload()}>Reload this page</button>.
     </p>{/if}
   {#if current.uploads}<Uploads initial={current.uploads} csrf={current.csrf} {locked} onexpire={expire} />{/if}
   {#each current.forms as model (model.id)}
-    <div hidden={model.method !== undefined && model.method !== selectedMethod}>
+    <div
+      hidden={(current.kind === 'dashboard' && model.id === 'switch') ||
+        (model.method !== undefined && model.method !== selectedMethod)}
+    >
       <Form
         {model}
         csrf={current.csrf}
@@ -88,7 +91,7 @@
           else if (value.uploads) current = { ...current, uploads: value.uploads };
         }}
         onexpire={expire}
-        onfail={model.rider
+        onfail={model.user
           ? (message) => {
               current = { ...current, message, failed: true };
               failures++;
@@ -97,7 +100,22 @@
         onchange={(name, value) => {
           if (name === 'method') selectedMethod = value === 'free' ? 'free' : 'paid';
         }}
-      />
+      >
+        {#snippet actions()}
+          {#if current.kind === 'dashboard' && model.id === 'launch'}
+            <button type="submit" form="game-form-switch" disabled={locked}>Switch rider</button>
+          {/if}
+        {/snippet}
+      </Form>
     </div>
   {/each}
+  {#if current.kind === 'dashboard'}
+    <p class="settings-note">Use the separate webapp to change settings.</p>
+  {/if}
 </Layout>
+
+<style>
+  .settings-note {
+    color: var(--muted);
+  }
+</style>

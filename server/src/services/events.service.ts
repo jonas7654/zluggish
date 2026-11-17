@@ -5,7 +5,7 @@ import { storedSchema } from '#src/dtos/meetup.dto';
 import { ApplicationError } from '#src/errors';
 import { EventSchema, PlayerJoinedEventSchema, PlayerLeftEventSchema } from '#src/protocol/generated/events_pb';
 import { WA_TYPE, WorldAttributeSchema } from '#src/protocol/generated/udp-node-msgs_pb';
-import type { Rider } from '#src/repositories/accounts.repository';
+import type { User } from '#src/repositories/accounts.repository';
 import { EventsRepository } from '#src/repositories/events.repository';
 import { BaseService } from '#src/services/base.service';
 import { EventCatalogService } from '#src/services/event-catalog.service';
@@ -222,7 +222,7 @@ export class EventsService extends BaseService {
     return EventCatalogService.eventJSON(...args);
   }
 
-  createMeetup(user: Rider, input: MeetupInput) {
+  createMeetup(user: User, input: MeetupInput) {
     input.invitedProfileIds = [...new Set(input.invitedProfileIds)].filter((id) => id !== user.player_id);
 
     for (const id of input.invitedProfileIds) if (!this.context.accounts.get(id)) throw new ApplicationError(400);

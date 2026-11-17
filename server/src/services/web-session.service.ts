@@ -11,7 +11,7 @@ export interface WebSession {
   stravaState?: string;
 }
 
-/** Only signed-in riders hold server state. Anonymous requests use a double-submit CSRF
+/** Only signed-in users hold server state. Anonymous requests use a double-submit CSRF
 cookie, so requests without cookies cannot fill this store.
 */
 export class WebSessionsService extends BaseService {
@@ -56,29 +56,29 @@ export class WebSessionsService extends BaseService {
     this.sessions.delete(id);
   }
 
-  rider(id: string) {
+  user(id: string) {
     const session = this.find(id);
 
     if (!session) return null;
-    const rider = this.accounts.identity(session.identity);
+    const user = this.accounts.identity(session.identity);
 
     // An identity change (password, role, enabled state, revocation) ends the session and its confirmation.
-    if (!rider) this.sessions.delete(id);
+    if (!user) this.sessions.delete(id);
 
-    return rider;
+    return user;
   }
 
   require(id: string, manage = false, _confirm = true) {
-    const rider = this.rider(id);
+    const user = this.user(id);
 
-    if (!rider) throw new ApplicationError(401, 'Sign in again.');
+    if (!user) throw new ApplicationError(401, 'Sign in again.');
 
-    if (manage && rider.role !== 'administrator') throw new ApplicationError(403, 'Administrator role required.');
+    if (manage && user.role !== 'administrator') throw new ApplicationError(403, 'Administrator role required.');
 
-    return rider;
+    return user;
   }
 
   current(id: string, identity: string) {
-    return !!this.rider(id) && this.sessions.get(id)?.identity === identity;
+    return !!this.user(id) && this.sessions.get(id)?.identity === identity;
   }
 }

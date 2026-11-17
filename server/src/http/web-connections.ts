@@ -76,15 +76,15 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
   });
   app.post('/api/me/connections/garmin/authorize', async (c) => {
     const id = c.get('sessionId');
-    const rider = sessions.require(id);
-    const identity = runtime.services.accounts.identityOf(rider);
+    const user = sessions.require(id);
+    const identity = runtime.services.accounts.identityOf(user);
     const input = z.strictObject({ code: z.string().min(1).max(32).optional() }).parse(await c.req.json());
 
     try {
       const status = await integrations.authorizeGarminSession(
         `web:${id}`,
         () => sessions.current(id, identity),
-        rider,
+        user,
         input.code,
       );
 
@@ -95,8 +95,8 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
   });
   app.post('/api/me/connections/strava/authorize', async (c) => {
     const id = c.get('sessionId');
-    const rider = sessions.require(id);
-    const identity = runtime.services.accounts.identityOf(rider);
+    const user = sessions.require(id);
+    const identity = runtime.services.accounts.identityOf(user);
 
     const input = z
       .strictObject({ code: z.string().min(1).max(2000).optional(), state: z.string().optional() })
@@ -110,7 +110,7 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
       delete session.stravaState;
 
       try {
-        await integrations.authorizeStravaSession(() => sessions.current(id, identity), rider, input.code);
+        await integrations.authorizeStravaSession(() => sessions.current(id, identity), user, input.code);
 
         return c.json({ ok: true });
       } catch {
@@ -118,7 +118,7 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
       }
     }
 
-    const client = connections.read(rider.player_id, 'strava');
+    const client = connections.read(user.player_id, 'strava');
 
     if (!client) throw new ApplicationError(400, 'Save Strava API credentials first.');
     const redirect = new URL('/settings', runtime.config.network.web.publicUrl ?? c.req.url).href;

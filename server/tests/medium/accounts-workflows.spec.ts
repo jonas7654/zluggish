@@ -66,7 +66,7 @@ await test('empty game app directs the operator to web setup and cannot register
   assert.equal(picker.status, 200);
   assert.match(
     await picker.text(),
-    /No riders are available\. Ask the administrator to create a rider in the web app\./,
+    /No users are available\. Ask the administrator to create a user in the web app\./,
   );
 
   const registration = [

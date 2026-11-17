@@ -177,7 +177,7 @@ export function profileRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     const current = runtime.services.accounts.get(user.player_id);
 
     if (!current?.enabled || current.auth_version !== user.auth_version || current.revision !== user.revision)
-      throw new HTTPException(409, { message: 'Rider changed. Reload and retry.' });
+      throw new HTTPException(409, { message: 'User changed. Reload and retry.' });
     runtime.services.profiles.save(user.player_id, profile);
 
     return profileResponse(c, user.player_id);
@@ -194,7 +194,7 @@ export function profileRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     const current = runtime.services.accounts.get(user.player_id);
 
     if (!current?.enabled || current.auth_version !== user.auth_version || current.revision !== user.revision)
-      throw new HTTPException(409, { message: 'Rider changed. Reload and retry.' });
+      throw new HTTPException(409, { message: 'User changed. Reload and retry.' });
     runtime.services.profiles.save(user.player_id, profile);
 
     return c.body(null, 204);

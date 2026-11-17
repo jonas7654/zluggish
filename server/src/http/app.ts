@@ -27,7 +27,7 @@ import {
   StructSchema,
   ValueSchema,
 } from '#src/protocol/generated/variants_pb';
-import type { Rider } from '#src/repositories/accounts.repository';
+import type { User } from '#src/repositories/accounts.repository';
 import { CryptoRepository } from '#src/repositories/crypto.repository';
 import { LoggingRepository } from '#src/repositories/logging.repository';
 import { clone, create, fromJsonString, toBinary } from '@bufbuild/protobuf';
@@ -116,11 +116,11 @@ export function createGameApp(metadata: PublicMetadata, runtime?: Runtime) {
     return toBinary(FeatureResponseSchema, response);
   }
 
-  function variantsFor(rider: Rider | null) {
+  function variantsFor(user: User | null) {
     const known = new Map(byName);
 
-    if (runtime && rider) {
-      const file = resolve(runtime.services.profiles.folder(rider.player_id), 'variants.txt');
+    if (runtime && user) {
+      const file = resolve(runtime.services.profiles.folder(user.player_id), 'variants.txt');
 
       if (runtime.services.files.exists(file))
         try {
@@ -128,7 +128,7 @@ export function createGameApp(metadata: PublicMetadata, runtime?: Runtime) {
             .variants)
             known.set(variant.name, variant);
         } catch {
-          log.warn('config.variants_invalid', 'Ignoring invalid variants override', { playerId: rider.player_id });
+          log.warn('config.variants_invalid', 'Ignoring invalid variants override', { playerId: user.player_id });
         }
     }
 

@@ -226,7 +226,7 @@ form > .error {
   padding: 0.6rem 0.9rem;
 }
 
-/* Login: one compact row per rider; the row is the button. Two columns fit the 800px launcher. */
+/* Login: one compact row per user; the row is the button. Two columns fit the 800px launcher. */
 [data-page='login'] {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
@@ -361,7 +361,7 @@ form > .error {
   clip: rect(0 0 0 0);
 }
 
-/* The add-rider link is the last row. */
+/* The add-user link is the last row. */
 [data-page='login'] nav {
   display: contents;
 }
@@ -385,7 +385,7 @@ form > .error {
   border-color: var(--text);
 }
 
-/* Password step for one rider: password and Sign in on one line, the remember checkbox below. */
+/* Password step for one user: password and Sign in on one line, the remember checkbox below. */
 [data-page='unlock'] form {
   max-width: 26rem;
 }

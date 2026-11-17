@@ -1,6 +1,6 @@
 # Zluggish CLI
 
-The CLI manages operator configuration, rider settings, legacy migrations, and local account recovery. It works directly with configuration files and storage; it does not connect to a running server or start one.
+The CLI manages operator configuration, user settings, legacy migrations, and local account recovery. It works directly with configuration files and storage; it does not connect to a running server or start one.
 
 Run the commands below from the **repository root**. Replace sample paths and rider ID `1` with your own values. Stop every server using the target storage before running `accounts migrate`, `accounts recover`, `config migrate` (except `--dry-run`), `settings set/reset` (except `--dry-run`), or any `storage` or `uploads` command. These operations take an exclusive storage lock.
 
@@ -121,7 +121,7 @@ These commands require an existing local rider, identified by numeric `--user ID
 
 | Command                                        | Behavior                                                                                          |
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `settings show --user ID`                      | Print effective rider settings as JSON, merging config defaults with saved overrides.             |
+| `settings show --user ID`                      | Print effective user settings as JSON, merging config defaults with saved overrides.             |
 | `settings set --user ID KEY VALUE [--dry-run]` | Validate and save one override. `VALUE` must be JSON. A dry run validates without saving.         |
 | `settings reset --user ID KEY [--dry-run]`     | Remove one override so the rider inherits the config default. A dry run validates without saving. |
 
@@ -184,7 +184,7 @@ node .\server\dist\src\cli\bin.js --storage-dir .\storage accounts recover --use
 
 The CLI reads the password from the file, removes one trailing newline, and does not prompt interactively. Delete the file after successful recovery. Add `--admin` to grant administrator access during recovery; omit it for password-only recovery.
 
-Every rider has a password, so recovery always sets a new one. Riders migrated from legacy password hashes start without a password and must be recovered this way before they can sign in. Recovery revokes existing tokens and every remembered launcher login.
+Every user has a password, so recovery always sets a new one. Riders migrated from legacy password hashes start without a password and must be recovered this way before they can sign in. Recovery revokes existing tokens and every remembered launcher login.
 
 ## Storage and upload commands
 

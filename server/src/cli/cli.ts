@@ -124,7 +124,7 @@ export async function run(argv: string[], output: (message: string) => void = co
         const accounts = new AccountsService(storage);
 
         try {
-          if (!accounts.get(playerId)) throw new ConfigError('Unknown rider');
+          if (!accounts.get(playerId)) throw new ConfigError('Unknown user');
           const password = readFileSync(passwordFile, 'utf8').replace(/\r?\n$/, '');
 
           if (password === '') throw new ConfigError('Password must not be empty');

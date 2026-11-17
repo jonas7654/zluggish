@@ -1,8 +1,9 @@
 <script lang="ts">
   import { untrack } from 'svelte';
+  import type { Snippet } from 'svelte';
   import type { FormResult, GameForm, GamePageModel, GameSaved } from '../lib/game-app.dto';
   import { safeNavigation, validation, values, visible } from '../lib/forms.js';
-  import RiderRow from './RiderRow.svelte';
+  import UserRow from './UserRow.svelte';
 
   let {
     model,
@@ -12,6 +13,7 @@
     onchange,
     onexpire,
     onfail,
+    actions,
   }: {
     model: GameForm;
     csrf: string;
@@ -20,6 +22,7 @@
     onchange: (name: string, value: string) => void;
     onexpire: () => void;
     onfail?: ((message: string) => void) | undefined;
+    actions?: Snippet;
   } = $props();
 
   let draft = $state(untrack(() => values(model)));
@@ -197,6 +200,7 @@
 </script>
 
 <form
+  id={`game-form-${model.id}`}
   bind:this={form}
   method="post"
   action={model.action}
@@ -261,7 +265,7 @@
             />
             <p>{draft[field.name]}</p>
           {:else}
-            <!-- svelte-ignore a11y_autofocus (only set on single-field steps such as the rider password) -->
+            <!-- svelte-ignore a11y_autofocus (only set on single-field steps such as the user password) -->
             <input
               type={field.type ?? 'text'}
               {id}
@@ -293,14 +297,15 @@
         name={button.name}
         value={button.value}
         formnovalidate={button.skipValidation}
-        >{#if model.rider}<RiderRow
-            initials={model.rider.initials}
-            photo={model.rider.photo}
+        >{#if model.user}<UserRow
+            initials={model.user.initials}
+            photo={model.user.photo}
             name={pending ? 'Submitting…' : button.label}
-            detail={model.rider.email}
+            detail={model.user.email}
           />{:else}{pending ? 'Submitting…' : button.label}{/if}</button
       >
     {/each}
+    {@render actions?.()}
   </fieldset>
   <p aria-live="polite">{failed ? '' : message || (dirty && !model.transient ? 'Unsaved changes' : '')}</p>
 </form>

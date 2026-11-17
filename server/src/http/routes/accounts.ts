@@ -4,7 +4,7 @@ import { gamePage } from '#src/http/game/render';
 import { browserJson, gameRedirect } from '#src/http/game/results';
 import { climbSchema } from '#src/dtos/accounts.dto';
 import type { HttpRuntime as Runtime, RuntimeEnv } from '#src/http/runtime';
-import type { Rider } from '#src/repositories/accounts.repository';
+import type { User } from '#src/repositories/accounts.repository';
 import { REMEMBER_SECONDS } from '#src/services/browser-session.service';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import type { Context, Hono } from 'hono';
@@ -14,7 +14,7 @@ import { resolve } from 'node:path';
 import { z } from 'zod';
 
 export function authenticated(c: Context<RuntimeEnv>) {
-  const rider = c.get('rider');
+  const rider = c.get('user');
 
   if (!rider) throw new HTTPException(401);
 
@@ -30,7 +30,7 @@ function rememberCookie(playerId: number) {
 }
 
 // The password step after choosing a rider this computer does not remember.
-function unlockPage(c: Context<RuntimeEnv>, user: Rider, error = '') {
+function unlockPage(c: Context<RuntimeEnv>, user: User, error = '') {
   return model(
     c,
     'unlock',
@@ -57,7 +57,7 @@ function unlockPage(c: Context<RuntimeEnv>, user: Rider, error = '') {
     {
       message: error,
       failed: !!error,
-      back: { href: '/login/', label: 'Choose another rider' },
+      back: { href: '/login/', label: 'Choose another user' },
     },
   );
 }
@@ -131,24 +131,24 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
         maxAge: 86_400,
       });
     c.set(
-      'rider',
-      authorization ? sessions.bearer(authorization.replace(/^Bearer /i, '')) : sessions.rider(opened.session),
+      'user',
+      authorization ? sessions.bearer(authorization.replace(/^Bearer /i, '')) : sessions.user(opened.session),
     );
 
-    if (authorization && !c.get('rider')) throw new HTTPException(401);
+    if (authorization && !c.get('user')) throw new HTTPException(401);
 
     if (browserPage || browserJson(c)) c.header('Cache-Control', 'no-store');
     const context = c.req.header('X-Game-Context');
 
     if (browserJson(c) && context && context !== c.get('browser').csrf)
-      throw new HTTPException(c.get('rider') ? 409 : 401, {
-        message: 'Your session or rider changed. Reload and retry.',
+      throw new HTTPException(c.get('user') ? 409 : 401, {
+        message: 'Your session or user changed. Reload and retry.',
       });
     await next();
   });
 
   app.get('/', (c) => gameRedirect(c, '/login/'));
-  // Only an administrator creates riders, in the web app. Every old registration path says so.
+  // Only an administrator creates users, in the web app. Every old registration path says so.
   app.on(
     ['GET', 'POST'],
     [
@@ -165,16 +165,16 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
         c,
         runtime,
         model(c, 'message', 'Registration is not available', [], {
-          message: 'Registration is not available. Ask the administrator to create a rider in the web app.',
+          message: 'Registration is not available. Ask the administrator to create a user in the web app.',
           failed: true,
           errorStatus: 403,
-          back: { href: '/login/', label: 'Choose a rider' },
+          back: { href: '/login/', label: 'Choose a user' },
         }),
       );
     },
   );
 
-  // The rider list; an error shows above it.
+  // The user list; an error shows above it.
   function loginPage(c: Context<RuntimeEnv>, error = '') {
     return model(
       c,
@@ -190,7 +190,7 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
             [hidden('player_id', String(user.player_id))],
             riderName(user),
             {
-              rider: {
+              user: {
                 initials: `${user.first_name.charAt(0)}${user.last_name.charAt(0)}`.toUpperCase(),
                 photo: runtime.services.files.exists(
                   resolve(runtime.services.profiles.folder(user.player_id), 'avatarLarge.jpg'),
@@ -208,7 +208,7 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
           error ||
           (accounts.list().some((user) => user.enabled)
             ? ''
-            : 'No riders are available. Ask the administrator to create a rider in the web app.'),
+            : 'No users are available. Ask the administrator to create a user in the web app.'),
         failed: !!error,
       },
     );
@@ -228,7 +228,7 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       const user = id.success ? accounts.get(id.data) : null;
       const password = z.string().catch('').parse(form.password);
       const step = form.step === 'password';
-      let signedIn: Rider | null = null;
+      let signedIn: User | null = null;
 
       // Only riders migrated from legacy password hashes lack a password; they cannot sign in until it is set.
       if (user && !user.pass_hash) {
@@ -301,7 +301,7 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       }
 
       runtime.world.lifecycle.log.warn('auth.login_failed', 'Login failed: unknown rider', { flow: 'browser' });
-      error = 'That rider no longer exists. Choose another rider.';
+      error = 'That user no longer exists. Choose another user.';
     }
 
     return gamePage(c, runtime, loginPage(c, error));
@@ -350,41 +350,33 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     return gamePage(
       c,
       runtime,
-      model(
-        c,
-        'dashboard',
-        `${user.first_name} ${user.last_name}`,
-        [
-          makeForm(
-            'launch',
-            '/start-zwift',
-            [
-              field('map', 'Map', {
-                type: 'select',
-                value: 'CALENDAR',
-                options: [
-                  { value: 'CALENDAR', label: calendar.map },
-                  ...mapChoices.map(({ value, label }) => ({ value, label })),
-                ],
-              }),
-              field('climb', 'Climb', {
-                type: 'select',
-                value: 'CALENDAR',
-                options: [
-                  { value: 'CALENDAR', label: calendar.climb },
-                  ...climbs.map((climb) => ({ value: climb.road, label: climb.name })),
-                ],
-              }),
-            ],
-            'Start Zwift',
-            { navigation: true, primary: true },
-          ),
-          makeForm('switch', '/riders/switch/', [], 'Switch rider'),
-        ],
-        {
-          back: { href: '/login/', label: 'Choose another rider' },
-        },
-      ),
+      model(c, 'dashboard', `${user.first_name} ${user.last_name}`, [
+        makeForm(
+          'launch',
+          '/start-zwift',
+          [
+            field('map', 'Map', {
+              type: 'select',
+              value: 'CALENDAR',
+              options: [
+                { value: 'CALENDAR', label: calendar.map },
+                ...mapChoices.map(({ value, label }) => ({ value, label })),
+              ],
+            }),
+            field('climb', 'Climb', {
+              type: 'select',
+              value: 'CALENDAR',
+              options: [
+                { value: 'CALENDAR', label: calendar.climb },
+                ...climbs.map((climb) => ({ value: climb.road, label: climb.name })),
+              ],
+            }),
+          ],
+          'Start Zwift',
+          { navigation: true, primary: true },
+        ),
+        makeForm('switch', '/riders/switch/', [], 'Switch rider'),
+      ]),
     );
   });
 
@@ -491,7 +483,7 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
   ];
 
   app.on(['GET', 'POST'], launchAliases, (c) => {
-    const user = c.get('rider');
+    const user = c.get('user');
 
     if (c.req.path !== '/ride' || !user || !c.get('browser').selected) {
       sessions.transition(c.get('browser'), { type: 'clear-selection' });
@@ -587,7 +579,7 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     return c.body(null, 204);
   });
   app.get('/logout/:username', (c) => {
-    const user = c.get('rider');
+    const user = c.get('user');
 
     if (user) runtime.world.lifecycle.log.info('auth.logout', 'User logged out', { playerId: user.player_id });
     sessions.end(c.get('browserId'));

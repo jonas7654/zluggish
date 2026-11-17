@@ -22,7 +22,7 @@ export const riderSchema = z.object({
   revision: z.number().int().positive(),
 });
 
-export type Rider = z.infer<typeof riderSchema>;
+export type User = z.infer<typeof riderSchema>;
 
 /** Who changed a password, for the audit history. */
 export type PasswordActor = { kind: 'offline operator' } | { kind: 'rider'; playerId: number };
@@ -53,7 +53,7 @@ export class AccountsRepository {
       ]);
   }
 
-  list(): Rider[] {
+  list(): User[] {
     return this.executor
       .all(
         this.selection()
@@ -64,7 +64,7 @@ export class AccountsRepository {
       .map((row) => riderSchema.parse(row));
   }
 
-  get(id: number): Rider | null {
+  get(id: number): User | null {
     const row = this.executor.get(this.selection().where('player_id', '=', id));
 
     return row ? riderSchema.parse(row) : null;
@@ -73,7 +73,7 @@ export class AccountsRepository {
   /** SQLite lower() folds only ASCII, so imported names compare in JavaScript after
   normalizeLoginName. Two imported names that normalize alike match only exactly.
   */
-  byUsername(username: string): Rider | null {
+  byUsername(username: string): User | null {
     const exact = this.executor.get(this.selection().where('username', '=', username));
 
     if (exact) return riderSchema.parse(exact);

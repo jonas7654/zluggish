@@ -5,10 +5,10 @@ import { storedSchema, inputSchema as meetupInput } from '#src/dtos/meetup.dto';
 import {
   eventRequest,
   worldRequest,
-  editRiderRequest,
+  editUserRequest,
   ownProfileRequest,
   settingsRequest,
-  newRider,
+  newUser,
   setupRequest,
   mutationRequest,
   serverRequest,
@@ -20,7 +20,7 @@ import type { AuditValue } from '#src/dtos/management.dto';
 import { z } from 'zod';
 import type { RideCompletionService } from '#src/services/ride-completion.service';
 import type { RepositoryContext } from '#src/context';
-import type { Rider } from '#src/repositories/accounts.repository';
+import type { User } from '#src/repositories/accounts.repository';
 import { ManagementRepository } from '#src/repositories/management.repository';
 import { ApplicationError } from '#src/errors';
 import { BaseService } from '#src/services/base.service';
@@ -51,10 +51,10 @@ export class ManagementService extends BaseService {
     this.sessions = new WebSessionsService(context.accounts);
   }
 
-  publicRider(rider: Rider) {
-    const { pass_hash, auth_version: _authVersion, ...safe } = rider;
+  publicUser(user: User) {
+    const { pass_hash, auth_version: _authVersion, ...safe } = user;
 
-    return { ...safe, has_password: !!pass_hash, connected: this.context.world.active(rider.player_id) };
+    return { ...safe, has_password: !!pass_hash, connected: this.context.world.active(user.player_id) };
   }
 
   issueSetupKey() {
@@ -91,7 +91,7 @@ export class ManagementService extends BaseService {
     }
   }
 
-  private insert(input: z.infer<typeof newRider>, hash: string) {
+  private insert(input: z.infer<typeof newUser>, hash: string) {
     if (this.context.accounts.loginNameTaken(input.username))
       throw new ApplicationError(409, 'Login name already exists.');
 
@@ -105,7 +105,7 @@ export class ManagementService extends BaseService {
 
     const id = Math.max(0, ...occupied) + 1;
 
-    if (!Number.isSafeInteger(id) || id > 2_147_483_647) throw new ApplicationError(409, 'Rider ID space exhausted.');
+    if (!Number.isSafeInteger(id) || id > 2_147_483_647) throw new ApplicationError(409, 'User ID space exhausted.');
     this.accountsRepository.insert({
       player_id: id,
       username: input.username,
@@ -132,7 +132,7 @@ export class ManagementService extends BaseService {
     if (input.mode === 'existing' && existing && !existing.pass_hash)
       throw new ApplicationError(
         400,
-        'This rider has no password. Create a new rider, or set a password with the CLI.',
+        'This user has no password. Create a new user, or set a password with the CLI.',
       );
 
     const hash = await this.passwordTask(async () => {
@@ -144,10 +144,10 @@ export class ManagementService extends BaseService {
       return null;
     });
 
-    const rider = this.store.transaction(() => {
+    const user = this.store.transaction(() => {
       if (!live() || this.store.complete() || !this.keyValid(input.key))
         throw new ApplicationError(409, 'Setup refused.');
-      let target: Rider;
+      let target: User;
 
       if (input.mode === 'new') target = this.insert(input, hash!);
       else {
@@ -167,46 +167,46 @@ export class ManagementService extends BaseService {
       this.store.update(target.player_id, { role: 'administrator' });
       this.store.finish();
       const after = this.context.accounts.get(target.player_id)!;
-      this.store.audit(after.player_id, after.player_id, 'setup', null, null, this.publicRider(after), 'setup');
+      this.store.audit(after.player_id, after.player_id, 'setup', null, null, this.publicUser(after), 'setup');
 
       return after;
     });
 
     this.setupDigest = null;
 
-    return rider;
+    return user;
   }
 
   async signIn(username: string, password: string) {
-    const rider = this.context.accounts.byUsername(username);
+    const user = this.context.accounts.byUsername(username);
 
     const valid = await this.passwordTask(() =>
-      rider
-        ? this.context.accounts.verify(rider, password)
+      user
+        ? this.context.accounts.verify(user, password)
         : this.cryptoRepository.hashPassword(password).then(() => false),
     );
 
-    const current = rider && this.context.accounts.get(rider.player_id);
+    const current = user && this.context.accounts.get(user.player_id);
 
     if (
-      !rider ||
+      !user ||
       !valid ||
       !current?.enabled ||
-      current.auth_version !== rider.auth_version ||
-      current.pass_hash !== rider.pass_hash ||
-      current.username !== rider.username
+      current.auth_version !== user.auth_version ||
+      current.pass_hash !== user.pass_hash ||
+      current.username !== user.username
     )
       throw new ApplicationError(401, 'Login name or password is incorrect.');
 
-    return rider;
+    return user;
   }
 
   async confirm(id: string, password: string) {
-    const rider = this.sessions.require(id, true, false);
-    const identity = this.context.accounts.identityOf(rider);
+    const user = this.sessions.require(id, true, false);
+    const identity = this.context.accounts.identityOf(user);
 
     if (
-      !(await this.passwordTask(() => this.context.accounts.verify(rider, password))) ||
+      !(await this.passwordTask(() => this.context.accounts.verify(user, password))) ||
       !this.sessions.current(id, identity)
     )
       throw new ApplicationError(401, 'Confirmation refused.');
@@ -215,20 +215,20 @@ export class ManagementService extends BaseService {
   }
 
   async changeOwnPassword(id: string, current: string, password: string) {
-    const rider = this.sessions.require(id);
-    const identity = this.context.accounts.identityOf(rider);
+    const user = this.sessions.require(id);
+    const identity = this.context.accounts.identityOf(user);
 
     const hash = await this.passwordTask(async () => {
-      if (!(await this.context.accounts.verify(rider, current))) throw new ApplicationError(403, 'Password incorrect.');
+      if (!(await this.context.accounts.verify(user, current))) throw new ApplicationError(403, 'Password incorrect.');
 
       return this.cryptoRepository.hashPassword(password);
     });
 
     this.store.transaction(() => {
       if (!this.sessions.current(id, identity)) throw new ApplicationError(401, 'Session changed.');
-      this.store.update(rider.player_id, { pass_hash: hash });
+      this.store.update(user.player_id, { pass_hash: hash });
     });
-    this.completion.cancel(rider.player_id);
+    this.completion.cancel(user.player_id);
   }
 
   private fingerprint(value: AuditValue) {
@@ -237,8 +237,8 @@ export class ManagementService extends BaseService {
     return signed.slice(signed.lastIndexOf('|') + 1);
   }
 
-  async create(id: string, raw: z.input<typeof newRider>, operation: string) {
-    const input = newRider.parse(raw);
+  async create(id: string, raw: z.input<typeof newUser>, operation: string) {
+    const input = newUser.parse(raw);
     this.sessions.require(id, true);
     const hash = await this.passwordTask(() => this.cryptoRepository.hashPassword(input.password));
 
@@ -254,10 +254,10 @@ export class ManagementService extends BaseService {
         return JSON.parse(prior.result!);
       }
 
-      const rider = this.insert(input, hash);
-      const result = this.publicRider(rider);
-      this.store.audit(actor.player_id, rider.player_id, 'create', operation, null, result);
-      this.store.record(actor.player_id, operation, 'create', rider.player_id, fingerprint, result);
+      const user = this.insert(input, hash);
+      const result = this.publicUser(user);
+      this.store.audit(actor.player_id, user.player_id, 'create', operation, null, result);
+      this.store.record(actor.player_id, operation, 'create', user.player_id, fingerprint, result);
 
       return result;
     });
@@ -282,7 +282,7 @@ export class ManagementService extends BaseService {
         throw new ApplicationError(403, 'Use My account to change your password.');
       const target = this.context.accounts.get(targetId);
 
-      if (!target) throw new ApplicationError(404, 'Rider not found.');
+      if (!target) throw new ApplicationError(404, 'User not found.');
       const fingerprint = this.fingerprint({ action, targetId, input });
       const prior = this.store.operation(actor.player_id, input.operation);
 
@@ -292,7 +292,7 @@ export class ManagementService extends BaseService {
         return JSON.parse(prior.result!);
       }
 
-      if (target.revision !== input.revision) throw new ApplicationError(409, 'Rider changed. Review the new data.');
+      if (target.revision !== input.revision) throw new ApplicationError(409, 'User changed. Review the new data.');
 
       if (
         target.enabled &&
@@ -322,11 +322,11 @@ export class ManagementService extends BaseService {
       committed = true;
 
       const after = {
-        ...this.publicRider(this.context.accounts.get(targetId)!),
+        ...this.publicUser(this.context.accounts.get(targetId)!),
         completion_deadline: permission?.deadline ?? null,
       };
 
-      this.store.audit(actor.player_id, targetId, action, input.operation, this.publicRider(target), after);
+      this.store.audit(actor.player_id, targetId, action, input.operation, this.publicUser(target), after);
       this.store.record(actor.player_id, input.operation, action, targetId, fingerprint, after);
 
       return after;
@@ -340,14 +340,14 @@ export class ManagementService extends BaseService {
     return result;
   }
 
-  edit(id: string, player: number, raw: z.input<typeof editRiderRequest>) {
-    const input = editRiderRequest.parse(raw);
+  edit(id: string, player: number, raw: z.input<typeof editUserRequest>) {
+    const input = editUserRequest.parse(raw);
 
     return this.store.transaction(() => {
       const actor = this.sessions.require(id, true);
       const target = this.context.accounts.get(player);
 
-      if (!target) throw new ApplicationError(404, 'Rider not found.');
+      if (!target) throw new ApplicationError(404, 'User not found.');
       const fingerprint = this.fingerprint(input);
       const prior = this.store.operation(actor.player_id, input.operation);
 
@@ -359,9 +359,9 @@ export class ManagementService extends BaseService {
       }
 
       if (this.context.world.active(player))
-        throw new ApplicationError(409, 'Disconnect the rider before changing names.');
+        throw new ApplicationError(409, 'Disconnect the user before changing names.');
 
-      if (target.revision !== input.revision) throw new ApplicationError(409, 'Rider changed. Review the new data.');
+      if (target.revision !== input.revision) throw new ApplicationError(409, 'User changed. Review the new data.');
 
       if (this.context.accounts.loginNameTaken(input.username, player))
         throw new ApplicationError(409, 'Login name already exists.');
@@ -372,8 +372,8 @@ export class ManagementService extends BaseService {
       profile.email = input.username;
       this.context.profiles.save(player, profile);
       this.store.update(player, { username: input.username }, false);
-      const result = this.publicRider(this.context.accounts.get(player)!);
-      this.store.audit(actor.player_id, player, 'edit', input.operation, this.publicRider(target), result);
+      const result = this.publicUser(this.context.accounts.get(player)!);
+      this.store.audit(actor.player_id, player, 'edit', input.operation, this.publicUser(target), result);
       this.store.record(actor.player_id, input.operation, 'edit', player, fingerprint, result);
 
       return result;
@@ -381,13 +381,13 @@ export class ManagementService extends BaseService {
   }
 
   ownProfile(id: string) {
-    const rider = this.sessions.require(id);
-    const [month, day, year] = this.context.profiles.get(rider.player_id).dob.split('/');
+    const user = this.sessions.require(id);
+    const [month, day, year] = this.context.profiles.get(user.player_id).dob.split('/');
 
     return {
-      rider: this.publicRider(this.context.accounts.get(rider.player_id)!),
+      user: this.publicUser(this.context.accounts.get(user.player_id)!),
       birthday: year && month && day ? `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}` : '',
-      avatar: this.avatarVersion(rider.player_id),
+      avatar: this.avatarVersion(user.player_id),
     };
   }
 
@@ -404,18 +404,18 @@ export class ManagementService extends BaseService {
   }
 
   saveAvatar(id: string, image: Uint8Array) {
-    const rider = this.sessions.require(id);
+    const user = this.sessions.require(id);
 
     if (image.length < 4 || image[0] !== 0xff || image[1] !== 0xd8 || image.at(-2) !== 0xff || image.at(-1) !== 0xd9)
       throw new ApplicationError(400, 'Choose a JPG or PNG image.');
-    this.filesRepository.write(this.avatarPath(rider.player_id), image);
+    this.filesRepository.write(this.avatarPath(user.player_id), image);
 
-    return { avatar: this.avatarVersion(rider.player_id) };
+    return { avatar: this.avatarVersion(user.player_id) };
   }
 
   removeAvatar(id: string) {
-    const rider = this.sessions.require(id);
-    const path = this.avatarPath(rider.player_id);
+    const user = this.sessions.require(id);
+    const path = this.avatarPath(user.player_id);
 
     if (this.filesRepository.existsSync(path)) this.filesRepository.unlinkSync(path);
 
@@ -454,9 +454,9 @@ export class ManagementService extends BaseService {
       profile.dob = input.birthday.replace(/^(\d{4})-(\d{2})-(\d{2})$/, '$2/$3/$1');
       this.context.profiles.save(player, profile);
       this.store.update(player, { username: input.username }, false);
-      const before = this.publicRider(target);
+      const before = this.publicUser(target);
       const result = this.ownProfile(id);
-      this.store.audit(player, player, 'profile', input.operation, before, result.rider);
+      this.store.audit(player, player, 'profile', input.operation, before, result.user);
       this.store.record(player, input.operation, 'profile', player, fingerprint, result);
 
       return result;
@@ -480,7 +480,7 @@ export class ManagementService extends BaseService {
       if ((manage && actor.player_id === player) || (!manage && actor.player_id !== player))
         throw new ApplicationError(403, 'Own settings only.');
 
-      if (!this.context.accounts.get(player)) throw new ApplicationError(404, 'Rider not found.');
+      if (!this.context.accounts.get(player)) throw new ApplicationError(404, 'User not found.');
       const fingerprint = this.fingerprint({ player, input });
       const prior = this.store.operation(actor.player_id, input.operation);
 
@@ -507,12 +507,12 @@ export class ManagementService extends BaseService {
     action: string,
     raw: z.input<typeof serverRequest>,
     flush: () => Promise<void>,
-    dispatch: { reload: () => Promise<void>; bots: (rider: number, command: string) => string },
+    dispatch: { reload: () => Promise<void>; bots: (user: number, command: string) => string },
   ) {
     const input = serverRequest.parse(raw);
 
-    if (action === 'bots' && (!input.rider || !input.command))
-      throw new ApplicationError(400, 'Choose a rider and a bot command.');
+    if (action === 'bots' && (!input.user || !input.command))
+      throw new ApplicationError(400, 'Choose a user and a bot command.');
     const fingerprint = this.fingerprint({ action, input });
 
     // The retry check and the intent share one transaction, so a duplicate request never dispatches twice.
@@ -527,8 +527,8 @@ export class ManagementService extends BaseService {
         return { actor, prior };
       }
 
-      if (action === 'bots' && !this.context.world.active(input.rider!))
-        throw new ApplicationError(409, 'The rider must be riding now.');
+      if (action === 'bots' && !this.context.world.active(input.user!))
+        throw new ApplicationError(409, 'The user must be riding now.');
       this.store.intent(actor.player_id, input.operation, action, fingerprint);
       this.store.audit(actor.player_id, 'server', action + '-start', input.operation, null, input, 'rider', 'server');
 
@@ -569,7 +569,7 @@ export class ManagementService extends BaseService {
         }
 
         case 'bots': {
-          result = dispatch.bots(input.rider!, [input.command, input.argument].filter(Boolean).join(' '));
+          result = dispatch.bots(input.user!, [input.command, input.argument].filter(Boolean).join(' '));
           break;
         }
 

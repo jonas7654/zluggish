@@ -12,7 +12,7 @@ await test('Svelte SSR settings keeps identity, CSRF, multipart and static asset
   assert.equal(page.status, 200);
   assert.equal(page.headers.get('Cache-Control'), 'no-store');
   const html = await page.text();
-  assert.match(html, /Rider settings/);
+  assert.match(html, /User settings/);
   assert.match(html, /name="csrf_token"/);
 
   const props = z

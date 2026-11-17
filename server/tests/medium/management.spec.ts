@@ -30,7 +30,7 @@ await test('setup is atomic, permanent, independent of legacy ownership, and doe
   assert.throws(() => f.accounts.db.exec("UPDATE web_setup_state SET state='unclaimed'"));
   assert.throws(() => f.accounts.db.exec("INSERT OR REPLACE INTO web_setup_state VALUES(1,'unclaimed')"));
   assert.equal(JSON.stringify(service.store.history(rider.player_id)).includes('legacy-password'), false);
-  assert.equal(JSON.stringify(service.publicRider(rider)).includes('pass_hash'), false);
+  assert.equal(JSON.stringify(service.publicUser(rider)).includes('pass_hash'), false);
 });
 
 await test('last administrator, exact confirmation expiry, revisions, retries and revocation', async (t) => {
@@ -125,13 +125,13 @@ await test('web and game routes and credential stores are isolated; mutations ne
   assert.equal(setup.status, 200);
   const sessionCookie = setup.headers.getSetCookie().at(-1)!.split(';', 1)[0]!;
   assert.equal(
-    await responseStatus(web.request('http://local:8080/api/manage/riders', { headers: { Cookie: sessionCookie } })),
+    await responseStatus(web.request('http://local:8080/api/manage/users', { headers: { Cookie: sessionCookie } })),
     200,
   );
   const user = f.accounts.list()[0]!;
   assert.equal(
     await responseStatus(
-      web.request('/api/manage/riders', {
+      web.request('/api/manage/users', {
         headers: { Authorization: `Bearer ${f.sessions.tokens(user, f.tokens).access_token}` },
       }),
     ),
@@ -434,7 +434,7 @@ await test('setup lists only safe rider fields after checking the key and select
   assert.equal(accepted.status, 200);
   const body = await accepted.json();
   assert.deepEqual(
-    body.riders,
+    body.users,
     [mixed, upper].map((r) => ({
       player_id: r.player_id,
       username: r.username,

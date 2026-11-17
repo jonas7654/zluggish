@@ -71,7 +71,8 @@ for (const existing of [false, true])
         .waitFor();
       assert.equal(await page.locator('main[data-page="manage"]').count(), 1);
       await page.getByRole('button', { name: 'Create rider' }).click();
-      const create = page.locator('form').filter({ has: page.getByRole('heading', { name: 'Create rider' }) });
+      // Creating a user is its own page with one form.
+      const create = page.locator('form').filter({ has: page.getByLabel('Confirm password', { exact: true }) });
       await create.getByLabel('First name').fill('Second');
       await create.getByLabel('Last name').fill('Rider');
       await create.getByLabel('Login name').fill('second');
@@ -98,11 +99,11 @@ for (const existing of [false, true])
       await page.getByLabel('Password', { exact: true }).fill('test-password');
       await page.getByRole('button', { name: 'Sign in', exact: true }).click();
       await page.getByRole('button', { name: 'Menu', exact: true }).click();
-      await page.getByRole('link', { name: 'Riders', exact: true }).click();
-      await page.getByRole('button', { name: /Second Rider/ }).waitFor();
+      await page.getByRole('link', { name: 'Users', exact: true }).click();
+      await page.getByRole('link', { name: /Second Rider/ }).waitFor();
 
       // A deep link loads the rider directly.
-      await page.goto(page.url().replace(/\/manage.*$/, '/manage/riders/2'));
+      await page.goto(page.url().replace(/\/manage.*$/, '/manage/users/2'));
       await page.getByRole('heading', { name: 'Name and login' }).waitFor();
       const gamePage = await browser.newPage();
       await gamePage.goto(`http://127.0.0.1:${gameAddress.port}/login/`);

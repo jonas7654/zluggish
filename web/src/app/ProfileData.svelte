@@ -16,12 +16,12 @@
     path,
     request,
     navigate,
-    onrider,
+    onuser,
   }: {
     path: string;
     request: <Body>(url: string, method?: string, data?: Record<string, string | boolean> | FormData) => Promise<Body>;
     navigate: (path: string) => Promise<void>;
-    onrider: () => Promise<void>;
+    onuser: () => Promise<void>;
   } = $props();
 
   let recreate = $state(false);
@@ -82,7 +82,7 @@
 
 {#if path === '/export'}
   <section class="panel">
-    <p>Download your rider data.</p>
+    <p>Download your user data.</p>
     {#each filenames as filename (filename)}
       <p><a href={`/api/me/export/${encodeURIComponent(filename)}`} download={filename}>Download {filename}</a></p>
     {:else}
@@ -122,7 +122,7 @@
       }}
     >
       <span class="option-title">Local files</span>
-      <span class="option-description">Upload rider data from files on your computer.</span>
+      <span class="option-description">Upload user data from files on your computer.</span>
     </a>
     <a
       href="/zwift"
@@ -132,7 +132,7 @@
       }}
     >
       <span class="option-title">Zwift connection</span>
-      <span class="option-description">Connect to Zwift and download your rider data.</span>
+      <span class="option-description">Connect to Zwift and download your user data.</span>
     </a>
   </nav>
 {:else if path === '/import/local' || path === '/zwift'}
@@ -155,7 +155,7 @@
       void run(async () => {
         await request('/api/me/import/confirm', 'POST', { stage: review!.stage, keepName, confirmSource });
         review = null;
-        await onrider();
+        await onuser();
         message = 'Profile data imported.';
       });
     }}
@@ -165,7 +165,7 @@
     <p>Replace: {review.files.join(', ')}</p>
     {#if review.confirmSource}<label
         ><input type="checkbox" bind:checked={confirmSource} required /> Confirm this source may differ or be shared with
-        another rider</label
+        another user</label
       >{/if}
     <label><input type="checkbox" bind:checked={keepName} /> Keep local name</label>
     <button class="primary" disabled={busy}>Confirm import</button>
@@ -176,7 +176,7 @@
         run(async () => {
           await request('/api/me/import/confirm', 'POST', { stage: review!.stage, cancel: true });
           review = null;
-          message = 'Import canceled. Your rider data is unchanged.';
+          message = 'Import canceled. Your user data is unchanged.';
         })}>Cancel</button
     >
   </form>
@@ -235,7 +235,7 @@
         void run(async () => staged(await request('/api/me/zwift/import', 'POST', { profile, achievements })));
       }}
     >
-      <h2>Download rider data</h2>
+      <h2>Download user data</h2>
       <label><input type="checkbox" bind:checked={profile} /> Download profile and economy</label>
       <label><input type="checkbox" bind:checked={achievements} /> Download achievements</label>
       <button class="primary" disabled={busy || (!profile && !achievements)}>Download and review import</button>

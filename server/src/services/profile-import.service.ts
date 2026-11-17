@@ -5,7 +5,7 @@ import type { ImportFile, ImportFiles, ImportManifest } from '#src/dtos/profile-
 import { EconomyConfigSchema } from '#src/protocol/generated/login_pb';
 import { AchievementsSchema, PlayerProfileSchema, StreaksSchema } from '#src/protocol/generated/profile_pb';
 import { UserStorageSchema } from '#src/protocol/generated/user_storage_pb';
-import type { Rider } from '#src/repositories/accounts.repository';
+import type { User } from '#src/repositories/accounts.repository';
 import type { AccountsService } from '#src/services/auth.service';
 import { immediate } from '#src/db/transaction';
 import { BaseService } from '#src/services/base.service';
@@ -22,13 +22,13 @@ export class ImportsService extends BaseService {
     super(accounts.repositories);
   }
 
-  folder(rider: Rider, stage: string) {
+  folder(rider: User, stage: string) {
     if (!/^\.ts-import-[a-f0-9]{32}$/.test(stage)) throw new Error('Invalid import ID');
 
     return resolve(this.accounts.storage, String(rider.player_id), stage);
   }
 
-  prepare(rider: Rider, files: ImportFiles) {
+  prepare(rider: User, files: ImportFiles) {
     if (!this.accounts.identity(this.accounts.identityOf(rider))) throw new Error('Import identity changed');
 
     if (this.world.active(rider.player_id)) throw new Error('Finish the active ride before importing');
@@ -120,7 +120,7 @@ export class ImportsService extends BaseService {
     return stage;
   }
 
-  inspect(rider: Rider, stage: string) {
+  inspect(rider: User, stage: string) {
     const manifest = manifestSchema.parse(
       JSON.parse(this.filesRepository.readFileSync(resolve(this.folder(rider, stage), 'manifest.json'), 'utf8')),
     );
@@ -139,7 +139,7 @@ export class ImportsService extends BaseService {
   stage, so a repeated publication after a crash changes nothing. Replaced documents
   are kept as .bak files in the rider folder.
   */
-  publish(rider: Rider, stage: string, keepName: boolean) {
+  publish(rider: User, stage: string, keepName: boolean) {
     if (this.world.active(rider.player_id)) throw new Error('Finish the active ride before importing');
 
     if (!this.accounts.identity(`${rider.player_id}:${rider.auth_version}`)) throw new Error('Import identity changed');
@@ -194,7 +194,7 @@ export class ImportsService extends BaseService {
     this.filesRepository.rmSync(folder, { recursive: true });
   }
 
-  cancel(rider: Rider, stage: string) {
+  cancel(rider: User, stage: string) {
     this.inspect(rider, stage);
     this.filesRepository.rmSync(this.folder(rider, stage), { recursive: true });
   }

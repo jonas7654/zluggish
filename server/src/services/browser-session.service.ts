@@ -1,5 +1,5 @@
 import { ApplicationError } from '#src/errors';
-import type { Rider } from '#src/repositories/accounts.repository';
+import type { User } from '#src/repositories/accounts.repository';
 import { AccountsService } from '#src/services/auth.service';
 import { BaseService } from '#src/services/base.service';
 import { resolve } from 'node:path';
@@ -129,7 +129,7 @@ export class SessionsService extends BaseService {
   }
 
   /** A signed "remember password" token for one rider; a password change bumps auth_version and revokes it. */
-  remember(rider: Rider, now = Date.now()) {
+  remember(rider: User, now = Date.now()) {
     const expires = Math.floor(now / 1000) + REMEMBER_SECONDS;
 
     return this.cryptoRepository.signIdentity(`remember:${this.accounts.identityOf(rider)}:${expires}`, this.secret);
@@ -144,7 +144,7 @@ export class SessionsService extends BaseService {
     return rider?.player_id === playerId ? rider : null;
   }
 
-  rider(session: BrowserSession) {
+  user(session: BrowserSession) {
     return session.identity ? this.accounts.identity(session.identity) : null;
   }
 

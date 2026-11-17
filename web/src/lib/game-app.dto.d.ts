@@ -28,8 +28,8 @@ export interface GameForm {
   primary?: boolean;
   /** Inputs are not saved settings (such as a sign-in password), so the form never reports unsaved changes. */
   transient?: boolean;
-  /** The rider-list row: avatar, plus the sign-in email under the name when the rider has a real one. */
-  rider?: { initials: string; photo: string | null; email: string | null };
+  /** The user-list row: avatar, plus the sign-in email under the name when the user has a real one. */
+  user?: { initials: string; photo: string | null; email: string | null };
 }
 
 export interface UploadJob {

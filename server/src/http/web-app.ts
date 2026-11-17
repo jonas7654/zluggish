@@ -7,7 +7,7 @@ import { bodyLimit } from 'hono/body-limit';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import { z } from 'zod';
 import { ApplicationError } from '#src/errors';
-import { credentials, password, newRider } from '#src/dtos/management.dto';
+import { credentials, password, newUser } from '#src/dtos/management.dto';
 import type { HttpRuntime } from '#src/http/runtime';
 import { peerAddress } from '#src/http/routes/accounts';
 import { resolve } from 'node:path';
@@ -116,12 +116,12 @@ export function createWebApp(runtime: HttpRuntime) {
     await next();
   });
 
-  function login(c: Context<WebEnv>, rider: NonNullable<ReturnType<typeof accounts.get>>, confirmed = false) {
+  function login(c: Context<WebEnv>, user: NonNullable<ReturnType<typeof accounts.get>>, confirmed = false) {
     sessions.end(c.get('sessionId'));
-    const fresh = sessions.create(accounts.identityOf(rider), confirmed ? Date.now() + 900_000 : 0);
+    const fresh = sessions.create(accounts.identityOf(user), confirmed ? Date.now() + 900_000 : 0);
     setCookie(c, cookie, fresh.id, cookieOptions(c));
 
-    return c.json({ rider: management.publicRider(rider), csrf: fresh.session.csrf });
+    return c.json({ user: management.publicUser(user), csrf: fresh.session.csrf });
   }
 
   app.get('/api/setup', (c) =>
@@ -133,16 +133,16 @@ export function createWebApp(runtime: HttpRuntime) {
     }),
   );
   app.post('/api/setup', async (c) => {
-    const rider = await management.setup(await c.req.json(), unchanged(c));
+    const user = await management.setup(await c.req.json(), unchanged(c));
 
-    return login(c, rider, true);
+    return login(c, user, true);
   });
   app.post('/api/setup/key', async (c) => {
     const input = z.strictObject({ key: z.string().max(200) }).parse(await c.req.json());
     management.checkSetupKey(input.key);
 
     return c.json({
-      riders: accounts.list().map(({ player_id, username, first_name, last_name, enabled, pass_hash }) => ({
+      users: accounts.list().map(({ player_id, username, first_name, last_name, enabled, pass_hash }) => ({
         player_id,
         username,
         first_name,
@@ -155,11 +155,11 @@ export function createWebApp(runtime: HttpRuntime) {
   app.post('/api/session', async (c) => {
     const input = credentials.parse(await c.req.json());
     const live = unchanged(c);
-    const rider = await management.signIn(input.username, input.password);
+    const user = await management.signIn(input.username, input.password);
 
     if (!live()) throw new ApplicationError(401, 'Session changed.');
 
-    return login(c, rider);
+    return login(c, user);
   });
   app.delete('/api/session', (c) => {
     sessions.end(c.get('sessionId'));
@@ -168,7 +168,7 @@ export function createWebApp(runtime: HttpRuntime) {
     return c.json({ ok: true });
   });
   app.get('/api/me', (c) =>
-    c.json({ rider: management.publicRider(sessions.require(c.get('sessionId'))), csrf: c.get('csrf') }),
+    c.json({ user: management.publicUser(sessions.require(c.get('sessionId'))), csrf: c.get('csrf') }),
   );
   app.post('/api/session/confirm', async (c) => {
     const input = z.strictObject({ password }).parse(await c.req.json());
@@ -246,29 +246,29 @@ export function createWebApp(runtime: HttpRuntime) {
     sessions.require(c.get('sessionId'), true);
     await next();
   });
-  app.get('/api/manage/riders', (c) =>
-    c.json({ riders: accounts.list().map((rider) => management.publicRider(rider)) }),
+  app.get('/api/manage/users', (c) =>
+    c.json({ users: accounts.list().map((user) => management.publicUser(user)) }),
   );
-  app.post('/api/manage/riders', async (c) => {
+  app.post('/api/manage/users', async (c) => {
     const input = z
-      .strictObject({ operation: z.string().uuid(), rider: z.record(z.string(), z.json()) })
+      .strictObject({ operation: z.string().uuid(), user: z.record(z.string(), z.json()) })
       .parse(await c.req.json());
 
-    return c.json(await management.create(c.get('sessionId'), newRider.parse(input.rider), input.operation), 201);
+    return c.json(await management.create(c.get('sessionId'), newUser.parse(input.user), input.operation), 201);
   });
-  app.get('/api/manage/riders/:id', (c) => {
-    const rider = accounts.get(z.coerce.number().int().positive().safe().parse(c.req.param('id')));
+  app.get('/api/manage/users/:id', (c) => {
+    const user = accounts.get(z.coerce.number().int().positive().safe().parse(c.req.param('id')));
 
-    if (!rider) throw new ApplicationError(404, 'Rider not found.');
+    if (!user) throw new ApplicationError(404, 'User not found.');
 
-    return c.json(management.publicRider(rider));
+    return c.json(management.publicUser(user));
   });
-  app.get('/api/manage/riders/:id/audit', (c) =>
+  app.get('/api/manage/users/:id/audit', (c) =>
     c.json({ events: management.store.history(z.coerce.number().int().positive().safe().parse(c.req.param('id'))) }),
   );
 
   for (const action of ['password', 'disable', 'enable', 'revoke-sessions', 'role'])
-    app.on(action === 'role' ? 'PUT' : 'POST', `/api/manage/riders/:id/${action}`, async (c) =>
+    app.on(action === 'role' ? 'PUT' : 'POST', `/api/manage/users/:id/${action}`, async (c) =>
       c.json(
         await management.mutate(
           c.get('sessionId'),
@@ -279,7 +279,7 @@ export function createWebApp(runtime: HttpRuntime) {
       ),
     );
 
-  app.patch('/api/manage/riders/:id', async (c) =>
+  app.patch('/api/manage/users/:id', async (c) =>
     c.json(
       management.edit(
         c.get('sessionId'),
@@ -288,10 +288,10 @@ export function createWebApp(runtime: HttpRuntime) {
       ),
     ),
   );
-  app.get('/api/manage/riders/:id/settings', (c) =>
+  app.get('/api/manage/users/:id/settings', (c) =>
     c.json(management.settings(z.coerce.number().int().positive().safe().parse(c.req.param('id')))),
   );
-  app.patch('/api/manage/riders/:id/settings', async (c) =>
+  app.patch('/api/manage/users/:id/settings', async (c) =>
     c.json(
       management.saveSettings(
         c.get('sessionId'),
@@ -321,8 +321,8 @@ export function createWebApp(runtime: HttpRuntime) {
           reload: async () => {
             await runtime.world.simulation?.reload();
           },
-          bots: (rider, command) =>
-            runtime.world.simulation?.command(BigInt(rider), command, true) ?? 'Bots are not running.',
+          bots: (user, command) =>
+            runtime.world.simulation?.command(BigInt(user), command, true) ?? 'Bots are not running.',
         }),
       ),
     );

@@ -5,7 +5,7 @@ import { gameRedirect } from '#src/http/game/results';
 import { RemovableCredentialFile, StravaMethod } from '#src/enum';
 import { authenticated, csrf } from '#src/http/routes/accounts';
 import type { HttpRuntime as Runtime, RuntimeEnv } from '#src/http/runtime';
-import type { Rider } from '#src/repositories/accounts.repository';
+import type { User } from '#src/repositories/accounts.repository';
 import type { Context, Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
@@ -23,11 +23,11 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
   const documents = runtime.services.documents;
 
-  function cookieOf(rider: Rider) {
+  function cookieOf(rider: User) {
     return documents.text(rider.player_id, 'strava4_session.txt')?.split(/\r?\n/, 1)[0] ?? '';
   }
 
-  function stravaPage(c: Env, rider: Rider, message = '', failed = false, redirect?: string) {
+  function stravaPage(c: Env, rider: User, message = '', failed = false, redirect?: string) {
     const method = runtime.services.settings.resolveRiderSettings(
       runtime.config.riderDefaults,
       runtime.services.settings.read(rider.player_id),
@@ -98,7 +98,7 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     );
   }
 
-  function zwiftPage(c: Env, _rider: Rider, message = '', failed = false) {
+  function zwiftPage(c: Env, _rider: User, message = '', failed = false) {
     return movedToWeb(c, runtime, 'Zwift connection', '/zwift', message, failed);
   }
 
@@ -270,7 +270,7 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     }
   });
 
-  function garminPage(c: Env, rider: Rider, message = '', failed = false, redirect?: string) {
+  function garminPage(c: Env, rider: User, message = '', failed = false, redirect?: string) {
     const client = connections.read(rider.player_id, 'garmin');
     const authorized = documents.has(rider.player_id, 'garth/oauth1_token.json');
 
