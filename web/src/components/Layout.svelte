@@ -149,7 +149,10 @@
       <dt>Supports Zwift</dt>
       <dd>{zwiftVersion || 'Unknown'}</dd>
     </dl>
-    <a href="https://zluggish.com" target="_blank" rel="noopener noreferrer">zluggish.com</a>
+    <p class="star">
+      Enjoying Zluggish? Please
+      <a href="https://zluggish.com" target="_blank" rel="noopener noreferrer">star us on GitHub</a>.
+    </p>
   </div>
 </dialog>
 <main data-page={page} class:has-menu={!!menu}>
