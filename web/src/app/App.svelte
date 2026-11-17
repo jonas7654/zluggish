@@ -69,6 +69,7 @@
   let path = $state(location.pathname);
   let csrf = '';
   let version = $state('');
+  let zwiftVersion = $state('');
   let rider = $state<Rider | null>(null);
   let riders = $state<Rider[]>([]);
   let complete = $state(true);
@@ -97,6 +98,7 @@
   // Profile.
   let currentPassword = $state('');
   let settings = $state<RiderSettings | null>(null);
+  let integrationLinks = $state<{ label: string; href: string }[]>([]);
   let ghosts = $state(false);
   let stravaMethod = $state('paid');
   let bridgeFolder = $state('');
@@ -156,15 +158,17 @@
           ? 'Riders'
           : path === '/activities' || path.startsWith('/activities/')
             ? 'Activities'
-            : path === '/import'
-              ? 'Import profile data'
-              : path === '/zwift'
-                ? 'Zwift connection'
-                : path === '/settings'
-                  ? 'Settings'
-                  : path === '/password'
-                    ? 'Password'
-                    : 'Profile',
+            : path === '/import/local'
+              ? 'Import local files'
+              : path === '/import'
+                ? 'Import profile data'
+                : path === '/zwift'
+                  ? 'Zwift connection'
+                  : path === '/settings'
+                    ? 'Settings'
+                    : path === '/password'
+                      ? 'Password'
+                      : 'Profile',
   );
 
   const name = (r: Rider) => `${r.first_name} ${r.last_name}`.trim();
@@ -293,6 +297,7 @@
 
   async function loadSettings() {
     settings = await api('/api/me/settings');
+    integrationLinks = (await api('/api/me/integration-links')).links;
     applySettings(settings!);
   }
 
@@ -558,6 +563,7 @@
       const setup = await api('/api/setup');
       complete = setup.complete;
       version = setup.version ?? '';
+      zwiftVersion = setup.zwiftVersion ?? '';
 
       if (!complete) {
         go('/setup');
@@ -613,7 +619,7 @@
     <nav class="menu" aria-label="Main">
       {@render link('/', 'Profile', title === 'Profile')}
       {@render link('/activities', 'Activities', title === 'Activities')}
-      {@render link('/import', 'Import profile data', path === '/import')}
+      {@render link('/import', 'Import profile data', path === '/import' || path === '/import/local')}
       {@render link('/zwift', 'Zwift connection', path === '/zwift')}
       {@render link('/settings', 'Settings', path === '/settings')}
       {@render link('/password', 'Password', path === '/password')}
@@ -632,6 +638,7 @@
     {title}
     page={manage ? 'manage' : 'account'}
     {version}
+    {zwiftVersion}
     menu={rider ? menu : undefined}
     onhome={() => {
       void navigate('/');
@@ -1345,7 +1352,7 @@
         {/if}
       </div>
     {:else}
-      {#if path === '/import' || path === '/zwift'}
+      {#if path === '/import' || path === '/import/local' || path === '/zwift'}
         {#key path}<ProfileData
             {path}
             request={api}
@@ -1371,6 +1378,17 @@
             {@render settingsFields(settings)}
             <button class="primary" disabled={busy}>Save settings</button>
           </form>
+          <section class="panel narrow">
+            <h2>Connections</h2>
+            <p class="muted">Manage activity uploads and planned workouts. Connection pages may ask you to sign in again.</p>
+            <nav aria-label="Connections">
+              <ul>
+                {#each integrationLinks as connection (connection.label)}
+                  <li><a href={connection.href}>{connection.label}</a></li>
+                {/each}
+              </ul>
+            </nav>
+          </section>
         {/if}
       {:else if path === '/password'}
         <form
@@ -1672,6 +1690,7 @@
     justify-content: space-between;
     gap: 1rem;
     flex-wrap: wrap;
+    margin-bottom: 1rem;
   }
   .riders-head .primary {
     margin: 0;
@@ -1710,8 +1729,16 @@
     align-items: start;
   }
   @media (min-width: 62rem) {
-    .riders {
+    .riders,
+    .riders-head {
+      display: grid;
       grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+    }
+    .riders-head .primary {
+      justify-self: end;
+    }
+    .detail > .empty {
+      margin-top: 0;
     }
     .detail {
       position: sticky;

@@ -151,7 +151,7 @@ export default defineConfig({
 
   // Starting values for each rider's own settings. Riders change theirs in My account.
   riderDefaults: {
-    ghosts: { enabled: false },
+    ghosts: { enabled: true },
     uploads: {
       // Upload finished activities to Zwift.
       zwift: { enabled: false },

@@ -56,6 +56,7 @@ export interface GamePageModel {
   csrf: string;
   /** The server's release version, shown in the top bar. */
   version: string;
+  zwiftVersion?: string;
   forms: GameForm[];
   links?: { href: string; label: string }[];
   /** Shown as a back button beside the title; it navigates and never signs out. */

@@ -1,4 +1,4 @@
-import { packageVersion } from '#src/config/load';
+import { packageVersion, supportedZwiftVersion } from '#src/config/load';
 import type { GameField, GameForm, GamePageModel } from '#src/dtos/game-app.dto';
 import type { RuntimeEnv } from '#src/http/runtime';
 import type { Context } from 'hono';
@@ -51,5 +51,13 @@ export function model(
   forms: GameForm[],
   extra: Partial<GamePageModel> = {},
 ): GamePageModel {
-  return { kind, title, csrf: c.get('browser').csrf, version: packageVersion(), forms, ...extra };
+  return {
+    kind,
+    title,
+    csrf: c.get('browser').csrf,
+    version: packageVersion(),
+    zwiftVersion: supportedZwiftVersion(),
+    forms,
+    ...extra,
+  };
 }

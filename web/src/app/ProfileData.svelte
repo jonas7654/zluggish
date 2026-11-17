@@ -61,6 +61,8 @@
   }
 
   onMount(() => {
+    if (path === '/import') return;
+
     void run(async () => {
       const body = await request<{ filenames: string[]; review: Review | null }>('/api/me/import');
       filenames = body.filenames;
@@ -70,24 +72,43 @@
   });
 </script>
 
-<nav aria-label="Profile data">
-  <a
-    href="/import"
-    onclick={(e) => {
-      e.preventDefault();
-      void navigate('/import');
-    }}>Import local files</a
-  >
-  <a
-    href="/zwift"
-    onclick={(e) => {
-      e.preventDefault();
-      void navigate('/zwift');
-    }}>Zwift connection</a
-  >
-</nav>
+{#if path === '/import'}
+  <p>Choose how to import your profile data.</p>
+  <nav class="import-options" aria-label="Import source">
+    <a
+      href="/import/local"
+      onclick={(e) => {
+        e.preventDefault();
+        void navigate('/import/local');
+      }}
+    >
+      <span class="option-title">Local files</span>
+      <span class="option-description">Upload rider data from files on your computer.</span>
+    </a>
+    <a
+      href="/zwift"
+      onclick={(e) => {
+        e.preventDefault();
+        void navigate('/zwift');
+      }}
+    >
+      <span class="option-title">Zwift connection</span>
+      <span class="option-description">Connect to Zwift and download your rider data.</span>
+    </a>
+  </nav>
+{:else}
+  <nav aria-label="Profile data">
+    <a
+      href="/import"
+      onclick={(e) => {
+        e.preventDefault();
+        void navigate('/import');
+      }}>← Import options</a
+    >
+  </nav>
+{/if}
 {#if message}<p class="notice" class:failed role={failed ? 'alert' : 'status'}>{message}</p>{/if}
-{#if review}
+{#if path !== '/import' && review}
   <form
     class="panel"
     onsubmit={(e) => {
@@ -120,7 +141,7 @@
         })}>Cancel</button
     >
   </form>
-{:else if path === '/import'}
+{:else if path === '/import/local'}
   <p>Your local rider ID and password remain unchanged.</p>
   <form
     class="panel"
@@ -200,6 +221,42 @@
 {/if}
 
 <style>
+  .import-options {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+    gap: 1rem;
+    max-width: 50rem;
+    margin-top: 1.5rem;
+  }
+  .import-options a {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.75rem;
+    min-height: 10rem;
+    box-sizing: border-box;
+    padding: 1.75rem;
+    border: 2px solid var(--line);
+    border-radius: 12px;
+    background: var(--glass);
+    text-decoration: none;
+  }
+  .import-options a:hover,
+  .import-options a:focus-visible {
+    border-color: var(--orange);
+    background: var(--glass-raised);
+  }
+  .option-title {
+    font-size: 1.25rem;
+  }
+  .option-description {
+    color: var(--muted);
+    font-weight: 600;
+    font-size: 0.9375rem;
+    text-transform: none;
+    letter-spacing: normal;
+  }
+
   .panel {
     max-width: 38rem;
     padding: 1.25rem;

@@ -53,7 +53,7 @@ await test('defaults and explicit bootstrap overrides are deterministic', async 
   assert.equal(result.config.network.host, '127.0.0.1');
   assert.equal(result.config.network.api.port, 443);
   assert.equal(validateConfig({ network: { host: '0.0.0.0' } }).network.host, '0.0.0.0');
-  assert.equal(result.config.riderDefaults.ghosts.enabled, false);
+  assert.equal(result.config.riderDefaults.ghosts.enabled, true);
   assert.equal(result.config.soloBlob.riders, 8);
   assert.equal(defineConfig({ bots: { multiplier: 2 } }).bots.multiplier, 2);
 });
@@ -118,6 +118,7 @@ await test('runtime TypeErrors identify the config or imported file and original
   for (const imported of [false, true]) {
     const failingPath = imported ? resolve(root, 'values.ts') : path;
     writeFileSync(failingPath, `const value = undefined;\nexport default value.trim();`);
+
     if (imported) writeFileSync(path, `import value from './values.ts';\nexport default value;`);
     await assert.rejects(loadConfig({ path }), (error) => {
       assert.ok(error instanceof Error);

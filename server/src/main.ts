@@ -26,9 +26,11 @@ if (values.config !== undefined) options.path = values.config;
 
 if (values['storage-dir'] !== undefined) options.storageDir = values['storage-dir'];
 
-const { config } = await loadConfig(prepareContainerConfig(options)).catch((error: unknown) => {
+const { config } = await loadConfig(prepareContainerConfig(options)).catch((error) => {
   if (!(error instanceof ConfigError)) throw error;
   console.error(`ConfigError: ${error.message}`);
+  // This is the server CLI entry point; config failure must stop before runtime startup.
+  // eslint-disable-next-line unicorn/no-process-exit
   process.exit(1);
 });
 

@@ -43,6 +43,7 @@ for (const existing of [false, true])
       await page.getByText('Setup key accepted').waitFor();
 
       assert.equal(await page.getByRole('button', { name: 'Change key' }).count(), 0);
+
       if (owner) {
         await page.getByLabel('Use an existing rider').check();
         await page.getByLabel('Rider', { exact: true }).selectOption(String(owner.player_id));
@@ -62,9 +63,13 @@ for (const existing of [false, true])
       }
 
       await page.getByRole('button', { name: 'Complete setup' }).click();
-      // Setup lands in the management area, marked by the orange edge under the bar.
-      await page.getByText('No other riders yet.').waitFor();
-      assert.equal(await page.locator('.app.management').count(), 1);
+      // Setup lands in the management area.
+      await page
+        .getByText('No other riders yet. Create a rider so that somebody else can ride on this server.', {
+          exact: true,
+        })
+        .waitFor();
+      assert.equal(await page.locator('main[data-page="manage"]').count(), 1);
       await page.getByRole('button', { name: 'Create rider' }).click();
       const create = page.locator('form').filter({ has: page.getByRole('heading', { name: 'Create rider' }) });
       await create.getByLabel('First name').fill('Second');
@@ -86,7 +91,7 @@ for (const existing of [false, true])
       await page.getByRole('button', { name: 'Menu', exact: true }).click();
       await page.getByRole('link', { name: 'Profile', exact: true }).click();
       await page.getByRole('heading', { name: 'Profile' }).waitFor();
-      assert.equal(await page.locator('.app.management').count(), 0);
+      assert.equal(await page.locator('main[data-page="manage"]').count(), 0);
       await page.getByRole('button', { name: 'Menu', exact: true }).click();
       await page.getByRole('button', { name: 'Sign out', exact: true }).click();
       await page.getByLabel('Login name', { exact: true }).fill('owner');
@@ -94,9 +99,6 @@ for (const existing of [false, true])
       await page.getByRole('button', { name: 'Sign in', exact: true }).click();
       await page.getByRole('button', { name: 'Menu', exact: true }).click();
       await page.getByRole('link', { name: 'Riders', exact: true }).click();
-      await page.getByRole('heading', { name: 'Confirm your password to manage the server.' }).waitFor();
-      await page.getByLabel('Password', { exact: true }).fill('test-password');
-      await page.getByRole('button', { name: 'Confirm', exact: true }).click();
       await page.getByRole('button', { name: /Second Rider/ }).waitFor();
 
       // A deep link loads the rider directly.

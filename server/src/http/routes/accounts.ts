@@ -348,11 +348,6 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       climbs,
     );
 
-    const settings = runtime.services.settings.resolveRiderSettings(
-      runtime.config.riderDefaults,
-      runtime.services.settings.read(user.player_id),
-    );
-
     return gamePage(
       c,
       runtime,
@@ -381,7 +376,6 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
                   ...climbs.map((climb) => ({ value: climb.road, label: climb.name })),
                 ],
               }),
-              checkbox('enableghosts', 'Enable ghosts', settings.ghosts.enabled),
             ],
             'Start Zwift',
             { navigation: true, primary: true },
@@ -389,14 +383,11 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
           makeForm('switch', '/riders/switch/', [], 'Switch rider'),
         ],
         {
+          uploads: runtime.services.uploads.status(user.player_id).slice(0, 100),
           back: { href: '/login/', label: 'Choose another rider' },
           links: [
             ['reset', 'Password'],
             ['settings', 'Settings'],
-            ['strava', 'Strava'],
-            ['garmin', 'Garmin'],
-            ['intervals', 'Intervals.icu'],
-            ['trainingpeaks', 'TrainingPeaks'],
             ['power_curves', 'Power curves'],
           ].map(([path, label]) => ({ href: `/${path}/${encodeURIComponent(user.username)}/`, label: label! })),
         },
@@ -530,10 +521,6 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
     if (world.active(user.player_id)) throw new HTTPException(409);
 
-    runtime.services.settings.save(user.player_id, {
-      ...runtime.services.settings.read(user.player_id),
-      'ghosts.enabled': form.enableghosts !== undefined,
-    });
     const address = peerAddress(c);
 
     if (form.map && form.map !== 'CALENDAR') world.mapOverrides.set(address, z.string().parse(form.map));

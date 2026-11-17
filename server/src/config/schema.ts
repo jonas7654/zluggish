@@ -37,7 +37,7 @@ export const riderSettingsSchema = z
   .strictObject({
     ghosts: z
       .strictObject({
-        enabled: z.boolean().default(false),
+        enabled: z.boolean().default(true),
       })
       .prefault({})
       .readonly(),

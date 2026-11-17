@@ -10,7 +10,7 @@ import { credentials, password, newRider } from '#src/dtos/management.dto';
 import type { HttpRuntime } from '#src/http/runtime';
 import { peerAddress } from '#src/http/routes/accounts';
 import { resolve } from 'node:path';
-import { packageRoot, packageVersion } from '#src/config/load';
+import { packageRoot, packageVersion, supportedZwiftVersion } from '#src/config/load';
 
 export type WebEnv = { Variables: { sessionId: string; csrf: string } };
 
@@ -121,7 +121,12 @@ export function createWebApp(runtime: HttpRuntime) {
   }
 
   app.get('/api/setup', (c) =>
-    c.json({ complete: management.store.complete(), csrf: c.get('csrf'), version: packageVersion() }),
+    c.json({
+      complete: management.store.complete(),
+      csrf: c.get('csrf'),
+      version: packageVersion(),
+      zwiftVersion: supportedZwiftVersion(),
+    }),
   );
   app.post('/api/setup', async (c) => {
     const rider = await management.setup(await c.req.json(), unchanged(c));
@@ -179,6 +184,25 @@ export function createWebApp(runtime: HttpRuntime) {
     const player = sessions.require(c.get('sessionId')).player_id;
 
     return c.json(management.saveSettings(c.get('sessionId'), player, await c.req.json()));
+  });
+  app.get('/api/me/integration-links', (c) => {
+    const player = sessions.require(c.get('sessionId')).player_id;
+    const rider = accounts.get(player)!;
+    const origin = new URL(publicUrl ?? c.req.url);
+    origin.protocol = runtime.config.network.api.useCert ? 'https:' : 'http:';
+    origin.port = String(runtime.config.network.api.port);
+
+    return c.json({
+      links: [
+        ['strava', 'Strava'],
+        ['garmin', 'Garmin'],
+        ['intervals', 'Intervals.icu'],
+        ['trainingpeaks', 'TrainingPeaks'],
+      ].map(([path, label]) => ({
+        label,
+        href: new URL(`/${path}/${encodeURIComponent(rider.username)}/`, origin).href,
+      })),
+    });
   });
   webProfileRoutes(app, runtime);
 

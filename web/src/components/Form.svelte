@@ -302,16 +302,6 @@
       >
     {/each}
   </fieldset>
-  {#if model.id === 'launch'}
-    <p aria-live="polite">
-      Map: {model.fields.find((field) => field.name === 'map')?.options?.find((option) => option.value === draft.map)
-        ?.label}. Climb: {model.fields
-        .find((field) => field.name === 'climb')
-        ?.options?.find((option) => option.value === draft.climb)?.label}. Ghosts: {draft.enableghosts
-        ? 'enabled'
-        : 'disabled'}.
-    </p>
-  {/if}
   <p aria-live="polite">{failed ? '' : message || (dirty && !model.transient ? 'Unsaved changes' : '')}</p>
 </form>
 

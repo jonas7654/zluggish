@@ -400,6 +400,7 @@ await test('backup and restore preserve complete setup, audit, operation results
   const sessions = new SessionsService(restored);
   assert.deepEqual(sessions.secret, secret);
   assert.equal(sessions.browsers.size, 0);
+  restored.close();
 });
 
 await test('setup lists only safe rider fields after checking the key and selects the exact rider by ID', async (t) => {
@@ -413,6 +414,7 @@ await test('setup lists only safe rider fields after checking the key and select
   const { csrf, ...publicState } = await state.json();
   assert.equal('riders' in publicState, false);
   const cookie = state.headers.getSetCookie()[0]!.split(';', 1)[0]!;
+
   const check = (key: string) =>
     web.request('http://local:8080/api/setup/key', {
       method: 'POST',
@@ -424,6 +426,7 @@ await test('setup lists only safe rider fields after checking the key and select
       },
       body: JSON.stringify({ key }),
     });
+
   const denied = await check('wrong-key');
   assert.equal(denied.status, 403);
   assert.equal('riders' in (await denied.json()), false);

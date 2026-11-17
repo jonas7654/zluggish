@@ -24,7 +24,10 @@ await test('Calendar clears pending map and climb selections for the launching c
   f.world.mapOverrides.set('other-client', '7');
   f.world.climbOverrides.set('other-client', '10002');
 
+  assert.equal(f.settings.read(f.rider.player_id)['ghosts.enabled'], undefined);
   const selected = await browser.form('/start-zwift', { map: '6', climb: '10001' });
+  assert.equal(f.settings.read(f.rider.player_id)['ghosts.enabled'], undefined);
+  f.settings.save(f.rider.player_id, { 'ghosts.enabled': false });
   assert.equal(selected.status, 302);
   assert.equal(f.world.mapOverrides.get(''), '6');
   assert.equal(f.world.climbOverrides.get(''), '10001');
@@ -41,6 +44,7 @@ await test('Calendar clears pending map and climb selections for the launching c
 
   const calendar = await browser.form('/start-zwift', { map: 'CALENDAR', climb: 'CALENDAR' });
   assert.equal(calendar.status, 302);
+  assert.equal(f.settings.read(f.rider.player_id)['ghosts.enabled'], false);
   assert.equal(f.world.mapOverrides.has(''), false);
   assert.equal(f.world.climbOverrides.has(''), false);
   assert.equal(f.world.mapOverrides.get('other-client'), '7');

@@ -58,7 +58,13 @@
   });
 </script>
 
-<Layout title={current.title} page={current.kind} back={current.back} version={current.version}>
+<Layout
+  title={current.title}
+  page={current.kind}
+  back={current.back}
+  version={current.version}
+  zwiftVersion={current.zwiftVersion}
+>
   {#if current.links?.length}<nav aria-label="Rider pages">
       {#each current.links as link (link.href)}<a href={link.href}>{link.label}</a>{/each}
     </nav>{/if}

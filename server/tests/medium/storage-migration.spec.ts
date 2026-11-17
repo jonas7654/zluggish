@@ -385,7 +385,7 @@ await test('a legacy cleanup preview removes nothing and lists only imported, ba
   assert.deepEqual(
     plan.kept.map((file) => [relative(storage, file.path), file.reason]),
     [
-      ['1/encryption_key.bin', 'not in the database'],
+      [join('1', 'encryption_key.bin'), 'not in the database'],
       ['99', 'no account for this rider folder'],
     ],
   );

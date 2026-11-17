@@ -1,11 +1,12 @@
 <script lang="ts">
-  import type { Snippet } from 'svelte';
+  import { onMount, type Snippet } from 'svelte';
 
   let {
     title,
     page,
     back,
     version,
+    zwiftVersion,
     menu,
     onhome,
     children,
@@ -14,14 +15,37 @@
     page: string;
     back?: { href: string; label: string } | undefined;
     version: string;
+    zwiftVersion?: string | undefined;
     /** Contents of the side menu behind the bar's menu button. The game app has none. */
     menu?: Snippet | undefined;
     onhome?: (() => void) | undefined;
     children: Snippet;
   } = $props();
 
+  let about = $state<HTMLDialogElement>();
+
   let drawer = $state<HTMLDialogElement>();
   let open = $state(false);
+
+  let desktop = $state(false);
+
+  onMount(() => {
+    const viewport = window.matchMedia('(min-width: 1100px)');
+
+    const update = () => {
+      if (viewport.matches) {
+        drawer?.close();
+        open = false;
+      }
+
+      desktop = viewport.matches;
+    };
+
+    update();
+    viewport.addEventListener('change', update);
+
+    return () => viewport.removeEventListener('change', update);
+  });
 
   function openMenu() {
     drawer?.showModal();
@@ -31,30 +55,50 @@
 </script>
 
 <svelte:head><title>{title}</title></svelte:head>
-<div class="bar">
-  {#if menu}<button
+<div class="bar" class:has-menu={!!menu}>
+  {#if menu && !desktop}<button
       class="round"
       aria-label="Menu"
       aria-haspopup="dialog"
       aria-controls="menu"
       aria-expanded={open}
-      onclick={openMenu}
-      ><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14" /></svg></button
+      onclick={openMenu}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14" /></svg></button
     >{/if}
-  <a class="brand" href="/" aria-label="Zluggish home" onclick={(event) => {
-    if (onhome && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
-      event.preventDefault();
-      onhome();
-    }
-  }}>
+  <a
+    class="brand"
+    href="/"
+    aria-label="Zluggish home"
+    onclick={(event) => {
+      if (onhome && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
+        event.preventDefault();
+        onhome();
+      }
+    }}
+  >
     <span class="logo" aria-hidden="true"></span>
     <span class="wordmark">zluggish</span>
   </a>
-  {#if !menu && version}<span class="version">v{version}</span>{/if}
+  {#if !menu && version}<button
+      class="version"
+      aria-label={`About Zluggish v${version}`}
+      aria-haspopup="dialog"
+      onclick={() => about?.showModal()}>v{version}</button
+    >{/if}
 </div>
-{#if menu}
+{#if menu && desktop}
+  <aside class="sidebar" aria-label="Menu">
+    <div class="sheet">
+      {@render menu()}
+      {#if version}<button
+          class="version"
+          aria-label={`About Zluggish v${version}`}
+          aria-haspopup="dialog"
+          onclick={() => about?.showModal()}>v{version}</button
+        >{/if}
+    </div>
+  </aside>
+{:else if menu}
   <!-- A click on the backdrop lands on the dialog itself; a click on any link or button inside navigates or acts. -->
-  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
   <dialog
     id="menu"
     class="drawer"
@@ -70,11 +114,38 @@
         ><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17" /></svg></button
       >
       {@render menu()}
-      {#if version}<span class="version">v{version}</span>{/if}
+      {#if version}<button
+          class="version"
+          aria-label={`About Zluggish v${version}`}
+          aria-haspopup="dialog"
+          onclick={() => about?.showModal()}>v{version}</button
+        >{/if}
     </div>
   </dialog>
 {/if}
-<main data-page={page}>
+<dialog
+  class="about"
+  aria-labelledby="about-title"
+  bind:this={about}
+  onclick={(event) => {
+    if (event.target === about) about?.close();
+  }}
+>
+  <div class="about-content">
+    <button class="round about-close" aria-label="Close about" onclick={() => about?.close()}
+      ><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17" /></svg></button
+    >
+    <h2 id="about-title">About Zluggish</h2>
+    <dl>
+      <dt>Version</dt>
+      <dd>{version}</dd>
+      <dt>Supports Zwift</dt>
+      <dd>{zwiftVersion || 'Unknown'}</dd>
+    </dl>
+    <a href="https://zluggish.com" target="_blank" rel="noopener noreferrer">zluggish.com</a>
+  </div>
+</dialog>
+<main data-page={page} class:has-menu={!!menu}>
   <header>
     {#if back}<a class="back" href={back.href} aria-label={back.label} title={back.label}></a>{/if}
     <h1>{title}</h1>
@@ -155,6 +226,27 @@
       transition: none;
     }
   }
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: 19rem;
+    overflow-y: auto;
+    background: rgb(26 36 50 / 0.97);
+    border-right: 1px solid var(--line);
+  }
+  @media (min-width: 1100px) {
+    .bar.has-menu {
+      margin-left: 19rem;
+      padding-inline: max(1.5rem, calc((100% - 19rem - 57rem) / 2));
+    }
+    main.has-menu {
+      margin-left: calc(19rem + max(0px, (100% - 19rem - 60rem) / 2));
+      margin-right: auto;
+    }
+    .sidebar :global(.me) {
+      padding-right: 1.25rem;
+    }
+  }
   .sheet {
     position: relative;
     display: flex;
@@ -194,9 +286,55 @@
   }
   /* Quiet, there for support questions, not competing with the wordmark. */
   .version {
+    padding: 0;
+    border: 0;
+    background: none;
+    align-self: flex-start;
+    cursor: pointer;
     color: var(--muted);
     font-size: 0.8125rem;
     font-variant-numeric: tabular-nums;
+  }
+  .version:hover {
+    color: var(--text);
+  }
+  .about {
+    width: min(23rem, calc(100vw - 2rem));
+    box-sizing: border-box;
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 1rem;
+    background: #1a2432;
+    color: var(--text);
+    box-shadow: 0 16px 48px rgb(0 0 0 / 0.45);
+  }
+  .about::backdrop {
+    background: rgb(8 12 18 / 0.6);
+  }
+  .about-content {
+    padding: 1.5rem;
+  }
+  .about h2 {
+    margin: 0 3rem 1.5rem 0;
+    font-size: 1.15rem;
+  }
+  .about-close {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    margin: 0;
+  }
+  .about dl {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.75rem 1rem;
+    margin-bottom: 1.5rem;
+  }
+  .about dt {
+    color: var(--muted);
+  }
+  .about dd {
+    margin: 0;
   }
   main {
     max-width: 57rem;
@@ -241,6 +379,47 @@
   }
   @media (max-width: 500px) {
     .bar,
+    .version:hover {
+      color: var(--text);
+    }
+    .about {
+      width: min(23rem, calc(100vw - 2rem));
+      box-sizing: border-box;
+      padding: 0;
+      border: 1px solid var(--line);
+      border-radius: 1rem;
+      background: #1a2432;
+      color: var(--text);
+      box-shadow: 0 16px 48px rgb(0 0 0 / 0.45);
+    }
+    .about::backdrop {
+      background: rgb(8 12 18 / 0.6);
+    }
+    .about-content {
+      padding: 1.5rem;
+    }
+    .about h2 {
+      margin: 0 3rem 1.5rem 0;
+      font-size: 1.15rem;
+    }
+    .about-close {
+      position: absolute;
+      top: 0.75rem;
+      right: 0.75rem;
+      margin: 0;
+    }
+    .about dl {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 0.75rem 1rem;
+      margin-bottom: 1.5rem;
+    }
+    .about dt {
+      color: var(--muted);
+    }
+    .about dd {
+      margin: 0;
+    }
     main {
       padding-inline: 1rem;
     }

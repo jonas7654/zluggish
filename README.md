@@ -264,9 +264,7 @@ Use Zluggish only on a network that you trust. Other devices on the network can 
 1. Start the server. Find the setup address and key in the terminal or `docker compose logs zluggish`.
 2. Open `http://<server-ip>:8080/setup`. Enter the key. Create your rider. This rider receives the administrator role.
 
-Behind a reverse proxy, set `network.web.publicUrl` to the address riders open, for example `https://zluggish.example.com`. The web app then accepts requests only from that address, and an `https` address marks sign-in cookies `Secure`.
-3. Open **Manage**. Create the other riders with passwords.
-4. Start Zwift. Select your rider in the game app and sign in.
+Behind a reverse proxy, set `network.web.publicUrl` to the address riders open, for example `https://zluggish.example.com`. The web app then accepts requests only from that address, and an `https` address marks sign-in cookies `Secure`. 3. Open **Manage**. Create the other riders with passwords. 4. Start Zwift. Select your rider in the game app and sign in.
 
 | Port | Protocol | Use                             |
 | ---- | -------- | ------------------------------- |
@@ -332,7 +330,7 @@ Rollback means stopping Node and restoring a matching pre-migration storage/conf
 
 <details><summary>Ghosts</summary>
 
-- Enable this feature by checking "Enable ghosts" in Zluggish’s launcher (if using Android, access the selected rider’s home page, check "Enable ghosts" and click "Start Zwift" to save the option).
+- Ghosts are enabled by default. Change "Ride with ghosts" in the web app’s Settings to enable or disable them for your rider.
 - When you save an activity, the ghost will be saved in `storage/<player_id>/ghosts/<world>/<route>`. Next time you ride the same route, the ghost will be loaded.
 - Type `.regroup` in chat to regroup the ghosts.
 - Legacy ghost appearance settings used `storage/ghost_profile.txt`. The migration preserves its path as `ghosts.profileFile`, but current TypeScript playback uses the local rider profile and does not apply that override yet. The old `find_equip.py` helper is not included.

@@ -1,4 +1,5 @@
 import { runtimeFixture } from '#tests/support/runtime';
+import { createWebApp } from '#src/http/web-app';
 import { serve } from '@hono/node-server';
 import { chromium } from 'playwright';
 import type { Page } from 'playwright';
@@ -26,7 +27,13 @@ async function browserFixture(t: TestContext) {
   const browser = await chromium.launch();
   t.after(() => browser.close());
 
-  return { ...f, origin, browser };
+  const web = serve({ fetch: createWebApp(f).fetch, hostname: '127.0.0.1', port: 0 });
+  t.after(() => web.close());
+
+  if (!web.listening) await once(web, 'listening');
+  const webAddress = z.object({ port: z.number() }).parse(web.address());
+
+  return { ...f, origin, browser, webOrigin: `http://127.0.0.1:${webAddress.port}` };
 }
 
 async function signIn(page: Page, origin: string, id: number, password = 'test-password', remember = false) {
@@ -187,22 +194,31 @@ await test('import review requires source confirmation and cancel bypasses valid
   const f = await browserFixture(t);
   const rider = await f.accounts.create('Import Rider', 'test-password');
   f.accounts.repository.updateImportedProfile(rider.player_id, 'Import', 'Rider', 123);
+  await f.services.management.setup({
+    mode: 'existing',
+    key: f.services.management.issueSetupKey()!,
+    player_id: rider.player_id,
+    password: 'test-password',
+  });
   const context = await f.browser.newContext();
   const page = await context.newPage();
-  await signIn(page, f.origin, rider.player_id);
+  await page.goto(`${f.webOrigin}/sign-in`);
+  await page.getByLabel('Login name', { exact: true }).fill(rider.username);
+  await page.getByLabel('Password', { exact: true }).fill('test-password');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await page.getByRole('heading', { name: 'Profile', exact: true }).waitFor();
 
   const buffer = Buffer.from(
     toBinary(PlayerProfileSchema, create(PlayerProfileSchema, { id: 999n, firstName: 'Remote', lastName: 'Source' })),
   );
 
   for (const cancel of [true, false]) {
-    await page.goto(`${f.origin}/profile/${rider.username}/`);
+    await page.goto(`${f.webOrigin}/import/local`);
     await page
       .locator('[name="profile.bin"]')
       .setInputFiles({ name: 'profile.bin', mimeType: 'application/octet-stream', buffer });
-    await page.getByText(`profile.bin (${buffer.length} bytes)`, { exact: true }).waitFor();
     await page.getByRole('button', { name: 'Review import' }).click();
-    await page.waitForURL('**/confirm/');
+    await page.getByRole('heading', { name: 'Confirm profile import' }).waitFor();
 
     if (cancel) {
       await page.getByRole('button', { name: 'Cancel', exact: true }).click();
@@ -211,7 +227,9 @@ await test('import review requires source confirmation and cancel bypasses valid
       await page.getByRole('button', { name: 'Confirm import', exact: true }).click();
     }
 
-    await page.waitForURL('**/user/**');
+    await page
+      .getByText(cancel ? 'Import canceled. Your rider data is unchanged.' : 'Profile data imported.', { exact: true })
+      .waitFor();
     assert.equal(f.accounts.get(rider.player_id)?.first_name, cancel ? 'Import' : 'Remote');
   }
 
@@ -286,7 +304,7 @@ await test('a rider switch discards drafts and ignores a late save response', as
   await context.close();
 });
 
-await test('plain forms save settings and connections, review imports and change passwords', async (t) => {
+await test('plain forms save settings and connections, link to web imports and change passwords', async (t) => {
   const f = await browserFixture(t);
   const rider = await f.accounts.create('Plain Rider', 'test-password');
   t.mock.method(f.services.workouts, 'syncWorkoutsAutomatically', () => Promise.resolve());
@@ -310,10 +328,7 @@ await test('plain forms save settings and connections, review imports and change
   await submit('Save preferences');
   assert.equal(f.settings.read(rider.player_id)['workouts.trainingpeaks.bridgeFolder'], 'plain-folder');
   await visit('zwift');
-  await page.getByLabel('Username').fill('zwift-user');
-  await page.getByLabel('Password', { exact: true }).fill('zwift-secret');
-  await submit('Save connection');
-  assert.deepEqual(f.services.connections.read(rider.player_id, 'zwift'), ['zwift-user', 'zwift-secret']);
+  await page.getByText('Manage this in the web app on port 8080.', { exact: true }).waitFor();
   await visit('strava');
   await page.getByLabel('Upload method').selectOption('paid');
   await submit('Save method');
@@ -336,15 +351,7 @@ await test('plain forms save settings and connections, review imports and change
   assert.equal(f.settings.read(rider.player_id)['workouts.trainingpeaks.bridgeFolder'], 'plain-training-folder');
   await visit('profile');
 
-  const buffer = Buffer.from(
-    toBinary(PlayerProfileSchema, create(PlayerProfileSchema, { id: 999n, firstName: 'PlainImport' })),
-  );
-
-  await page
-    .locator('[name="profile.bin"]')
-    .setInputFiles({ name: 'profile.bin', mimeType: 'application/octet-stream', buffer });
-  await submit('Review import');
-  await submit('Cancel');
+  await page.getByText('Manage this in the web app on port 8080.', { exact: true }).waitFor();
   await visit('power_curves');
   await page.getByLabel(/I confirm:/).check();
   await submit('Delete existing power curves');

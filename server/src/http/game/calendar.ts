@@ -17,7 +17,9 @@ const appointment = z.object({
   world: z.string().optional(),
   portal: z.string().optional(),
 });
+
 const appointments = z.object({ appointments: z.object({ appointment: z.array(appointment) }) });
+
 const parser = new XMLParser({
   ignoreAttributes: false,
   attributeNamePrefix: '',
@@ -37,22 +39,31 @@ export function calendarLabels(
   now = Date.now(),
 ) {
   const maps = z.object({ MapSchedule: appointments }).parse(parser.parse(mapXml)).MapSchedule.appointments.appointment;
+
   const roads = z.object({ PortalRoads: z.object({ PortalRoadSchedule: appointments }) }).parse(parser.parse(climbXml))
     .PortalRoads.PortalRoadSchedule.appointments.appointment;
+
   const activeMap = maps
     .filter((entry) => startTime(entry.start) <= now)
     .sort((a, b) => startTime(b.start) - startTime(a.start))[0];
+
   const activeRoads = new Map<string, z.infer<typeof appointment>>();
+
   for (const entry of roads) {
     if (startTime(entry.start) > now || !Number.isFinite(startTime(entry.start))) continue;
     const key = `${entry.world ?? ''}:${entry.portal ?? ''}`;
     const previous = activeRoads.get(key);
+
     if (!previous || startTime(entry.start) > startTime(previous.start)) activeRoads.set(key, entry);
   }
+
   const map = mapChoices.find((choice) => choice.key === activeMap?.map)?.label;
-  const climb = [...activeRoads.values()]
+
+  const climb = activeRoads
+    .values()
     .map((entry) => climbs.find((choice) => choice.road === entry.road)?.name)
     .filter((name) => name !== undefined)
+    .toArray()
     .join(' / ');
 
   return { map: map ? `${map} (Calendar)` : 'Calendar', climb: climb ? `${climb} (Calendar)` : 'Calendar' };
