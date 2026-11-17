@@ -325,12 +325,13 @@ for (const app of ['webapp', 'launcher']) {
       );
       await page.getByRole('button', { name: 'Sign in', exact: true }).click();
     }
-    await page.getByText('Unable to connect to the server.', { exact: true }).waitFor();
+    await page.getByText(/^Server connection lost\.\.\.retrying in \d+s$/).waitFor();
     assert.equal(await field.inputValue(), app === 'webapp' ? 'Unsaved' : 'draft-password');
     assert.equal(await page.getByText(/Unexpected token/).count(), 0);
     await page.unroute('**/health');
     await page.getByRole('button', { name: 'Retry now' }).click();
-    await page.getByText('Connection restored.', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Retry now' }).waitFor({ state: 'hidden' });
+    assert.equal(await page.getByText('Connection restored.', { exact: true }).count(), 0);
     assert.equal(await field.inputValue(), app === 'webapp' ? 'Unsaved' : 'draft-password');
   });
 }
