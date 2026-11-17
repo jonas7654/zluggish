@@ -50,6 +50,7 @@
   let activities = $state<Summary[] | null>(null);
   let detail = $state<Detail | null>(null);
   let failure = $state('');
+  let chartWaitExpired = $state(false);
 
   let page = $state(0);
   let showList = $state(false);
@@ -59,6 +60,10 @@
   );
 
   const selectedId = $derived(/^\/activities\/(\d+)$/.exec(path)?.[1] ?? (showList ? null : (ordered[0]?.id ?? null)));
+
+  /** The previous activity stays on screen until the next one arrives, so switching does not flicker. */
+  const loading = $derived(selectedId !== null && detail?.id !== selectedId && !failure);
+
   let hasMore = $state(false);
   let requestVersion = 0;
 
@@ -178,11 +183,15 @@
       const body = await api<Detail>(`/api/me/activities/${id}`);
 
       if (selectedId !== id) return;
+      const retry = body.chartPending && attempt < 8;
       detail = body;
+      chartWaitExpired = body.chartPending && !retry;
 
-      if (body.chartPending && attempt < 8) setTimeout(() => void loadDetail(id, attempt + 1), 1500 * (attempt + 1));
+      if (retry) setTimeout(() => void loadDetail(id, attempt + 1), 1500 * (attempt + 1));
     } catch (error) {
-      if (selectedId === id) failure = error instanceof Error ? error.message : 'The activity could not be loaded.';
+      if (selectedId !== id) return;
+      detail = null;
+      failure = error instanceof Error ? error.message : 'The activity could not be loaded.';
     }
   }
 
@@ -192,7 +201,6 @@
 
   $effect(() => {
     const id = selectedId;
-    detail = null;
     failure = '';
 
     if (id) void loadDetail(id);
@@ -209,7 +217,7 @@
 {#if failure}<p class="notice failed" role="alert">{failure}</p>{/if}
 
 {#if activities === null}
-  {#if !failure}<p role="status">Loading activities…</p>{/if}
+  {#if !failure}<p class="delayed" role="status">Loading activities…</p>{/if}
 {:else if activities.length === 0 && page === 0}
   <section class="panel narrow">
     <p>No activities yet. Activities you finish in the game appear here, with their FIT files and images.</p>
@@ -278,15 +286,27 @@
     </div>
 
     <div class="detail">
-      <section class="panel" id="activity-detail" tabindex="-1" aria-labelledby="activity-name">
+      <section
+        class="panel"
+        class:stale={loading && detail}
+        id="activity-detail"
+        tabindex="-1"
+        aria-labelledby="activity-name"
+        aria-busy={loading}
+      >
+        {#if selectedId}
+          <a class="back" href="/activities" onclick={(e) => open(e, '/activities')}>All activities</a>
+        {/if}
+        {#if loading}
+          <div class="loading delayed" role="status">
+            <span class="bar" aria-hidden="true"></span>
+            <p class="muted">Loading activity…</p>
+          </div>
+        {/if}
         {#if !selectedId}
           <p class="muted">Choose an activity to see its route, stats, FIT file and images.</p>
-        {:else if !detail}
-          {#if !failure}<p role="status">Loading activity…</p>{/if}
-          <a class="back" href="/activities" onclick={(e) => open(e, '/activities')}>All activities</a>
-        {:else}
+        {:else if detail}
           {@const date = started(detail)}
-          <a class="back" href="/activities" onclick={(e) => open(e, '/activities')}>All activities</a>
           <h2 id="activity-name">{title(detail)}</h2>
           <p class="when">
             {#if date}{date.toLocaleDateString([], {
@@ -302,7 +322,11 @@
           {#if detail.chart && detail.chart.timeInSec.length > 1}
             {#key detail.id}<ActivityChart chart={detail.chart} running={detail.sport === 'running'} />{/key}
           {:else if detail.chartPending}
-            <p class="pending" role="status">Preparing the route and elevation profile from the FIT file…</p>
+            <p class="pending" role="status">
+              {chartWaitExpired
+                ? 'The route and elevation profile are taking longer than expected. Reopen this activity to try again.'
+                : 'Preparing the route and elevation profile from the FIT file…'}
+            </p>
           {/if}
 
           <dl class="headline">
@@ -401,12 +425,85 @@
     .detail .back {
       display: none;
     }
+    /* Beside the list, the previous activity fades back under the bar; the words are for screen readers. */
+    .detail .stale > :not(.loading) {
+      opacity: 0.45;
+      transition: opacity 200ms 400ms;
+    }
+    .detail .stale .loading p {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      white-space: nowrap;
+    }
   }
   /* On a phone, an open activity takes the screen; the list is one link away. */
   @media (max-width: 61.99rem) {
     .open .log,
     .activities:not(.open) .detail {
       display: none;
+    }
+    .stale > :not(.back, .loading) {
+      display: none;
+    }
+  }
+
+  /* Fast loads show nothing; a slow one says so after a moment. */
+  .delayed {
+    animation: reveal 150ms ease-out 400ms both;
+  }
+  @keyframes reveal {
+    from {
+      opacity: 0;
+      visibility: hidden;
+    }
+  }
+
+  .detail .panel {
+    position: relative;
+  }
+  .detail .panel > * {
+    transition: opacity 100ms;
+  }
+  .loading p {
+    margin: 0;
+  }
+  .bar {
+    position: absolute;
+    top: 0;
+    left: 12px;
+    right: 12px;
+    height: 3px;
+    overflow: hidden;
+    border-radius: 0 0 3px 3px;
+  }
+  .bar::after {
+    content: '';
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 35%;
+    border-radius: inherit;
+    background: var(--orange);
+    animation: sweep 1.1s ease-in-out infinite;
+  }
+  @keyframes sweep {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(290%);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .delayed {
+      animation-duration: 1ms;
+    }
+    .bar::after {
+      width: 100%;
+      opacity: 0.6;
+      animation: none;
     }
   }
 

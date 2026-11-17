@@ -14,8 +14,6 @@ import {
   serverRequest,
 } from '#src/dtos/management.dto';
 import { UploadsService } from '#src/services/uploads.service';
-import { SocialService } from '#src/services/social.service';
-import { RestartScheduler } from '#src/node/lifecycle/restart';
 import type { JsonValue } from '#src/dtos/management.dto';
 import { z } from 'zod';
 import type { RideCompletionService } from '#src/services/ride-completion.service';
@@ -35,18 +33,11 @@ export class ManagementService extends BaseService {
 
   private passwordWork = 0;
 
-  private readonly restart: RestartScheduler;
-
   constructor(
     private readonly context: RepositoryContext,
     private readonly completion: RideCompletionService,
   ) {
     super(context.accounts.repositories);
-    const social = new SocialService(context);
-    this.restart = new RestartScheduler(
-      (message) => social.sendMessage(message),
-      context.stop ?? (() => process.kill(process.pid, 'SIGINT')),
-    );
     this.store = new ManagementRepository(context.accounts.db);
     this.sessions = new WebSessionsService(context.accounts);
   }
@@ -215,12 +206,14 @@ export class ManagementService extends BaseService {
     this.sessions.sessions.get(id)!.confirmedUntil = Date.now() + 900_000;
   }
 
-  async changeOwnPassword(id: string, current: string, password: string) {
+  /** Administrators can already set any password, so they skip the current one. */
+  async changeOwnPassword(id: string, current: string | undefined, password: string) {
     const user = this.sessions.require(id);
     const identity = this.context.accounts.identityOf(user);
 
     const hash = await this.passwordTask(async () => {
-      if (!(await this.context.accounts.verify(user, current))) throw new ApplicationError(403, 'Password incorrect.');
+      if (user.role !== 'administrator' && !(await this.context.accounts.verify(user, current ?? '')))
+        throw new ApplicationError(403, 'Password incorrect.');
 
       return this.cryptoRepository.hashPassword(password);
     });
@@ -279,7 +272,7 @@ export class ManagementService extends BaseService {
       const actor = this.sessions.require(id, true);
 
       if (actor.player_id === targetId && action === 'password')
-        throw new ApplicationError(403, 'Use My account to change your password.');
+        throw new ApplicationError(403, 'Change your own password on your profile.');
       const target = this.context.accounts.get(targetId);
 
       if (!target) throw new ApplicationError(404, 'User not found.');
@@ -545,16 +538,6 @@ export class ManagementService extends BaseService {
 
     try {
       switch (action) {
-        case 'restart': {
-          result = this.restart.start();
-          break;
-        }
-
-        case 'cancel-restart': {
-          result = this.restart.cancel();
-          break;
-        }
-
         case 'reload-bots': {
           await dispatch.reload();
           result = true;

@@ -149,6 +149,26 @@ await test('setting a password revokes all of that rider’s sessions and refres
   assert.equal(refresh.status, 401);
 });
 
+await test('an administrator changes their own password without the current one', async (t) => {
+  const f = await mediumFixture(t);
+  const management = f.services.management;
+
+  await management.setup({
+    mode: 'existing',
+    key: management.issueSetupKey()!,
+    username: f.rider.username,
+    password: 'test-password',
+  });
+
+  const administrator = f.accounts.get(f.rider.player_id)!;
+  const response = await mediumWeb(f, administrator).request('/api/me/password', 'POST', { password: 'secret' });
+  assert.equal(response.status, 200);
+  assert.equal(await f.accounts.verify(f.accounts.get(administrator.player_id)!, 'secret'), true);
+
+  const rider = await mediumWeb(f, f.other).request('/api/me/password', 'POST', { password: 'secret' });
+  assert.equal(rider.status, 403);
+});
+
 await test('failed account creation rolls back rows and folders and leaves the service usable', async (t) => {
   const f = await mediumFixture(t);
   const before = f.accounts.list();

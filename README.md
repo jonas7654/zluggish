@@ -2,7 +2,7 @@
 
 # Zluggish
 
-Zluggish is a self-hosted, open source server implementation of [Zwift](http://zwift.com) written in typescript that implements several features not available in the official app.
+Zluggish is a self-hosted, open-source server implementation of [Zwift](http://zwift.com) written in TypeScript that implements several features not available in the official app.
 
 This project is a rewrite of [zwift-offline](https://github.com/zoffline/zwift-offline) and [its fork](https://github.com/fatsbrown/zwift-offline). If you are migrating from either, see [Migrating](#migrating).
 
@@ -16,7 +16,7 @@ Zluggish gives you complete control over the server, including the following fea
 - **Custom RoboPacers and pelotons**: build pacers from recorded rides and add configurable followers, with control over group size, equipment, formation, and rider strength.
 - **Saved-position bookmarks**: save named places during a ride, start another session from a bookmark, or return to one using in-game teleport.
 - **Intervals.icu planned workouts**: bring scheduled workouts into the game launcher and sync completed activities back to Intervals.icu. Exported TrainingPeaks `.zwo` workouts can also be imported through a local folder.
-- **Web app**: manage users, settings, activities, integrations and server operations from a browser, with no config files or CLI needed for day-to-day use
+- **Web app**: manage users, settings, activities, integrations, and server operations from a browser, with no config files or CLI needed for day-to-day use
 - **Local records and data**: keep profiles, activities, and recordings in storage you can back up and inspect, with optional all-time leaderboards for your server.
 - **Equipment and progression control**: customize equipment availability and Drop balances on your own server, without grinding through unlocks.
 
@@ -24,23 +24,23 @@ Note that Zluggish is offline-only: there is no connection to Zwift's public mul
 
 ## Requirements
 
-Zluggish requires technical know-how to set up, so it is not for everyone. The **server** stores progress and runs ride services; the **client** is the device running the Zwift app. They can run on the same machine, or be on separated systems as long as they can be reached over the network.
+Zluggish requires technical know-how to set up, so it is not for everyone. The **server** stores progress and runs ride services; the **client** is the device running the Zwift app. They can run on the same machine or on separate systems as long as they can communicate over the network.
 
 ### Server requirements
 
-- A machine running either Linux, Windows or macOS
+- A machine running Linux, Windows, or macOS
 - Performance requirements are very low
-- Docker compose is used to run the software
+- Docker Compose is used to run the software
 
 ### Client requirements
 
-You will need a patched Zwift client so the easiest method is to run it on Windows or macOS. Android is supported but [requires manual patching](#step-2-configure-zwift-client-to-use-zluggish). iPhone and iPad clients are not supported.
+You will need a patched Zwift client, so the easiest method is to run it on Windows or macOS. Android is supported but [requires manual patching](#android-non-rooted). iPhone and iPad clients are not supported.
 
 See Zwift's [official system requirements](https://support.zwift.com/en_us/supported-devices-to-run-zwift-H1Cj9QbeB) for more complete system requirements.
 
 ## Server install
 
-If you are upgrading from legacy zwift-offline, first follow [Migration → Old storage](#old-storage).
+If you are upgrading from legacy zwift-offline, first follow [Migrating](#migrating).
 
 Clone this repository on the server, then run the [Docker Compose file](docker/docker-compose.yml) from the repository root.
 
@@ -48,7 +48,7 @@ Clone this repository on the server, then run the [Docker Compose file](docker/d
 docker compose -f docker/docker-compose.yml up --build
 ```
 
-It should say something like
+You should see output similar to:
 
 ```sh
 zluggish-1  | Zluggish server: https://0.0.0.0:443
@@ -95,46 +95,46 @@ Next, [create the first administrator in the web app](#web-app), then connect th
 
 ### Windows
 
-- Install Zwift if not already installed
-- **NOTE:** instead of performing the steps below you can instead just run the **configure_client** script from https://github.com/oldnapalm/zoffline-helper/releases/latest
-- On your Windows machine running Zwift, copy the following files in this repo to a known location:
+- Install Zwift if it is not already installed
+- **NOTE:** Instead of performing the steps below, you can run the **configure_client** script from the [zoffline-helper release page](https://github.com/oldnapalm/zoffline-helper/releases/latest).
+- On your Windows machine running Zwift, copy the following files from this repository to a known location:
   - [assets/ssl/cert-zwift-com.p12](assets/ssl/cert-zwift-com.p12)
   - [assets/ssl/cert-zwift-com.pem](assets/ssl/cert-zwift-com.pem)
-- Open Command Prompt as an admin, cd to that location and run
+- Open Command Prompt as an administrator, change to that directory, and run:
   - `certutil.exe -importpfx Root cert-zwift-com.p12`
   - If you're prompted for a password, just leave it blank. There is no password.
-- Open Notepad as an admin and open `C:\Program Files (x86)\Zwift\data\cacert.pem`
-  - Append the contents of `assets/ssl/cert-zwift-com.pem` to cacert.pem
-- Open Notepad as an admin and open `C:\Windows\System32\Drivers\etc\hosts`
+- Open Notepad as an administrator and open `C:\Program Files (x86)\Zwift\data\cacert.pem`
+  - Append the contents of `assets/ssl/cert-zwift-com.pem` to `cacert.pem`
+- Open Notepad as an administrator and open `C:\Windows\System32\Drivers\etc\hosts`
   - Append this line: `<server-ip> us-or-rly101.zwift.com secure.zwift.com cdn.zwift.com launcher.zwift.com`
-    <br />(Where `<server-ip>` is the ip address of the machine running Zluggish. If
-    it's running on the same machine as Zwift, use `127.0.0.1` as the ip.)
+    <br />(Where `<server-ip>` is the IP address of the machine running Zluggish. If
+    it's running on the same machine as Zwift, use `127.0.0.1` as the IP address.)
 - The retained `scripts/configure_client.bat` helper configures local client redirection to `127.0.0.1`; use the manual steps above for a separate server. `scripts/launch.bat` temporarily redirects the client to the address in `scripts/ip_address.txt`, launches Zwift, and restores the hosts file when you continue past its pause. It does not start the server.
 
 Why: We need to redirect Zwift to use Zluggish and convince Windows and Zwift to
-accept Zluggish’s self signed certificates for Zwift's domain names. Feel free
+accept Zluggish’s self-signed certificates for Zwift's domain names. Feel free
 to generate your own certificates and do the same.
 
 ### macOS
 
-- Install Zwift if not already installed
-- On your Mac machine running Zwift, copy the file [assets/ssl/cert-zwift-com.pem](assets/ssl/cert-zwift-com.pem) in this repo to a known location.
+- Install Zwift if it is not already installed
+- On the Mac running Zwift, copy the file [assets/ssl/cert-zwift-com.pem](assets/ssl/cert-zwift-com.pem) from this repository to a known location.
 - Open Keychain Access, select "System" under "Keychains", select "Certificates" under "Category"
   - Click "File - Import Items..." and import cert-zwift-com.pem
-  - Right click "\*.zwift.com", select "Get Info" and under "Trust" choose "When using this certificate: Always Trust".
+  - Right-click "\*.zwift.com", select "Get Info" and under "Trust" choose "When using this certificate: Always Trust".
 - From the cert-zwift-com.pem location, run `sed -n '29,53p' cert-zwift-com.pem >> ~/Library/Application\ Support/Zwift/data/cacert.pem`
-- Using a text editor (with admin privileges) open `/etc/hosts`
+- Using a text editor with administrator privileges, open `/etc/hosts`
   - Append this line: `<server-ip> us-or-rly101.zwift.com secure.zwift.com cdn.zwift.com launcher.zwift.com`
-    <br />(Where `<server-ip>` is the ip address of the machine running Zluggish. If
-    it's running on the same machine as Zwift, use `127.0.0.1` as the ip.)
+    <br />(Where `<server-ip>` is the IP address of the machine running Zluggish. If
+    it's running on the same machine as Zwift, use `127.0.0.1` as the IP address.)
 
 Why: We need to redirect Zwift to use Zluggish and convince macOS and Zwift to
-accept Zluggish’s self signed certificates for Zwift's domain names. Feel free
+accept Zluggish’s self-signed certificates for Zwift's domain names. Feel free
 to generate your own certificates and do the same.
 
 ### Android (non-rooted)
 
-- Install required apps:
+- Install the required apps:
   - Download and install `ZofflineObb.apk` from [here](https://github.com/fatsbrown/ZofflineObbAndroid/releases/latest)
   - Download and install `app-Github-release.apk` from [here](https://github.com/x-falcon/Virtual-Hosts/releases/latest)
   - Create a `hosts.txt` file to use with the app (you could use a text editor app or create it online with an online tool such as [this](https://passwordsgenerator.net/text-editor/)). The file must look like this (replace `<server-ip>` with the IP address of the machine running Zluggish):
@@ -145,51 +145,51 @@ to generate your own certificates and do the same.
     ```
   - Turn off "Private DNS" in Android settings
   - Run "Virtual Hosts" and select the created `hosts.txt` file
-  - Optionally, instead of using the "Virtual Hosts" app, you can set `dns.enabled` to `true` in `zluggish.config.ts` and set the "DNS 1" of your phone Wi-Fi connection to the IP address of the PC running Zluggish
-  - Note: If you know what you're doing and have a capable enough router you can adjust your router to alter these DNS records instead of using the "Virtual Hosts" app or changing your phone DNS.
+  - Optionally, instead of using the "Virtual Hosts" app, you can set `dns.enabled` to `true` in `zluggish.config.ts` and set "DNS 1" for your phone’s Wi-Fi connection to the IP address of the PC running Zluggish
+  - Note: If you know what you're doing and have a capable enough router, you can adjust your router to alter these DNS records instead of using the "Virtual Hosts" app or changing your phone’s DNS settings.
 - Patch after every installation or update:
-  - Install/update Zwift from Google play, but do not start it yet.
-    - If you have already started it go to `Android Settings > Applications > Zwift` and clear data or uninstall and reinstall the app.
+  - Install or update Zwift from Google Play, but do not start it yet.
+    - If you have already started it, go to `Android Settings > Applications > Zwift` and clear data or uninstall and reinstall the app.
   - Open the "ZofflineObb" app and run it (allow access to all files and install from unknown sources)
     - If the app doesn't work on your device, you can patch the OBB file on Windows. See [#505](https://github.com/zoffline/zwift-offline/issues/505) for details.
-  - Wait for process to finish (5-10min)
-  - Run Zwift, hopefully it verifies download and runs
+  - Wait for the process to finish (5–10 minutes)
+  - Run Zwift. It should verify the download and start.
 - Play Zwift:
-  - Virtual Hosts button must be ON
+  - The Virtual Hosts button must be ON
   - Ask an administrator to create your user in the [web app](#web-app) (**Manage → Users**) with a password, then sign in with that user's username and password.
 
 Why: We need to redirect Zwift to use Zluggish (this is done by the Virtual Hosts app) and convince Zwift to
-accept Zluggish’s self signed certificates for Zwift's domain names (this is done by the patch tool ZofflineObb).
+accept Zluggish’s self-signed certificates for Zwift's domain names (this is done by the patch tool ZofflineObb).
 
 #### Android (rooted)
 
 - Install Zwift on the device
-- Open Zwift once to complete installation (i.e download all extra files).
+- Open Zwift once to complete installation (i.e., download all extra files).
 - Append the contents of `assets/ssl/cert-zwift-com.pem` to `/data/data/com.zwift.zwiftgame/dataES/cacert.pem` on the device
   - Note: this file will only exist after the first run of Zwift since it's downloaded after the initial install
-  - Simple approach to achieve this if your device doesn't have a text editor:
+  - If your device does not have a text editor, use these commands:
     - `adb push assets/ssl/cert-zwift-com.pem /data/data/com.zwift.zwiftgame/dataES/`
     - In `adb shell`: `cd /data/data/com.zwift.zwiftgame/dataES/`
     - In `adb shell`: `cat cert-zwift-com.pem >> cacert.pem`
-    - However you do it, ensure the permissions and ownership of the file remains the same.
+    - However you do it, ensure the permissions and ownership of the file remain the same.
 - Modify the device's `/etc/hosts` file
   - Append this line: `<server-ip> us-or-rly101.zwift.com secure.zwift.com cdn.zwift.com`
     <br />(Where `<server-ip>` is the IP address of the machine running Zluggish.)
-  - If no text editor on the device, recommend:
+  - If the device has no text editor, use these steps:
     - `adb pull /etc/hosts`
-    - (modify on PC)
+    - Modify the file on your PC
     - `adb push hosts /etc/hosts`
-  - Note: If you know what you're doing and have a capable enough router you can adjust your router to alter these DNS records instead of modifying your `hosts` file.
+  - Note: If you know what you're doing and have a capable enough router, you can adjust your router to alter these DNS records instead of modifying your `hosts` file.
 - Ask an administrator to create your user in the [web app](#web-app) (**Manage → Users**) with a password, then sign in with that user's username and password.
 
 Why: We need to redirect Zwift to use Zluggish and convince Zwift to
-accept Zluggish’s self signed certificates for Zwift's domain names. Feel free
+accept Zluggish’s self-signed certificates for Zwift's domain names. Feel free
 to generate your own certificates and do the same.
 
 ## Uninstalling Zluggish
 
-To restore the original Zwift usage, comment out or remove the line added to the `hosts`
-file before starting Zwift. Then ensure Zwift is fully closed (right click
+To restore normal Zwift operation, comment out or remove the line added to the `hosts`
+file before starting Zwift. Then ensure Zwift is fully closed (right-click
 the Zwift system tray icon and exit) and restart Zwift.
 
 ## Importing your official Zwift profile
@@ -202,11 +202,11 @@ Official credentials do not become a local password. The **Zwift connection** pa
 
 Do not copy files blindly into `storage/<local-player-id>` or a folder named after the official player ID. Use the web app import so files are validated and IDs/names are normalized. Official downloads need access to Zwift services; client redirection may need to be disabled on the machine used for official login.
 
-To take your data with you, open **Export** and download the user files. **Power curves** lets you delete the stored power curves and optionally recreate them from your saved activities.
+To take your data with you, open **Export** and download the user files. If your power curves look wrong, open **Settings** and choose **Regenerate power curves** to rebuild them from your saved activities.
 
 ## Sharing activities
 
-Connections belong to the signed-in user and are managed under **Settings → Connections** in the [web app](#web-app). Completed activities are saved locally before uploads; one failing provider does not lose the saved activity. Live provider authorization and delivery still need verification for this TypeScript migration.
+Connections belong to the signed-in user and are managed under **Settings → Connections** in the [web app](#web-app). Completed activities are saved locally before uploads; a failed upload to one provider does not delete the saved activity. Live provider authorization and delivery still need verification for this TypeScript migration.
 
 <details><summary>Strava</summary>
 
@@ -247,7 +247,7 @@ The Runalyze adapter reads the user's existing `storage/<local-player-id>/runaly
 
 <details><summary>Android (non-rooted device)</summary>
 
-- Download and install the patched apk from [here](https://github.com/fatsbrown/zoffline-companion/releases/latest) (or [patch it yourself](https://github.com/fatsbrown/zoffline-companion#patch-it-yourself))
+- Download and install the patched APK from [here](https://github.com/fatsbrown/zoffline-companion/releases/latest) (or [patch it yourself](https://github.com/fatsbrown/zoffline-companion#patch-it-yourself))
 - Download and install `app-Github-release.apk` from [here](https://github.com/x-falcon/Virtual-Hosts/releases/latest)
 - Create a `hosts.txt` file to use with the app (you could use a text editor app or create it online with an online tool such as [this](https://passwordsgenerator.net/text-editor/)). The file must look like this (replace `<server-ip>` with the IP address of the machine running Zluggish):
 
@@ -256,12 +256,12 @@ The Runalyze adapter reads the user's existing `storage/<local-player-id>/runaly
   <server-ip> secure.zwift.com
   ```
 
-  - Important: don't add `cdn.zwift.com` to `hosts.txt`, Companion needs to download images from the official server
+  - Important: don't add `cdn.zwift.com` to `hosts.txt`; Companion needs to download images from the official server
 
 - Turn off "Private DNS" in Android settings
 - Run "Virtual Hosts" and select the created `hosts.txt` file
-- Optionally, instead of using the "Virtual Hosts" app, you can set `dns.enabled` to `true` in `zluggish.config.ts` and set the "DNS 1" of your phone Wi-Fi connection to the IP address of the PC running Zluggish
-- Note: If you know what you're doing and have a capable enough router you can adjust your router to alter these DNS records instead of using the "Virtual Hosts" app or changing your phone DNS.
+- Optionally, instead of using the "Virtual Hosts" app, you can set `dns.enabled` to `true` in `zluggish.config.ts` and set "DNS 1" for your phone’s Wi-Fi connection to the IP address of the PC running Zluggish
+- Note: If you know what you're doing and have a capable enough router, you can adjust your router to alter these DNS records instead of using the "Virtual Hosts" app or changing your phone’s DNS settings.
 
 </details>
 
@@ -273,32 +273,31 @@ The web app is where users and administrators work with Zluggish. Use it only on
 
 1. Start the server. Find the setup address and key in the terminal or with `docker compose -f docker/docker-compose.yml logs zluggish`.
 2. Open `http://<server-ip>:8080/setup` and enter the setup key. The key works until setup is complete or the server restarts.
-3. create the first user, or, when migrating, choose an existing user that has a password. This user becomes the administrator.
+3. Create the first user, or, when migrating, choose an existing user that has a password. This user becomes the administrator.
 4. Open **Manage → Users** and create the other users with passwords.
 5. Start Zwift, select your user in the game and sign in with the user's username and password. Android uses native credential login, so every user needs a password; there is no passwordless picker.
 
-Behind a reverse proxy, set `network.web.publicUrl` to the address users open, for example `https://zluggish.example.com`. The web app then accepts requests only from that address, and an `https` address marks sign-in cookies `Secure`. Set `network.web.enabled: false` to run without the web app.
+Behind a reverse proxy, set `network.web.publicUrl` to the address users open, for example `https://zluggish.example.com`. The web app then accepts requests only from that address, and an `https` URL marks sign-in cookies `Secure`. Set `network.web.enabled: false` to run without the web app.
 
 ### User pages
 
 Every user has these pages in the menu:
 
-| Page         | Use                                                                                                 |
-| ------------ | --------------------------------------------------------------------------------------------------- |
-| Profile      | View and edit your profile and avatar                                                               |
-| Activities   | Browse saved activities by month, see route, elevation and stats, download FIT files and images     |
-| Import       | Import profile data from local files or from your official Zwift account                            |
-| Export       | Download your user data                                                                             |
-| Power curves | Delete stored power curves and optionally recreate them from saved activities                       |
-| Settings     | Ghosts, Strava upload method, TrainingPeaks folder, and Connections (Strava, Garmin, Intervals.icu) |
-| Password     | Change your own password                                                                            |
+| Page       | Use                                                                                               |
+| ---------- | ------------------------------------------------------------------------------------------------- |
+| Profile    | View and edit your profile and avatar                                                             |
+| Activities | Browse saved activities by month, see route, elevation and stats, download FIT files and images   |
+| Import     | Import profile data from local files or from your official Zwift account                          |
+| Export     | Download your user data                                                                           |
+| Settings   | Ghosts, Connections (Strava, Garmin, Intervals.icu, TrainingPeaks), and regenerating power curves |
+| Password   | Change your own password                                                                          |
 
 ### Administrator pages
 
 Administrators also see **Users** and **Server** under **Manage**:
 
 - **Users**: create users, enable or disable them, grant or remove the administrator role, set passwords, end sessions, delete users, and edit a user's settings.
-- **Server**: restart the server with an in-game countdown (and cancel it), reload or command bots, edit stored world settings such as blob and peloton overrides, edit and delete events, and view the effective configuration. Changes to `zluggish.config.ts` still require a restart.
+- **Server**: reload or command bots, edit stored world settings such as blob and peloton overrides, edit and delete events, and view the effective configuration. Changes to `zluggish.config.ts` still require a restart.
 
 ### Ports
 
@@ -333,11 +332,11 @@ Set `network.host: '::'` in `zluggish.config.ts`, or choose per-listener `host` 
 
 Zluggish is a rework of the legacy zwift-offline app. Here are the key differences:
 
-- Codebase rewritten in Typescript
+- Codebase rewritten in TypeScript
 - Svelte web app for managing users, server settings, activities and integrations
 - Improved persistence layer and settings management
 
-We aim to import and convert your storage automatically, but we strongly suggest you backup your zwift-offline folder before attempting the upgrade.
+We aim to import and convert your storage automatically, but we strongly suggest you back up your zwift-offline folder before attempting the upgrade.
 
 After the upgrade, you will need to set user passwords again. During [first-time setup](#first-time-setup) in the web app, choose an existing migrated user that has a password to become the administrator; users without a password need one set with the [admin CLI](server/README.md) first.
 
@@ -356,7 +355,7 @@ After the upgrade, you will need to set user passwords again. During [first-time
 
 - Set `bots.enabled` to `true` in `zluggish.config.ts` to load ghosts as bots; they keep riding regardless of your route.
 - Set `bots.multiplier` to an integer from 1 to 100 to duplicate bots. Large numbers can affect performance.
-- Type `.group` in chat to group the bots, or `.groupall` to include duplicates (if using multiplier). Type `.autogroup` or `.autogroupall` to automatically group whenever you change roads. Type `.stopautogroup` to stop automatic grouping, or `.disperse` to randomize positions.
+- Type `.group` in chat to group the bots, or `.groupall` to include duplicates (if using a multiplier). Type `.autogroup` or `.autogroupall` to automatically group whenever you change roads. Type `.stopautogroup` to stop automatic grouping, or `.disperse` to randomize positions.
 - Names, nationalities and equipment can be customized by creating a file `bot.txt` inside the `storage` folder. The former Python catalogue helper is not included; preserve an existing catalogue and set `bots.ridersFile` to its path in `zluggish.config.ts`.
 - If you want some random bots, check [this repository](https://github.com/oldnapalm/zoffline-bots).
 
@@ -364,18 +363,18 @@ After the upgrade, you will need to set user passwords again. During [first-time
 
 <details><summary>RoboPacers</summary>
 
-- RoboPacers are ghosts saved using a power simulator, you can find some in [this repository](https://github.com/oldnapalm/zoffline-bots).
-- The ghost must be recorded using update frequency of 1 second (default is 3 seconds).
-- The activity must start and finish at the same position and speed, otherwise the bot won't loop smoothly.
+- RoboPacers are ghosts saved using a power simulator. You can find some in [this repository](https://github.com/oldnapalm/zoffline-bots).
+- The ghost must be recorded using an update frequency of 1 second (the default is 3 seconds).
+- The activity must start and finish at the same position and speed; otherwise the bot won't loop smoothly.
 - The profile must contain a unique player ID and the route ID, so that when you join the bot you take the same turns at intersections.
 - Store each pacer’s `profile.bin` and `route.bin` in `storage/robopacers/<pacer-name>/`. The old Python `bot_editor.py` helper has been removed; use an existing compatible recording or external tooling to prepare its ID, route and loop.
-- If you want to create a dynamic RoboPacer (increase power on climbs and decrease on descents) you can use [standalone_power.py](https://github.com/oldnapalm/zwift-offline/blob/master/standalone_power.py) (requires 2 ANT sticks, [python-ant](https://github.com/mch/python-ant) and [PowerMeterTx.py](https://github.com/oldnapalm/zwift-offline/blob/master/PowerMeterTx.py)).
+- If you want to create a dynamic RoboPacer (increase power on climbs and decrease it on descents), you can use [standalone_power.py](https://github.com/oldnapalm/zwift-offline/blob/master/standalone_power.py) (requires 2 ANT sticks, [python-ant](https://github.com/mch/python-ant) and [PowerMeterTx.py](https://github.com/oldnapalm/zwift-offline/blob/master/PowerMeterTx.py)).
 
 </details>
 
 <details><summary>Pelotons (RoboPacer + follower bots)</summary>
 
-- A peloton is one RoboPacer followed by a custom group of bots riding in formation around and behind it, so joining the pacer feels like riding in a real group.
+- A peloton consists of one RoboPacer followed by a custom group of bots riding in formation around and behind it, so joining the pacer feels like riding in a real group.
 - Followers move up and back inside the group, drift laterally, stretch out on climbs (weaker riders lose some meters and come back on the flat), coast on descents and show realistic power (drafting), cadence and heart rate.
 - Quick way: ride next to a RoboPacer and type `.peloton 20` in chat (`.peloton` shows the current size, `.peloton off` removes it). Chat changes persist as SQLite overrides; they do not rewrite `zluggish.config.ts`.
 - Or add a `pelotons` array to `zluggish.config.ts`. Each entry needs a stable `id` and a `pacer` (the folder name inside `storage/robopacers` or its player ID). Other fields have defaults:
@@ -431,7 +430,7 @@ export default defineConfig({
 
 <details><summary>Solo blob</summary>
 
-- Solo peloton "blob" is a group of bots that swarm around the player, in real time - no RoboPacer needed.
+- A solo peloton "blob" is a group of bots that swarm around the player, in real time - no RoboPacer needed.
 - The bots ride the actual trail you just rode (real corners, hills and speed), sit wheel to wheel behind you to use the draft, mix and rotate: somebody comes up to your handlebars, pulls for a while, then drifts back through the group and somebody else takes over.
 - Chat commands:
   - `.blob <n>` - start/keep a blob of n riders around you
@@ -457,7 +456,7 @@ export default defineConfig({
 
 <details><summary>All-time leaderboards</summary>
 
-- To enable all-time leaderboards (override 60 minutes live results and 90 days personal records), set `leaderboards.allTime` to `true` in `zluggish.config.ts`.
+- To enable all-time leaderboards (overriding the 60-minute window for live results and the 90-day window for personal records), set `leaderboards.allTime` to `true` in `zluggish.config.ts`.
 - Jerseys are still valid for 60 minutes but will be granted only when a new all-time record is set.
 
 </details>
@@ -513,7 +512,7 @@ Enable guild-member and message-content intents for the bot. The bridge supports
 
 ## Community Discord server and Strava club
 
-Please join the community supported [Discord](https://discord.gg/GMdn8F8) server and [Strava](https://www.strava.com/clubs/zoffline) club.
+Please join the community-supported [Discord](https://discord.gg/GMdn8F8) server and [Strava](https://www.strava.com/clubs/zoffline) club.
 
 ## Dependencies
 
@@ -540,7 +539,7 @@ Alternatively, [this script](https://gist.github.com/oldnapalm/556c58448a6ee0943
 
 <details><summary>Update failed during patching</summary>
 
-If you get this error even though Zluggish is up to date, rename the file `Zwift_ver_cur.<version>.xml` in Zwift directory to `Zwift_ver_cur.xml` and edit the file `Zwift_ver_cur_filename.txt` accordingly.
+If you get this error even though Zluggish is up to date, rename the file `Zwift_ver_cur.<version>.xml` in the Zwift directory to `Zwift_ver_cur.xml` and edit the file `Zwift_ver_cur_filename.txt` accordingly.
 
 </details>
 

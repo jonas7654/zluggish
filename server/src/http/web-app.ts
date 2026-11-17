@@ -177,7 +177,7 @@ export function createWebApp(runtime: HttpRuntime) {
     return c.json({ confirmedUntil: sessions.find(c.get('sessionId'))!.confirmedUntil });
   });
   app.post('/api/me/password', async (c) => {
-    const input = z.strictObject({ current_password: password, password }).parse(await c.req.json());
+    const input = z.strictObject({ current_password: password.optional(), password }).parse(await c.req.json());
     await management.changeOwnPassword(c.get('sessionId'), input.current_password, input.password);
     sessions.end(c.get('sessionId'));
 
@@ -315,12 +315,10 @@ export function createWebApp(runtime: HttpRuntime) {
       }),
       worldSettings: management.worldSettings(),
       readOnly: true,
-      reason:
-        'These values are stored in the operator configuration file. Stop the server and edit that file to change them.',
     }),
   );
 
-  for (const action of ['restart', 'cancel-restart', 'reload-bots', 'bots'])
+  for (const action of ['reload-bots', 'bots'])
     app.post(`/api/manage/server/${action}`, async (c) =>
       c.json(
         await management.serverOperation(c.get('sessionId'), action, await c.req.json(), () => durability.flush(), {
@@ -373,11 +371,9 @@ export function createWebApp(runtime: HttpRuntime) {
     '/setup',
     '/sign-in',
     '/settings',
-    '/password',
     '/import',
     '/import/*',
     '/export',
-    '/power-curves',
     '/zwift',
     '/activities',
     '/activities/*',

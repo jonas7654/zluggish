@@ -24,8 +24,6 @@
     onuser: () => Promise<void>;
   } = $props();
 
-  let recreate = $state(false);
-  let confirm = $state(false);
   let filenames = $state<string[]>([]);
   let review = $state<Review | null>(null);
   let connection = $state<Connection | null>(null);
@@ -63,7 +61,7 @@
   }
 
   onMount(() => {
-    if (path === '/import' || path === '/power-curves') return;
+    if (path === '/import') return;
 
     if (path === '/export') {
       void run(async () => {
@@ -91,28 +89,6 @@
       <p>No files available to export.</p>
     {/each}
   </section>
-{:else if path === '/power-curves'}
-  <form
-    class="panel"
-    onsubmit={(e) => {
-      e.preventDefault();
-      void run(async () => {
-        const result = await request<{ message: string }>('/api/me/power-curves', 'POST', {
-          confirm,
-          create: recreate,
-        });
-        confirm = false;
-        message = result.message;
-      });
-    }}
-  >
-    <label><input type="checkbox" bind:checked={recreate} disabled={busy} /> Recreate from saved activities</label>
-    <label
-      ><input type="checkbox" bind:checked={confirm} required disabled={busy} /> I confirm: Delete existing power curves?
-      Rebuilding may take some time.</label
-    >
-    <button disabled={busy || !confirm}>Delete existing power curves</button>
-  </form>
 {:else if path === '/import'}
   <p>Choose how to import your profile data.</p>
   <nav class="import-options" aria-label="Import source">
@@ -149,7 +125,7 @@
   </nav>
 {/if}
 {#if message}<p class="notice" class:failed role={failed ? 'alert' : 'status'}>{message}</p>{/if}
-{#if path !== '/import' && path !== '/export' && path !== '/power-curves' && review}
+{#if path !== '/import' && path !== '/export' && review}
   <form
     class="panel"
     onsubmit={(e) => {

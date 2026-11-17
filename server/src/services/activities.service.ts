@@ -585,7 +585,8 @@ export class ActivitiesService extends BaseService {
 
     if (fileId !== null && this.filesRepository.existsSync(this.chartPath(fileId))) return fileId;
 
-    if (!this.completionRepository.get(activity) || !this.activitiesRepository.fit(activity)?.fit) return null;
+    // Imported activities can have a canonical FIT payload without a completion record.
+    if (!this.activitiesRepository.fit(activity)?.fit?.length) return null;
 
     immediate(this.repositories.db, () => {
       const id = fileId ?? Number(this.activitiesRepository.insertActivityFile(activity).lastInsertRowid);

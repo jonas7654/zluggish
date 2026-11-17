@@ -98,7 +98,12 @@
   let avatarInput = $state<HTMLInputElement>();
   let dropping = $state(false);
   let currentPassword = $state('');
+  let changing = $state(false);
+  let changeButton = $state<HTMLButtonElement>();
   let settings = $state<UserSettings | null>(null);
+  let regenerating = $state(false);
+  let rebuild = $state(true);
+  let regenerateButton = $state<HTMLButtonElement>();
   let ghosts = $state(false);
   let stravaMethod = $state('paid');
   let bridgeFolder = $state('');
@@ -119,7 +124,7 @@
   let userSettings = $state<UserSettings | null>(null);
 
   // Server.
-  let serverConfig = $state<{ rows: [string, string][]; reason: string } | null>(null);
+  let serverConfig = $state<{ rows: [string, string][] } | null>(null);
   let worldSettings = $state<WorldSetting[]>([]);
   let worldSetting = $state<WorldSetting | null>(null);
   let worldValues = $state<Record<string, string | number | boolean>>({});
@@ -169,15 +174,11 @@
                     ? 'Import'
                     : path === '/export'
                       ? 'Export'
-                      : path === '/power-curves'
-                        ? 'Power curves'
-                        : path === '/zwift'
-                          ? 'Zwift connection'
-                          : path === '/settings'
-                            ? 'Settings'
-                            : path === '/password'
-                              ? 'Password'
-                              : 'Profile',
+                      : path === '/zwift'
+                        ? 'Zwift connection'
+                        : path === '/settings'
+                          ? 'Settings'
+                          : 'Profile',
   );
 
   const initials = (r: User) => `${r.first_name.charAt(0)}${r.last_name.charAt(0)}`.toUpperCase();
@@ -292,16 +293,41 @@
   async function loadServer() {
     const body = await api('/api/manage/settings');
     worldSettings = body.worldSettings;
-    serverConfig = { rows: body.configuration, reason: body.reason };
+    serverConfig = { rows: body.configuration };
     events = (await api('/api/manage/events')).events;
   }
 
+  /** The values in effect: the user's own choice, or the server default. */
+  function preferences(body: UserSettings) {
+    return {
+      ghosts: Boolean(body.overrides['ghosts.enabled'] ?? body.defaults.ghosts.enabled),
+      stravaMethod: String(body.overrides['uploads.strava.method'] ?? body.defaults.uploads.strava.method),
+      bridgeFolder: String(
+        body.overrides['workouts.trainingpeaks.bridgeFolder'] ?? body.defaults.workouts.trainingpeaks.bridgeFolder,
+      ),
+    };
+  }
+
   function applySettings(body: UserSettings) {
-    ghosts = Boolean(body.overrides['ghosts.enabled'] ?? body.defaults.ghosts.enabled);
-    stravaMethod = String(body.overrides['uploads.strava.method'] ?? body.defaults.uploads.strava.method);
-    bridgeFolder = String(
-      body.overrides['workouts.trainingpeaks.bridgeFolder'] ?? body.defaults.workouts.trainingpeaks.bridgeFolder,
-    );
+    ({ ghosts, stravaMethod, bridgeFolder } = preferences(body));
+  }
+
+  async function saveSettings() {
+    settings = await api('/api/me/settings', 'PATCH', settingsBody(settings!));
+  }
+
+  /** A single switch saves as soon as it changes, and flips back if the server refuses it. */
+  function saveGhosts() {
+    void run(async () => {
+      try {
+        await saveSettings();
+      } catch (error) {
+        ghosts = !ghosts;
+        throw error;
+      }
+
+      done(ghosts ? 'Ghosts turned on.' : 'Ghosts turned off.');
+    }, 'settings');
   }
 
   function applyProfile(body: { user: User; birthday: string; avatar: number | null }) {
@@ -579,7 +605,65 @@
     done('User saved.');
   }
 
-  type ServerAction = 'restart' | 'cancel-restart' | 'reload-bots';
+  function openPassword() {
+    currentPassword = '';
+    password = '';
+    confirmPassword = '';
+    message = '';
+    fieldErrors = {};
+    changing = true;
+  }
+
+  function closePassword() {
+    changing = false;
+    message = '';
+    changeButton?.focus();
+  }
+
+  /** Changing the password ends every session, this one too. */
+  async function changePassword() {
+    if (password !== confirmPassword) {
+      fieldErrors = { confirm: ['Passwords do not match.'] };
+      throw new Error('Check the form fields.');
+    }
+
+    await api('/api/me/password', 'POST', {
+      ...(!administrator && { current_password: currentPassword }),
+      password,
+    });
+    await api('/api/setup');
+    changing = false;
+    user = null;
+    avatar = undefined;
+    currentPassword = '';
+    password = '';
+    confirmPassword = '';
+    go('/sign-in');
+    done('Password changed. Sign in with the new password.');
+  }
+
+  function closeRegenerate() {
+    regenerating = false;
+    regenerateButton?.focus();
+  }
+
+  /** Without a rebuild the curves stay empty until the next ride. */
+  async function regenerate() {
+    regenerating = false;
+    await api('/api/me/power-curves', 'POST', { confirm: true, create: rebuild });
+    done(
+      rebuild
+        ? 'Regenerating power curves. They fill in as each saved activity is processed.'
+        : 'Power curves deleted. They fill in again as you ride.',
+    );
+  }
+
+  /** The dialog opens on its first field. */
+  function focusFirst(node: HTMLElement) {
+    node.querySelector('input')?.focus();
+  }
+
+  type ServerAction = 'reload-bots';
 
   function serverOperation(
     action: ServerAction,
@@ -659,7 +743,11 @@
 
 <svelte:window
   onkeydown={(e) => {
-    if (e.key === 'Escape' && pending && !busy) pending = null;
+    if (e.key !== 'Escape' || busy) return;
+
+    if (pending) pending = null;
+    else if (changing) closePassword();
+    else if (regenerating) closeRegenerate();
   }}
 />
 
@@ -694,9 +782,7 @@
       {@render link('/activities', 'Activities', title === 'Activities')}
       {@render link('/import', 'Import', path === '/import' || path === '/import/local' || path === '/zwift')}
       {@render link('/export', 'Export', path === '/export')}
-      {@render link('/power-curves', 'Power curves', path === '/power-curves')}
       {@render link('/settings', 'Settings', path === '/settings')}
-      {@render link('/password', 'Password', path === '/password')}
       {#if administrator}
         <p class="group">Manage</p>
         {@render link('/manage', 'Users', manage && path !== '/manage/server')}
@@ -710,7 +796,7 @@
 <div class="app">
   <Layout
     {title}
-    heading={!user && title !== 'Profile' && title !== 'Activities' && path !== '/password'}
+    heading={!user && title !== 'Profile' && title !== 'Activities'}
     page={manage ? 'manage' : 'account'}
     back={manage && path.startsWith('/manage/users/') ? { href: '/manage', label: 'All users' } : undefined}
     onback={() => {
@@ -723,7 +809,7 @@
       void navigate('/');
     }}
   >
-    {#if message}<p class="notice" class:failed role={failed ? 'alert' : 'status'}>{message}</p>{/if}
+    {#if message && !changing}<p class="notice" class:failed role={failed ? 'alert' : 'status'}>{message}</p>{/if}
 
     {#if loading}<p role="status">Loading…</p>
     {:else if !user}
@@ -878,32 +964,8 @@
         {#if path === '/manage/server'}
           <div class="columns">
             <section class="panel">
-              <h2>Restart</h2>
-              <p class="muted">A restart disconnects every user when the countdown ends.</p>
+              <h2>Bots</h2>
               <div class="actions">
-                <button
-                  class="danger"
-                  disabled={busy}
-                  onclick={() =>
-                    serverOperation(
-                      'restart',
-                      'Restart the server',
-                      'Users get a countdown in the game. Every user is disconnected when it ends.',
-                      'Restart scheduled.',
-                      true,
-                    )}>Restart with countdown</button
-                >
-                <button
-                  disabled={busy}
-                  onclick={() =>
-                    serverOperation(
-                      'cancel-restart',
-                      'Cancel the restart',
-                      'The countdown stops.',
-                      'Restart canceled.',
-                      false,
-                    )}>Cancel restart</button
-                >
                 <button
                   disabled={busy}
                   onclick={() =>
@@ -1097,7 +1159,6 @@
           {#if serverConfig}
             <section class="panel">
               <h2>Configuration</h2>
-              <p class="muted">{serverConfig.reason}</p>
               <dl class="config">
                 {#each serverConfig.rows as [field, value] (field)}<div>
                     <dt>{field}</dt>
@@ -1289,7 +1350,7 @@
                 <section class="panel">
                   <h2>Password</h2>
                   <p class="muted">
-                    Change your own password on {@render link('/password', 'the Password page', false)}.
+                    Change your own password on {@render link('/', 'your profile', false)}.
                   </p>
                 </section>
               {/if}
@@ -1421,7 +1482,7 @@
         {/if}
       </div>
     {:else}
-      {#if path === '/import' || path === '/import/local' || path === '/zwift' || path === '/export' || path === '/power-curves'}
+      {#if path === '/import' || path === '/import/local' || path === '/zwift' || path === '/export'}
         {#key path}<ProfileData
             {path}
             request={api}
@@ -1434,73 +1495,36 @@
         <Activities {path} {api} {go} />
       {:else if path === '/settings'}
         {#if settings}
-          <form
-            class="panel narrow"
-            onsubmit={(e) => {
-              e.preventDefault();
-              void run(async () => {
-                settings = await api('/api/me/settings', 'PATCH', settingsBody(settings!));
-                done('Settings saved.');
-              }, 'settings');
-            }}
-          >
-            {@render settingsFields(settings)}
-            <button class="primary" disabled={busy}>Save settings</button>
-          </form>
-          <Connections {api} />
+          <section class="panel narrow ghosts" aria-labelledby="ghosts-title">
+            <h2 id="ghosts-title">Ghosts</h2>
+            <label class="check"
+              ><input type="checkbox" bind:checked={ghosts} disabled={busy} onchange={saveGhosts} /> Ride with ghosts</label
+            >
+            <p class="muted">
+              Every ride you finish is kept as a ghost of that route. The next time you ride the same route, your
+              earlier efforts appear on the road beside you, so you can race your past self. Type <kbd>.regroup</kbd> in
+              chat to bring them back to you.
+            </p>
+          </section>
+          <Connections {api} bind:stravaMethod bind:bridgeFolder saved={preferences(settings)} save={saveSettings} />
+          <section class="panel narrow curves" aria-labelledby="curves-title">
+            <h2 id="curves-title">Power curves</h2>
+            <p class="muted">
+              Zwift shows your best power for every duration, from short sprints to long climbs, worked out from the
+              activities saved on this server. If those numbers look wrong, for example after importing old activities,
+              regenerate them.
+            </p>
+            <button
+              type="button"
+              bind:this={regenerateButton}
+              disabled={busy}
+              onclick={() => {
+                rebuild = true;
+                regenerating = true;
+              }}>Regenerate power curves</button
+            >
+          </section>
         {/if}
-      {:else if path === '/password'}
-        <form
-          class="panel narrow"
-          onsubmit={(e) => {
-            e.preventDefault();
-            void run(async () => {
-              if (password !== confirmPassword) {
-                fieldErrors = { confirm: ['Passwords do not match.'] };
-                throw new Error('Check the form fields.');
-              }
-              await api('/api/me/password', 'POST', { current_password: currentPassword, password });
-              await api('/api/setup');
-              user = null;
-              avatar = undefined;
-              currentPassword = '';
-              password = '';
-              confirmPassword = '';
-              go('/sign-in');
-              done('Password changed. Sign in with the new password.');
-            }, 'password');
-          }}
-        >
-          <p class="muted">You sign out everywhere, also in the game.</p>
-          <TextField
-            id="own-current"
-            label="Current password"
-            password
-            bind:value={currentPassword}
-            autocomplete="current-password"
-            required
-            errors={errors('password', 'current_password')}
-          />
-          <TextField
-            id="own-new"
-            label="New password"
-            password
-            bind:value={password}
-            autocomplete="new-password"
-            required
-            errors={errors('password', 'password')}
-          />
-          <TextField
-            id="own-confirm"
-            label="Confirm new password"
-            password
-            bind:value={confirmPassword}
-            autocomplete="new-password"
-            required
-            errors={errors('password', 'confirm')}
-          />
-          <button class="primary" disabled={busy}>Change password</button>
-        </form>
       {:else}
         <form
           class="panel narrow"
@@ -1604,7 +1628,12 @@
             bind:value={birthday}
             errors={errors('profile', 'birthday')}
           />
-          <button class="primary" disabled={busy}>Save profile</button>
+          <div class="actions">
+            <button class="primary" disabled={busy}>Save profile</button>
+            <button type="button" bind:this={changeButton} disabled={busy} onclick={openPassword}
+              >Change password</button
+            >
+          </div>
         </form>
       {/if}
     {/if}
@@ -1620,6 +1649,93 @@
   </select>
   <TextField id="bridge-folder" label="TrainingPeaks export folder" bind:value={bridgeFolder} maxlength={500} />
 {/snippet}
+
+{#if changing && user}
+  <div class="scrim">
+    <div
+      class="dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="password-title"
+      aria-describedby="password-detail"
+      use:focusFirst
+    >
+      <h2 id="password-title">Change password</h2>
+      <p id="password-detail" class="muted">You will be signed out everywhere, including in Zwift.</p>
+      <form
+        onsubmit={(e) => {
+          e.preventDefault();
+          void run(changePassword, 'password');
+        }}
+      >
+        {#if message && failed}<p class="notice failed" role="alert">{message}</p>{/if}
+        {#if !administrator}
+          <TextField
+            id="own-current"
+            label="Current password"
+            password
+            bind:value={currentPassword}
+            autocomplete="current-password"
+            required
+            errors={errors('password', 'current_password')}
+          />
+        {/if}
+        <TextField
+          id="own-new"
+          label="New password"
+          password
+          bind:value={password}
+          autocomplete="new-password"
+          required
+          errors={errors('password', 'password')}
+        />
+        <TextField
+          id="own-confirm"
+          label="Confirm new password"
+          password
+          bind:value={confirmPassword}
+          autocomplete="new-password"
+          required
+          errors={errors('password', 'confirm')}
+        />
+        <div class="actions">
+          <button type="button" disabled={busy} onclick={closePassword}>Cancel</button>
+          <button class="primary" disabled={busy}>Change password</button>
+        </div>
+      </form>
+    </div>
+  </div>
+{/if}
+
+{#if regenerating}
+  <div class="scrim">
+    <div
+      class="dialog"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="curves-dialog-title"
+      aria-describedby="curves-dialog-detail"
+    >
+      <h2 id="curves-dialog-title">Regenerate power curves?</h2>
+      <p id="curves-dialog-detail">
+        {#if rebuild}
+          Your current power curves are deleted and rebuilt from your saved activities. Rebuilding takes some time: the
+          curves fill in gradually as each activity is processed.
+        {:else}
+          Your current power curves are deleted and stay empty until your next ride.
+        {/if}
+      </p>
+      <label class="check"><input type="checkbox" bind:checked={rebuild} /> Rebuild from my saved activities</label>
+      <div class="actions">
+        <!-- svelte-ignore a11y_autofocus (the safe choice takes focus when the dialog opens) -->
+        <button autofocus disabled={busy} onclick={closeRegenerate}>Cancel</button>
+        <button class="danger" disabled={busy} onclick={() => run(regenerate)}
+          >{rebuild ? 'Regenerate power curves' : 'Delete power curves'}</button
+        >
+      </div>
+    </div>
+  </div>
+{/if}
 
 {#if pending}
   <div class="scrim">
@@ -1876,6 +1992,30 @@
     align-items: center;
     gap: 0.55rem;
     color: var(--text);
+  }
+  .ghosts label.check {
+    margin-top: 0;
+  }
+  .ghosts p {
+    margin-bottom: 0;
+  }
+  .curves p {
+    margin-top: 0;
+  }
+  .curves button {
+    margin-top: 0.25rem;
+  }
+  .dialog label.check {
+    margin: 1rem 0 0.25rem;
+    cursor: pointer;
+  }
+  kbd {
+    padding: 0.05rem 0.35rem;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    background: var(--well);
+    color: var(--text);
+    font: inherit;
   }
 
   .users-head {

@@ -271,6 +271,26 @@ await test('a public URL pins the accepted origin and marks https cookies Secure
   assert.equal(await responseStatus(check('https://zluggish.example.com')), 200);
 });
 
+await test('imported activities without completion records rebuild missing charts from their FIT payload', async (t) => {
+  const f = await mediumFixture(t);
+  const fit = readFileSync(new URL('../fixtures/ride.fit', import.meta.url));
+
+  const { lastInsertRowid: id } = f.accounts.db
+    .prepare('INSERT INTO activity (player_id, name, fit, distanceInMeters) VALUES (?, ?, ?, 3000)')
+    .run(f.rider.player_id, 'Imported ride', fit);
+
+  assert.equal(f.accounts.db.prepare('SELECT count(*) AS n FROM activity_completion').get()?.n, 0);
+  const pending = f.services.activities.ownDetail(f.rider.player_id, String(id));
+  assert.equal(pending.chartPending, true);
+  // Repeated detail requests must share the same pending chart job.
+  f.services.activities.ownDetail(f.rider.player_id, String(id));
+  assert.equal(f.accounts.db.prepare("SELECT count(*) AS n FROM job WHERE type='chart'").get()?.n, 1);
+  await f.services.jobs.drain();
+  const detail = f.services.activities.ownDetail(f.rider.player_id, String(id));
+  assert.equal(detail.chartPending, false);
+  assert.ok(detail.chart.timeInSec.length > 0);
+});
+
 await test('riders list, inspect and download only their own activities in the web app', async (t) => {
   const f = await mediumFixture(t);
   const web = createWebApp(f);

@@ -209,6 +209,7 @@ await test('web connections keep saved secrets, show Garmin MFA and run workout 
   const page = await context.newPage();
   await webSignIn(page, f, rider);
   await page.goto(`${f.webOrigin}/settings`);
+  await page.getByRole('button', { name: /^Strava/ }).click();
   const strava = page.locator('form').filter({ has: page.getByLabel('Client ID') });
   await strava.getByLabel('Client ID').fill('123');
   await strava.getByLabel('Client secret').fill('private-client-secret');
@@ -220,20 +221,24 @@ await test('web connections keep saved secrets, show Garmin MFA and run workout 
   await page.getByText('Credentials saved.', { exact: true }).waitFor();
   assert.deepEqual(f.services.connections.read(rider.player_id, 'strava'), ['456', 'private-client-secret']);
 
+  await page.getByLabel('Upload method').selectOption('free');
+  await page.getByText('Upload method saved.', { exact: true }).waitFor();
   await page.getByLabel('_strava4_session').fill('session-cookie');
   await page.getByRole('button', { name: 'Save session cookie' }).click();
   await page.getByText('Session cookie saved.', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Test session' }).click();
   await page.getByText('Session is valid.', { exact: true }).waitFor();
 
+  await page.getByRole('button', { name: /^Garmin/ }).click();
   const garmin = page.locator('form').filter({ has: page.getByLabel('Email') });
   await garmin.getByLabel('Email').fill('garmin-user');
   await garmin.getByLabel('Password').fill('garmin-secret');
   await garmin.getByRole('button', { name: 'Save credentials' }).click();
   await page.getByText('Credentials saved.', { exact: true }).waitFor();
-  await page.getByRole('button', { name: 'Authorize' }).nth(1).click();
+  await page.getByRole('button', { name: 'Authorize', exact: true }).click();
   await page.getByLabel('Verification code').waitFor();
 
+  await page.getByRole('button', { name: /^Intervals\.icu/ }).click();
   const intervals = page.locator('form').filter({ has: page.getByLabel('Athlete ID') });
   await intervals.getByLabel('Athlete ID').fill('42');
   await intervals.getByLabel('API key').fill('intervals-secret');
