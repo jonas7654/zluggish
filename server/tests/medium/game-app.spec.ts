@@ -169,8 +169,7 @@ await test('launcher downloads and connection controls use persisted database do
   const browser = await mediumBrowser(f);
   const player = f.rider.player_id;
   f.services.documents.put(player, 'economy_config.txt', 'database economy');
-  const settings = await browser.request(`/settings/${f.rider.username}/`);
-  assert.match(await settings.text(), /Download economy_config.txt/);
+  // Downloads moved to the web app; the legacy form endpoint still serves saved documents.
   const download = await browser.form('/download', { filename: 'economy_config.txt' });
   assert.equal(download.status, 200);
   assert.equal(await download.text(), 'database economy');
