@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { configSchema } from '#src/config/schema';
 import { EventsService } from '#src/services/events.service';
 import { storedSchema, inputSchema as meetupInput } from '#src/dtos/meetup.dto';
@@ -5,6 +6,7 @@ import {
   eventRequest,
   worldRequest,
   editRiderRequest,
+  ownProfileRequest,
   settingsRequest,
   newRider,
   setupRequest,
@@ -373,6 +375,89 @@ export class ManagementService extends BaseService {
       const result = this.publicRider(this.context.accounts.get(player)!);
       this.store.audit(actor.player_id, player, 'edit', input.operation, this.publicRider(target), result);
       this.store.record(actor.player_id, input.operation, 'edit', player, fingerprint, result);
+
+      return result;
+    });
+  }
+
+  ownProfile(id: string) {
+    const rider = this.sessions.require(id);
+    const [month, day, year] = this.context.profiles.get(rider.player_id).dob.split('/');
+
+    return {
+      rider: this.publicRider(this.context.accounts.get(rider.player_id)!),
+      birthday: year && month && day ? `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}` : '',
+      avatar: this.avatarVersion(rider.player_id),
+    };
+  }
+
+  /** The game and the Companion app read the same file. */
+  avatarPath(player: number) {
+    return resolve(this.context.profiles.folder(player), 'avatarLarge.jpg');
+  }
+
+  /** Changes with each upload, so the browser does not show a cached photo. */
+  avatarVersion(player: number) {
+    const path = this.avatarPath(player);
+
+    return this.filesRepository.existsSync(path) ? Math.trunc(this.filesRepository.statSync(path).mtimeMs) : null;
+  }
+
+  saveAvatar(id: string, image: Uint8Array) {
+    const rider = this.sessions.require(id);
+
+    if (image.length < 4 || image[0] !== 0xff || image[1] !== 0xd8 || image.at(-2) !== 0xff || image.at(-1) !== 0xd9)
+      throw new ApplicationError(400, 'Choose a JPG or PNG image.');
+    this.filesRepository.write(this.avatarPath(rider.player_id), image);
+
+    return { avatar: this.avatarVersion(rider.player_id) };
+  }
+
+  removeAvatar(id: string) {
+    const rider = this.sessions.require(id);
+    const path = this.avatarPath(rider.player_id);
+
+    if (this.filesRepository.existsSync(path)) this.filesRepository.unlinkSync(path);
+
+    return { avatar: null };
+  }
+
+  editOwnProfile(id: string, raw: z.input<typeof ownProfileRequest>) {
+    const input = ownProfileRequest.parse(raw);
+
+    return this.store.transaction(() => {
+      const actor = this.sessions.require(id);
+      const player = actor.player_id;
+      const target = this.context.accounts.get(player)!;
+      const fingerprint = this.fingerprint(input);
+      const prior = this.store.operation(player, input.operation);
+
+      if (prior) {
+        if (prior.fingerprint !== fingerprint || prior.action !== 'profile')
+          throw new ApplicationError(409, 'Operation changed.');
+
+        return JSON.parse(prior.result!);
+      }
+
+      if (this.context.world.active(player))
+        throw new ApplicationError(409, 'Leave the game before changing your profile.');
+
+      if (target.revision !== input.revision) throw new ApplicationError(409, 'Profile changed. Reload the page.');
+
+      if (this.context.accounts.loginNameTaken(input.username, player))
+        throw new ApplicationError(409, 'Email address already in use.');
+
+      const profile = this.context.profiles.get(player);
+      profile.firstName = input.first_name;
+      profile.lastName = input.last_name;
+      profile.email = input.username;
+      profile.dob = input.birthday.replace(/^(\d{4})-(\d{2})-(\d{2})$/, '$2/$3/$1');
+      this.context.profiles.save(player, profile);
+      this.store.update(player, { username: input.username }, false);
+      const before = this.publicRider(target);
+      const result = this.ownProfile(id);
+      this.store.audit(player, player, 'profile', input.operation, before, result.rider);
+      this.store.record(player, input.operation, 'profile', player, fingerprint, result);
 
       return result;
     });

@@ -3,6 +3,7 @@
 
   let {
     title,
+    heading = true,
     page,
     back,
     version,
@@ -12,6 +13,8 @@
     children,
   }: {
     title: string;
+    /** False keeps the title for screen readers only, when the page is already named elsewhere. */
+    heading?: boolean;
     page: string;
     back?: { href: string; label: string } | undefined;
     version: string;
@@ -146,14 +149,22 @@
   </div>
 </dialog>
 <main data-page={page} class:has-menu={!!menu}>
-  <header>
-    {#if back}<a class="back" href={back.href} aria-label={back.label} title={back.label}></a>{/if}
-    <h1>{title}</h1>
-  </header>
+  {#if heading || back}<header>
+      {#if back}<a class="back" href={back.href} aria-label={back.label} title={back.label}></a>{/if}
+      <h1>{title}</h1>
+    </header>{:else}<h1 class="hidden-heading">{title}</h1>{/if}
   {@render children()}
 </main>
 
 <style>
+  .hidden-heading {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
   .bar {
     display: flex;
     align-items: center;

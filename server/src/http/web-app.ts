@@ -52,8 +52,9 @@ export function createWebApp(runtime: HttpRuntime) {
 
   app.use('*', async (c, next) => {
     const upload = c.req.method === 'POST' && c.req.path === '/api/me/import';
+    const avatar = c.req.method === 'PUT' && c.req.path === '/api/me/avatar';
 
-    return bodyLimit({ maxSize: upload ? 81 * 1024 * 1024 : 64 * 1024 })(c, next);
+    return bodyLimit({ maxSize: upload ? 81 * 1024 * 1024 : avatar ? 2 * 1024 * 1024 : 64 * 1024 })(c, next);
   });
   app.use('*', async (c, next) => {
     c.header('Cache-Control', 'no-store');
@@ -89,7 +90,9 @@ export function createWebApp(runtime: HttpRuntime) {
       if (
         !(c.req.method === 'POST' && c.req.path === '/api/me/import'
           ? c.req.header('Content-Type')?.startsWith('multipart/form-data;')
-          : c.req.header('Content-Type')?.startsWith('application/json'))
+          : c.req.method === 'PUT' && c.req.path === '/api/me/avatar'
+            ? c.req.header('Content-Type') === 'image/jpeg'
+            : c.req.header('Content-Type')?.startsWith('application/json'))
       )
         throw new ApplicationError(400, 'JSON required.');
     }
@@ -179,6 +182,19 @@ export function createWebApp(runtime: HttpRuntime) {
 
     return c.json({ ok: true });
   });
+  app.get('/api/me/profile', (c) => c.json(management.ownProfile(c.get('sessionId'))));
+  app.patch('/api/me/profile', async (c) => c.json(management.editOwnProfile(c.get('sessionId'), await c.req.json())));
+  app.get('/api/me/avatar', (c) => {
+    const path = management.avatarPath(sessions.require(c.get('sessionId')).player_id);
+
+    if (!files.exists(path)) throw new ApplicationError(404, 'No photo.');
+
+    return c.body(new Uint8Array(files.read(path)), 200, { 'Content-Type': 'image/jpeg' });
+  });
+  app.put('/api/me/avatar', async (c) =>
+    c.json(management.saveAvatar(c.get('sessionId'), new Uint8Array(await c.req.arrayBuffer()))),
+  );
+  app.delete('/api/me/avatar', (c) => c.json(management.removeAvatar(c.get('sessionId'))));
   app.get('/api/me/settings', (c) => c.json(management.settings(sessions.require(c.get('sessionId')).player_id)));
   app.patch('/api/me/settings', async (c) => {
     const player = sessions.require(c.get('sessionId')).player_id;

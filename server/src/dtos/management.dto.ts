@@ -53,6 +53,15 @@ export const editRiderRequest = z.strictObject({
   last_name: z.string().trim().max(50),
 });
 
+export const ownProfileRequest = z.strictObject({
+  revision: z.number().int().positive(),
+  operation: z.string().uuid(),
+  username: loginName,
+  first_name: z.string().trim().min(1).max(50),
+  last_name: z.string().trim().max(50),
+  birthday: z.union([z.literal(''), z.iso.date()]),
+});
+
 export const settingsRequest = z.strictObject({
   revision: z.number().int().nonnegative(),
   operation: z.string().uuid(),

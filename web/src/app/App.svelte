@@ -4,6 +4,7 @@
   import Activities from './Activities.svelte';
   import Layout from '../components/Layout.svelte';
   import RiderRow from '../components/RiderRow.svelte';
+  import Avatar from '../components/Avatar.svelte';
   import TextField from './TextField.svelte';
 
   type ApiValue = string | number | boolean | null | undefined | ApiValue[] | { [key: string]: ApiValue };
@@ -96,6 +97,12 @@
   let last = $state('');
 
   // Profile.
+  let birthday = $state('');
+
+  // Undefined until loaded: the side menu shows the photo on every page.
+  let avatar = $state<number | null | undefined>(undefined);
+  let avatarInput = $state<HTMLInputElement>();
+  let dropping = $state(false);
   let currentPassword = $state('');
   let settings = $state<RiderSettings | null>(null);
   let integrationLinks = $state<{ label: string; href: string }[]>([]);
@@ -185,15 +192,18 @@
     return known ? name(known) : `Rider ${event.actor_player_id}`;
   }
 
-  async function api(url: string, method = 'GET', data?: ApiPayload | FormData) {
+  async function api(url: string, method = 'GET', data?: ApiPayload | FormData | Blob) {
     const headers = new Headers({ 'X-CSRF-Token': csrf });
 
-    if (!(data instanceof FormData)) headers.set('Content-Type', 'application/json');
+    if (data instanceof Blob) headers.set('Content-Type', data.type);
+    else if (!(data instanceof FormData)) headers.set('Content-Type', 'application/json');
 
     const response = await fetch(url, {
       method,
       headers,
-      ...(data !== undefined && { body: data instanceof FormData ? data : JSON.stringify(data) }),
+      ...(data !== undefined && {
+        body: data instanceof FormData || data instanceof Blob ? data : JSON.stringify(data),
+      }),
     });
 
     const body = await response.json();
@@ -211,6 +221,8 @@
 
       if (response.status === 401 && rider) {
         rider = null;
+        avatar = undefined;
+        avatar = undefined;
         go('/sign-in');
         await api('/api/setup');
         throw new Error('Your session ended. Sign in again.');
@@ -262,6 +274,8 @@
   async function enter() {
     if (!rider) return;
 
+    if (title === 'Profile' || avatar === undefined) await loadProfile();
+
     if (!manage) {
       if (path === '/settings') await loadSettings();
 
@@ -293,6 +307,60 @@
     bridgeFolder = String(
       body.overrides['workouts.trainingpeaks.bridgeFolder'] ?? body.defaults.workouts.trainingpeaks.bridgeFolder,
     );
+  }
+
+  function applyProfile(body: { rider: Rider; birthday: string; avatar: number | null }) {
+    rider = body.rider;
+    avatar = body.avatar;
+    first = body.rider.first_name;
+    last = body.rider.last_name;
+    username = body.rider.username;
+    birthday = body.birthday;
+  }
+
+  /** Zwift shows a square photo in a circle: crop the middle and keep the file small. */
+  async function squarePhoto(file: File) {
+    let bitmap: ImageBitmap;
+
+    try {
+      bitmap = await createImageBitmap(file);
+    } catch {
+      throw new Error('Choose a JPG or PNG image.');
+    }
+
+    const side = Math.min(bitmap.width, bitmap.height);
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = Math.min(side, 512);
+    canvas
+      .getContext('2d')!
+      .drawImage(
+        bitmap,
+        (bitmap.width - side) / 2,
+        (bitmap.height - side) / 2,
+        side,
+        side,
+        0,
+        0,
+        canvas.width,
+        canvas.height,
+      );
+    bitmap.close();
+
+    return new Promise<Blob>((done, fail) =>
+      canvas.toBlob((blob) => (blob ? done(blob) : fail(new Error('Could not read the image.'))), 'image/jpeg', 0.9),
+    );
+  }
+
+  function uploadPhoto(file: File | undefined) {
+    if (!file) return;
+    void run(async () => {
+      avatar = (await api('/api/me/avatar', 'PUT', await squarePhoto(file))).avatar;
+      done('Restart Zwift for the changes to take effect.');
+    });
+  }
+
+  async function loadProfile() {
+    applyProfile(await api('/api/me/profile'));
   }
 
   async function loadSettings() {
@@ -615,12 +683,22 @@
 
 {#snippet menu()}
   {#if rider}
-    <div class="me"><RiderRow initials={initials(rider)} name={name(rider)} detail={rider.username} /></div>
+    <div class="me">
+      <RiderRow
+        initials={initials(rider)}
+        photo={avatar ? `/api/me/avatar?v=${avatar}` : null}
+        name={name(rider)}
+        detail={rider.username}
+      />
+    </div>
     <nav class="menu" aria-label="Main">
       {@render link('/', 'Profile', title === 'Profile')}
       {@render link('/activities', 'Activities', title === 'Activities')}
-      {@render link('/import', 'Import profile data', path === '/import' || path === '/import/local')}
-      {@render link('/zwift', 'Zwift connection', path === '/zwift')}
+      {@render link(
+        '/import',
+        'Import profile data',
+        path === '/import' || path === '/import/local' || path === '/zwift',
+      )}
       {@render link('/settings', 'Settings', path === '/settings')}
       {@render link('/password', 'Password', path === '/password')}
       {#if administrator}
@@ -636,6 +714,7 @@
 <div class="app">
   <Layout
     {title}
+    heading={title !== 'Profile'}
     page={manage ? 'manage' : 'account'}
     {version}
     {zwiftVersion}
@@ -1380,7 +1459,9 @@
           </form>
           <section class="panel narrow">
             <h2>Connections</h2>
-            <p class="muted">Manage activity uploads and planned workouts. Connection pages may ask you to sign in again.</p>
+            <p class="muted">
+              Manage activity uploads and planned workouts. Connection pages may ask you to sign in again.
+            </p>
             <nav aria-label="Connections">
               <ul>
                 {#each integrationLinks as connection (connection.label)}
@@ -1403,6 +1484,7 @@
               await api('/api/me/password', 'POST', { current_password: currentPassword, password });
               await api('/api/setup');
               rider = null;
+              avatar = undefined;
               currentPassword = '';
               password = '';
               confirmPassword = '';
@@ -1442,29 +1524,110 @@
           <button class="primary" disabled={busy}>Change password</button>
         </form>
       {:else}
-        <section class="panel narrow">
-          <div class="detail-head">
-            <span class="identity"
-              ><RiderRow initials={initials(rider)} name={name(rider)} detail={rider.username} /></span
+        <form
+          class="panel narrow"
+          onsubmit={(e) => {
+            e.preventDefault();
+            void run(async () => {
+              applyProfile(
+                await api('/api/me/profile', 'PATCH', {
+                  revision: rider!.revision,
+                  operation,
+                  username,
+                  first_name: first,
+                  last_name: last,
+                  birthday,
+                }),
+              );
+              done('Profile saved. Restart Zwift for the changes to take effect.');
+            }, 'profile');
+          }}
+        >
+          <div class="photo">
+            <button
+              type="button"
+              class="portrait"
+              class:dropping
+              aria-label={avatar ? 'Change avatar' : 'Choose an avatar'}
+              disabled={busy}
+              onclick={() => avatarInput?.click()}
+              ondragover={(e) => {
+                e.preventDefault();
+                dropping = true;
+              }}
+              ondragleave={() => (dropping = false)}
+              ondrop={(e) => {
+                e.preventDefault();
+                dropping = false;
+                uploadPhoto(e.dataTransfer?.files[0]);
+              }}
+              ><Avatar initials={initials(rider)} photo={avatar ? `/api/me/avatar?v=${avatar}` : null} /><span
+                class="change"
+                aria-hidden="true">{avatar ? 'Change' : 'Choose'}</span
+              ></button
             >
-            <span class="num id">#{rider.player_id}</span>
+            <div>
+              <button type="button" disabled={busy} onclick={() => avatarInput?.click()}>Choose an avatar</button
+              >{#if avatar}<button
+                  type="button"
+                  class="danger"
+                  disabled={busy}
+                  onclick={() =>
+                    void run(async () => {
+                      avatar = (await api('/api/me/avatar', 'DELETE')).avatar;
+                      done('Restart Zwift for the changes to take effect.');
+                    })}>Remove</button
+                >{/if}
+            </div>
+            <input
+              bind:this={avatarInput}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              hidden
+              onchange={(e) => {
+                uploadPhoto(e.currentTarget.files?.[0]);
+                e.currentTarget.value = '';
+              }}
+            />
           </div>
-          <dl class="config">
-            <div>
-              <dt>Login name</dt>
-              <dd>{rider.username}</dd>
-            </div>
-            <div>
-              <dt>Player ID</dt>
-              <dd class="num">{rider.player_id}</dd>
-            </div>
-            <div>
-              <dt>Role</dt>
-              <dd>{administrator ? 'Administrator' : 'Rider'}</dd>
-            </div>
-          </dl>
-          <p class="muted">Use the same login name and password in the game and in the Companion app.</p>
-        </section>
+          <div class="grid">
+            <TextField
+              id="profile-first"
+              label="First name"
+              bind:value={first}
+              autocomplete="given-name"
+              required
+              maxlength={50}
+              errors={errors('profile', 'first_name')}
+            />
+            <TextField
+              id="profile-last"
+              label="Last name"
+              bind:value={last}
+              autocomplete="family-name"
+              maxlength={50}
+              errors={errors('profile', 'last_name')}
+            />
+          </div>
+          <TextField
+            id="profile-email"
+            label="Email"
+            bind:value={username}
+            autocomplete="email"
+            required
+            maxlength={254}
+            hint="You sign in with this in the game, the Companion app and here."
+            errors={errors('profile', 'username')}
+          />
+          <TextField
+            id="profile-birthday"
+            label="Birthday"
+            type="date"
+            bind:value={birthday}
+            errors={errors('profile', 'birthday')}
+          />
+          <button class="primary" disabled={busy}>Save profile</button>
+        </form>
       {/if}
     {/if}
   </Layout>
@@ -1575,6 +1738,69 @@
   }
   .narrow {
     max-width: 34rem;
+  }
+
+  .photo {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    margin-bottom: 1.25rem;
+    padding-bottom: 1.25rem;
+    border-bottom: 1px solid var(--line);
+  }
+  .photo button {
+    margin-top: 0;
+  }
+  /* The rider's circle, at the size the game shows it on the profile card. */
+  button.portrait {
+    position: relative;
+    flex: none;
+    margin: 6px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: none;
+  }
+  .portrait :global(.avatar) {
+    width: 6.5rem;
+    height: 6.5rem;
+    font-size: 1.9rem;
+    box-shadow: 0 0 0 5px var(--orange);
+  }
+  .change {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: rgb(12 18 26 / 0.62);
+    font-size: 0.75rem;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  button.portrait:hover .change,
+  button.portrait:focus-visible .change,
+  button.portrait.dropping .change {
+    opacity: 1;
+  }
+  button.portrait:hover {
+    background: none;
+  }
+  button.portrait.dropping :global(.avatar) {
+    box-shadow:
+      0 0 0 5px var(--orange),
+      0 0 0 11px rgb(226 86 12 / 0.35);
+  }
+  @media (max-width: 30rem) {
+    .photo {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .change {
+      transition: none;
+    }
   }
   .inset {
     background: none;

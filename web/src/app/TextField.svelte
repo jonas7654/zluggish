@@ -4,6 +4,7 @@
     label,
     value = $bindable(''),
     password = false,
+    type = 'text',
     autocomplete = 'off',
     required = false,
     maxlength = undefined,
@@ -14,6 +15,7 @@
     label: string;
     value?: string;
     password?: boolean;
+    type?: 'text' | 'date';
     autocomplete?: HTMLInputElement['autocomplete'];
     required?: boolean;
     maxlength?: number | undefined;
@@ -39,6 +41,7 @@
       aria-describedby={described}
     />{:else}<input
       {id}
+      {type}
       bind:value
       {autocomplete}
       {required}
