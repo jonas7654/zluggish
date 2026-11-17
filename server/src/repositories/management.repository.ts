@@ -5,7 +5,7 @@ import type { Updateable } from 'kysely';
 import { sql } from 'kysely';
 import type { DatabaseSync } from 'node:sqlite';
 
-import type { AuditValue } from '#src/dtos/management.dto';
+import type { JsonValue } from '#src/dtos/management.dto';
 
 export class ManagementRepository {
   private readonly executor: SqliteExecutor;
@@ -51,43 +51,6 @@ export class ManagementRepository {
       );
   }
 
-  audit(
-    actor: number | null,
-    id: number | string,
-    action: string,
-    operation: string | null,
-    before: AuditValue,
-    after: AuditValue,
-    kind = 'rider',
-    targetKind = 'rider',
-  ) {
-    this.executor.run(
-      query.insertInto('management_audit').values({
-        actor_kind: kind,
-        actor_player_id: actor,
-        target_kind: targetKind,
-        target_id: String(id),
-        action,
-        timestamp: Date.now(),
-        operation_id: operation,
-        reason: '',
-        before_value: JSON.stringify(before),
-        after_value: JSON.stringify(after),
-      }),
-    );
-  }
-
-  history(id: number) {
-    return this.executor.all(
-      query
-        .selectFrom('management_audit')
-        .selectAll()
-        .where('target_id', '=', String(id))
-        .orderBy('id', 'desc')
-        .limit(200),
-    );
-  }
-
   operation(actor: number, id: string) {
     return this.executor.get(
       query
@@ -98,7 +61,7 @@ export class ManagementRepository {
     );
   }
 
-  record(actor: number, id: string, action: string, target: number, fingerprint: string, result: AuditValue) {
+  record(actor: number, id: string, action: string, target: number, fingerprint: string, result: JsonValue) {
     this.executor.run(
       query.insertInto('management_operation').values({
         actor_player_id: actor,
@@ -130,7 +93,7 @@ export class ManagementRepository {
     );
   }
 
-  finishOperation(actor: number, operation: string, result: AuditValue) {
+  finishOperation(actor: number, operation: string, result: JsonValue) {
     this.executor.run(
       query
         .updateTable('management_operation')

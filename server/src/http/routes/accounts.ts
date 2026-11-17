@@ -403,7 +403,6 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
         () =>
           !!accounts.identity(accounts.identityOf(user)) &&
           (!c.get('browserId') || sessions.current(c.get('browserId'), c.get('browser'), accounts.identityOf(user))),
-        { kind: 'rider', playerId: user.player_id },
       );
       sessions.end(c.get('browserId'));
 
@@ -572,7 +571,6 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       () =>
         !!accounts.identity(accounts.identityOf(user)) &&
         (!c.get('browserId') || sessions.current(c.get('browserId'), c.get('browser'), accounts.identityOf(user))),
-      { kind: 'rider', playerId: user.player_id },
     );
     sessions.end(c.get('browserId'));
 

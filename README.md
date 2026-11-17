@@ -297,7 +297,7 @@ Every user has these pages in the menu:
 
 Administrators also see **Users** and **Server** under **Manage**:
 
-- **Users**: create users, enable or disable them, grant or remove the administrator role, set passwords, end sessions, delete users, and edit a user's settings and audit log.
+- **Users**: create users, enable or disable them, grant or remove the administrator role, set passwords, end sessions, delete users, and edit a user's settings.
 - **Server**: restart the server with an in-game countdown (and cancel it), reload or command bots, edit stored world settings such as blob and peloton overrides, edit and delete events, and view the effective configuration. Changes to `zluggish.config.ts` still require a restart.
 
 ### Ports

@@ -246,9 +246,7 @@ export function createWebApp(runtime: HttpRuntime) {
     sessions.require(c.get('sessionId'), true);
     await next();
   });
-  app.get('/api/manage/users', (c) =>
-    c.json({ users: accounts.list().map((user) => management.publicUser(user)) }),
-  );
+  app.get('/api/manage/users', (c) => c.json({ users: accounts.list().map((user) => management.publicUser(user)) }));
   app.post('/api/manage/users', async (c) => {
     const input = z
       .strictObject({ operation: z.string().uuid(), user: z.record(z.string(), z.json()) })
@@ -263,9 +261,15 @@ export function createWebApp(runtime: HttpRuntime) {
 
     return c.json(management.publicUser(user));
   });
-  app.get('/api/manage/users/:id/audit', (c) =>
-    c.json({ events: management.store.history(z.coerce.number().int().positive().safe().parse(c.req.param('id'))) }),
-  );
+
+  app.get('/api/manage/users/:id/avatar', (c) => {
+    const id = z.coerce.number().int().positive().safe().parse(c.req.param('id'));
+    const path = management.avatarPath(id);
+
+    if (!accounts.get(id) || !files.exists(path)) throw new ApplicationError(404, 'No photo.');
+
+    return c.body(new Uint8Array(files.read(path)), 200, { 'Content-Type': 'image/jpeg' });
+  });
 
   for (const action of ['password', 'disable', 'enable', 'revoke-sessions', 'role'])
     app.on(action === 'role' ? 'PUT' : 'POST', `/api/manage/users/:id/${action}`, async (c) =>

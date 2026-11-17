@@ -18,6 +18,9 @@
   }
 
   $effect(() => {
+    // The launcher's public loading screen has no rider session to monitor.
+    if (!current.csrf) return;
+
     const channel = 'BroadcastChannel' in window ? new BroadcastChannel('zluggish-session-change') : undefined;
     let controller: AbortController | undefined;
     let alive = true;

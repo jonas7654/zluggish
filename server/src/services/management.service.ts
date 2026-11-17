@@ -16,7 +16,7 @@ import {
 import { UploadsService } from '#src/services/uploads.service';
 import { SocialService } from '#src/services/social.service';
 import { RestartScheduler } from '#src/node/lifecycle/restart';
-import type { AuditValue } from '#src/dtos/management.dto';
+import type { JsonValue } from '#src/dtos/management.dto';
 import { z } from 'zod';
 import type { RideCompletionService } from '#src/services/ride-completion.service';
 import type { RepositoryContext } from '#src/context';
@@ -54,7 +54,12 @@ export class ManagementService extends BaseService {
   publicUser(user: User) {
     const { pass_hash, auth_version: _authVersion, ...safe } = user;
 
-    return { ...safe, has_password: !!pass_hash, connected: this.context.world.active(user.player_id) };
+    return {
+      ...safe,
+      has_password: !!pass_hash,
+      connected: this.context.world.active(user.player_id),
+      avatar: this.avatarVersion(user.player_id),
+    };
   }
 
   issueSetupKey() {
@@ -130,10 +135,7 @@ export class ManagementService extends BaseService {
         : null;
 
     if (input.mode === 'existing' && existing && !existing.pass_hash)
-      throw new ApplicationError(
-        400,
-        'This user has no password. Create a new user, or set a password with the CLI.',
-      );
+      throw new ApplicationError(400, 'This user has no password. Create a new user, or set a password with the CLI.');
 
     const hash = await this.passwordTask(async () => {
       if (input.mode === 'new') return this.cryptoRepository.hashPassword(input.password);
@@ -167,7 +169,6 @@ export class ManagementService extends BaseService {
       this.store.update(target.player_id, { role: 'administrator' });
       this.store.finish();
       const after = this.context.accounts.get(target.player_id)!;
-      this.store.audit(after.player_id, after.player_id, 'setup', null, null, this.publicUser(after), 'setup');
 
       return after;
     });
@@ -231,7 +232,7 @@ export class ManagementService extends BaseService {
     this.completion.cancel(user.player_id);
   }
 
-  private fingerprint(value: AuditValue) {
+  private fingerprint(value: JsonValue) {
     const signed = this.cryptoRepository.signIdentity(JSON.stringify(value), this.context.sessions.secret);
 
     return signed.slice(signed.lastIndexOf('|') + 1);
@@ -256,7 +257,6 @@ export class ManagementService extends BaseService {
 
       const user = this.insert(input, hash);
       const result = this.publicUser(user);
-      this.store.audit(actor.player_id, user.player_id, 'create', operation, null, result);
       this.store.record(actor.player_id, operation, 'create', user.player_id, fingerprint, result);
 
       return result;
@@ -326,7 +326,6 @@ export class ManagementService extends BaseService {
         completion_deadline: permission?.deadline ?? null,
       };
 
-      this.store.audit(actor.player_id, targetId, action, input.operation, this.publicUser(target), after);
       this.store.record(actor.player_id, input.operation, action, targetId, fingerprint, after);
 
       return after;
@@ -373,7 +372,6 @@ export class ManagementService extends BaseService {
       this.context.profiles.save(player, profile);
       this.store.update(player, { username: input.username }, false);
       const result = this.publicUser(this.context.accounts.get(player)!);
-      this.store.audit(actor.player_id, player, 'edit', input.operation, this.publicUser(target), result);
       this.store.record(actor.player_id, input.operation, 'edit', player, fingerprint, result);
 
       return result;
@@ -454,9 +452,7 @@ export class ManagementService extends BaseService {
       profile.dob = input.birthday.replace(/^(\d{4})-(\d{2})-(\d{2})$/, '$2/$3/$1');
       this.context.profiles.save(player, profile);
       this.store.update(player, { username: input.username }, false);
-      const before = this.publicUser(target);
       const result = this.ownProfile(id);
-      this.store.audit(player, player, 'profile', input.operation, before, result.user);
       this.store.record(player, input.operation, 'profile', player, fingerprint, result);
 
       return result;
@@ -491,11 +487,9 @@ export class ManagementService extends BaseService {
         return JSON.parse(prior.result!);
       }
 
-      const before = this.settings(player);
       this.context.settings.save(player, input.overrides, input.revision);
       new UploadsService(this.context).revoke(player);
       const after = this.settings(player);
-      this.store.audit(actor.player_id, player, 'settings', input.operation, before, after);
       this.store.record(actor.player_id, input.operation, 'settings', player, fingerprint, after);
 
       return after;
@@ -530,20 +524,19 @@ export class ManagementService extends BaseService {
       if (action === 'bots' && !this.context.world.active(input.user!))
         throw new ApplicationError(409, 'The user must be riding now.');
       this.store.intent(actor.player_id, input.operation, action, fingerprint);
-      this.store.audit(actor.player_id, 'server', action + '-start', input.operation, null, input, 'rider', 'server');
 
       return { actor, prior: null };
     });
 
     if (prior) return this.outcome(prior.status, prior.result ? JSON.parse(prior.result) : null);
     await flush();
-    let result: AuditValue;
+    let result: JsonValue;
 
     try {
       this.sessions.require(id, true);
     } catch (error) {
       // A known result: the operation did not run. A retry returns it and never dispatches.
-      this.finishServerOperation(actor.player_id, action, input.operation, {
+      this.store.finishOperation(actor.player_id, input.operation, {
         error: 'The operation did not run. Confirm your password and start it again.',
       });
 
@@ -581,13 +574,13 @@ export class ManagementService extends BaseService {
       result = { error: 'Operation failed.' };
     }
 
-    this.finishServerOperation(actor.player_id, action, input.operation, result);
+    this.store.finishOperation(actor.player_id, input.operation, result);
 
     return this.outcome('complete', result);
   }
 
   /** The browser gets a parsed outcome: a failure message, a bot reply, or plain success. */
-  private outcome(status: string, result: AuditValue) {
+  private outcome(status: string, result: JsonValue) {
     if (status !== 'complete')
       return { status, ok: false, message: 'The result is unknown. Check the server log before you start it again.' };
     const failure = z.object({ error: z.string() }).safeParse(result);
@@ -599,7 +592,7 @@ export class ManagementService extends BaseService {
   }
 
   /** Operator configuration as read-only rows. The browser never receives secrets: paths only. */
-  configuration(value: AuditValue, prefix = ''): [string, string][] {
+  configuration(value: JsonValue, prefix = ''): [string, string][] {
     const object = z.record(z.string(), z.json()).safeParse(value);
 
     if (object.success && !Array.isArray(value))
@@ -610,13 +603,6 @@ export class ManagementService extends BaseService {
     const list = z.array(z.json()).safeParse(value);
 
     return [[prefix, list.success ? list.data.join(', ') : String(value ?? '')]];
-  }
-
-  private finishServerOperation(actor: number, action: string, operation: string, result: AuditValue) {
-    this.store.transaction(() => {
-      this.store.finishOperation(actor, operation, result);
-      this.store.audit(actor, 'server', action + '-result', operation, null, result, 'rider', 'server');
-    });
   }
 
   events() {
@@ -644,16 +630,6 @@ export class ManagementService extends BaseService {
 
     const commit = () => {
       this.sessions.require(session, true);
-      this.store.audit(
-        actor.player_id,
-        eventId,
-        action,
-        input.operation,
-        meetupInput.parse(event),
-        action === 'delete-event' ? null : (input.changes ?? {}),
-        'rider',
-        'event',
-      );
       this.store.record(actor.player_id, input.operation, action, eventId, fingerprint, result);
     };
 
@@ -718,7 +694,6 @@ export class ManagementService extends BaseService {
       } else if (input.id.startsWith('blob:') && this.context.accounts.get(Number(input.id.slice(5)))) {
         configSchema.parse({ soloBlob: { ...this.context.config.soloBlob, ...input.values } });
       } else throw new ApplicationError(400, 'Unknown world settings.');
-      const before = this.context.settings.world(input.id);
       this.context.settings.saveWorld(input.id, input.values, input.revision);
 
       const after = {
@@ -727,16 +702,6 @@ export class ManagementService extends BaseService {
         overrides: this.context.settings.world(input.id),
       };
 
-      this.store.audit(
-        actor.player_id,
-        input.id,
-        'world-settings',
-        input.operation,
-        before,
-        after,
-        'rider',
-        'world-settings',
-      );
       this.store.record(actor.player_id, input.operation, 'world-settings', 0, fingerprint, after);
 
       return after;

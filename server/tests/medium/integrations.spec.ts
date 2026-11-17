@@ -280,8 +280,12 @@ await test('launcher assets are served safely and game assets redirect to the CD
   assert.equal(background.headers.get('Content-Type'), 'image/jpeg');
   const loading = await f.app.request('/static/web/launcher/embed.html');
   assert.equal(loading.status, 200);
-  assert.equal(loading.headers.get('Content-Type'), 'text/html; charset=utf-8');
-  assert.match(await loading.text(), /Loading Zwift/);
+  assert.match(loading.headers.get('Content-Type')!, /^text\/html; charset=utf-8$/i);
+  const loadingHtml = await loading.text();
+  assert.match(loadingHtml, /Loading Zwift/);
+  assert.match(loadingHtml, /class="wordmark[^\"]*">zluggish/);
+  assert.match(loadingHtml, /\/static\/launcher-ui\/[^" ]+\.css/);
+  assert.doesNotMatch(loadingHtml, /bootstrap|\/style\/site\.css/);
   const traversal = await f.app.request('/static/%2e%2e/%2e%2e/tokens.json');
   assert.equal(traversal.status, 404);
   const response9 = await f.app.request('/style/%2e%2e/%2e%2e/README.md');

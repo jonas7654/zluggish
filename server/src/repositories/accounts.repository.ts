@@ -24,11 +24,6 @@ export const riderSchema = z.object({
 
 export type User = z.infer<typeof riderSchema>;
 
-/** Who changed a password, for the audit history. */
-export type PasswordActor = { kind: 'offline operator' } | { kind: 'rider'; playerId: number };
-
-const offlineOperator: PasswordActor = { kind: 'offline operator' };
-
 export class AccountsRepository {
   private readonly executor: SqliteExecutor;
 
@@ -94,7 +89,7 @@ export class AccountsRepository {
   }
 
   // Offline recovery preserves disabled state unless administrator access is requested.
-  setPassword(id: number, hash: string | null, admin: boolean, actor: PasswordActor = offlineOperator) {
+  setPassword(id: number, hash: string | null, admin: boolean) {
     if (!hash) throw new Error('A password is required');
     atomic(this.db, () => {
       this.executor.run(
@@ -116,20 +111,6 @@ export class AccountsRepository {
       );
 
       if (admin) this.executor.run(query.updateTable('web_setup_state').set({ state: 'complete' }).where('id', '=', 1));
-      this.executor.run(
-        query.insertInto('management_audit').values({
-          actor_kind: actor.kind,
-          actor_player_id: actor.kind === 'rider' ? actor.playerId : null,
-          target_kind: 'rider',
-          target_id: String(id),
-          action: actor.kind === 'rider' ? 'change-own-password' : admin ? 'recover-administrator' : 'recover-password',
-          timestamp: Date.now(),
-          operation_id: null,
-          reason: '',
-          before_value: null,
-          after_value: null,
-        }),
-      );
     });
   }
 

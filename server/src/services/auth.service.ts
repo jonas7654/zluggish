@@ -1,6 +1,6 @@
 import { ConfigError } from '#src/config/index';
 import { Repositories } from '#src/repositories';
-import type { PasswordActor, User } from '#src/repositories/accounts.repository';
+import type { User } from '#src/repositories/accounts.repository';
 import { AccountsRepository } from '#src/repositories/accounts.repository';
 import { BaseService } from '#src/services/base.service';
 import { resolve } from 'node:path';
@@ -124,13 +124,7 @@ export class AccountsService extends BaseService {
     );
   }
 
-  async changePassword(
-    id: number,
-    password: string,
-    admin = false,
-    live: () => boolean = () => true,
-    actor?: PasswordActor,
-  ) {
+  async changePassword(id: number, password: string, admin = false, live: () => boolean = () => true) {
     if (!password) throw new ConfigError('Password must not be empty');
     const before = this.get(id);
     const hash = await this.cryptoRepository.hashPassword(password);
@@ -144,7 +138,7 @@ export class AccountsService extends BaseService {
       current.pass_hash !== before.pass_hash
     )
       throw new ConfigError('Account changed. Retry.');
-    this.repository.setPassword(id, hash, admin, actor);
+    this.repository.setPassword(id, hash, admin);
     this.onRevoke?.(id);
   }
 

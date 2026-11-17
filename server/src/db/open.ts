@@ -4,6 +4,7 @@ import {
   administratorSchemaSQL,
   completionSchemaSQL,
   createSchemaSQL,
+  dropManagementAuditSQL,
   indexesSQL,
   storageSchemaSQL,
 } from '#src/db/ddl';
@@ -19,6 +20,7 @@ startup. A migration that changes existing data needs a backup first (storage ba
 const migrations: { version: number; up: (db: DatabaseSync) => void }[] = [
   { version: 7, up: (db) => db.exec(indexesSQL) },
   { version: 8, up: (db) => db.exec(administratorSchemaSQL) },
+  { version: 9, up: (db) => db.exec(dropManagementAuditSQL) },
 ];
 
 /** The schema version this release writes. */

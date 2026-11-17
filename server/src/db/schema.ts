@@ -20,19 +20,6 @@ export interface Database {
     revision: Generated<Integer>;
   };
   web_setup_state: { id: number; state: 'unclaimed' | 'complete' };
-  management_audit: {
-    id: Generated<Integer>;
-    actor_kind: string;
-    actor_player_id: number | null;
-    target_kind: string;
-    target_id: string | null;
-    action: string;
-    timestamp: number;
-    operation_id: string | null;
-    reason: string;
-    before_value: string | null;
-    after_value: string | null;
-  };
   management_operation: {
     actor_player_id: number;
     operation_id: string;

@@ -64,24 +64,6 @@ await test('requests without cookies allocate no web sessions, and anonymous wri
   assert.equal(sessions.sessions.size, 1);
 });
 
-await test('a rider password change in the game app is audited as that rider, not as offline recovery', async (t) => {
-  const f = runtimeFixture(t);
-  const rider = await f.accounts.create('Game Rider', 'test-password', 'game');
-  await f.accounts.changePassword(rider.player_id, 'next-password', false, () => true, {
-    kind: 'rider',
-    playerId: rider.player_id,
-  });
-  await f.accounts.changePassword(rider.player_id, 'offline-password');
-  const history = f.services.management.store.history(rider.player_id);
-  assert.deepEqual(
-    history.map((row) => [row.action, row.actor_kind, row.actor_player_id]),
-    [
-      ['recover-password', 'offline operator', null],
-      ['change-own-password', 'rider', rider.player_id],
-    ],
-  );
-});
-
 await test('login names match after Unicode normalization, and similar imported names stay ambiguous', async (t) => {
   const f = runtimeFixture(t);
   const imported = await f.accounts.create('Åsa Rider', 'test-password', 'ÅSA');

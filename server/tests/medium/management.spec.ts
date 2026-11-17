@@ -4,6 +4,34 @@ import { test } from 'node:test';
 import { runtimeFixture } from '#tests/support/runtime';
 import { createWebApp } from '#src/http/web-app';
 
+await test('administrator user avatars include versions and serve the saved photo', async (t) => {
+  const f = runtimeFixture(t);
+  const service = f.services.management;
+  const owner = await service.setup({
+    mode: 'new',
+    key: service.issueSetupKey()!,
+    username: 'owner',
+    first_name: 'First',
+    last_name: 'Rider',
+    password: 'test-password',
+  });
+  const opened = service.sessions.create(f.accounts.identityOf(owner), Date.now() + 900_000);
+  const web = createWebApp(f);
+  const headers = { Cookie: `zluggish_web_session=${opened.id}` };
+  const url = `/api/manage/users/${owner.player_id}/avatar`;
+  assert.equal(service.publicUser(owner).avatar, null);
+  const jpeg = Uint8Array.from([0xff, 0xd8, 0xff, 0xd9]);
+  const saved = service.saveAvatar(opened.id, jpeg);
+  assert.equal(service.publicUser(owner).avatar, saved.avatar);
+  assert.equal(await responseStatus(web.request(url)), 401);
+  const image = await web.request(url, { headers });
+  assert.equal(image.status, 200);
+  assert.equal(image.headers.get('Content-Type'), 'image/jpeg');
+  assert.deepEqual(new Uint8Array(await image.arrayBuffer()), jpeg);
+  service.removeAvatar(opened.id);
+  assert.equal(await responseStatus(web.request(url, { headers })), 404);
+});
+
 await test('setup is atomic, permanent, independent of legacy ownership, and does not leak credentials', async (t) => {
   const f = runtimeFixture(t);
   const service = f.services.management;
@@ -29,7 +57,6 @@ await test('setup is atomic, permanent, independent of legacy ownership, and doe
   await assert.rejects(service.setup(input));
   assert.throws(() => f.accounts.db.exec("UPDATE web_setup_state SET state='unclaimed'"));
   assert.throws(() => f.accounts.db.exec("INSERT OR REPLACE INTO web_setup_state VALUES(1,'unclaimed')"));
-  assert.equal(JSON.stringify(service.store.history(rider.player_id)).includes('legacy-password'), false);
   assert.equal(JSON.stringify(service.publicUser(rider)).includes('pass_hash'), false);
 });
 
@@ -292,7 +319,7 @@ await test('offline administrator recovery enables and completes setup atomicall
   assert.equal(f.accounts.get(rider.player_id)!.enabled, 0);
   assert.equal(f.services.management.store.complete(), false);
   f.accounts.db.exec(
-    "CREATE TRIGGER fail_recovery BEFORE INSERT ON management_audit BEGIN SELECT RAISE(ABORT,'injected'); END",
+    "CREATE TRIGGER fail_recovery BEFORE UPDATE ON web_setup_state BEGIN SELECT RAISE(ABORT,'injected'); END",
   );
   const before = f.accounts.get(rider.player_id);
   await assert.rejects(f.accounts.changePassword(rider.player_id, 'second', true), /injected/);
@@ -307,7 +334,7 @@ await test('offline administrator recovery enables and completes setup atomicall
   assert.equal(f.services.management.store.complete(), true);
 });
 
-await test('world settings and administrator event changes use revisions, audit and durable retries', async (t) => {
+await test('world settings and administrator event changes use revisions and durable retries', async (t) => {
   const f = runtimeFixture(t);
   const service = f.services.management;
 
@@ -351,10 +378,9 @@ await test('world settings and administrator event changes use revisions, audit 
   const current = f.services.events.read(String(id));
   service.editEvent(opened.id, id, 'delete-event', { operation: crypto.randomUUID(), revision: current.updateDate });
   assert.throws(() => f.services.events.read(String(id)));
-  assert.ok(service.store.history(id).some((row) => row.action === 'delete-event'));
 });
 
-await test('backup and restore preserve complete setup, audit, operation results and the fingerprint key', async (t) => {
+await test('backup and restore preserve complete setup, operation results and the fingerprint key', async (t) => {
   const f = runtimeFixture(t);
   const service = f.services.management;
 
@@ -396,7 +422,6 @@ await test('backup and restore preserve complete setup, audit, operation results
   assert.equal(store.complete(), true);
   assert.equal(restored.get(owner.player_id)!.role, 'administrator');
   assert.deepEqual(JSON.parse(store.operation(owner.player_id, operation)!.result!), result);
-  assert.ok(store.history(owner.player_id).some((row) => row.action === 'setup'));
   const sessions = new SessionsService(restored);
   assert.deepEqual(sessions.secret, secret);
   assert.equal(sessions.browsers.size, 0);

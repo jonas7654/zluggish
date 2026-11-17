@@ -68,12 +68,12 @@ export const settingsRequest = z.strictObject({
   overrides: overrideSchema,
 });
 
-export type AuditValue =
+export type JsonValue =
   | string
   | number
   | boolean
-  | readonly AuditValue[]
-  | { [key: string]: AuditValue }
+  | readonly JsonValue[]
+  | { [key: string]: JsonValue }
   | null
   | undefined;
 

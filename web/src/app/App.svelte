@@ -22,18 +22,11 @@
     revision: number;
     has_password: boolean;
     connected: boolean;
+    avatar: number | null;
     completion_deadline?: number | null;
   };
 
   type SetupUser = Pick<User, 'player_id' | 'username' | 'first_name' | 'last_name' | 'enabled' | 'has_password'>;
-
-  type AuditEvent = {
-    id: number;
-    actor_kind: string;
-    actor_player_id: number | null;
-    action: string;
-    timestamp: number;
-  };
 
   type ManagedEvent = { id: number; name: string; description: string; eventStart: string; updateDate: string };
 
@@ -123,7 +116,6 @@
   let editLogin = $state('');
   let targetPassword = $state('');
   let targetConfirm = $state('');
-  let audit = $state<AuditEvent[] | null>(null);
   let userSettings = $state<UserSettings | null>(null);
 
   // Server.
@@ -191,15 +183,6 @@
   const initials = (r: User) => `${r.first_name.charAt(0)}${r.last_name.charAt(0)}`.toUpperCase();
   const time = (value: number) => new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const errors = (scope: string, field: string) => (errorScope === scope ? (fieldErrors[field] ?? []) : []);
-
-  function actor(event: AuditEvent) {
-    if (event.actor_kind === 'offline operator') return 'Offline operator';
-
-    if (event.actor_player_id === null) return 'Setup';
-    const known = users.find((r) => r.player_id === event.actor_player_id);
-
-    return known ? name(known) : `User ${event.actor_player_id}`;
-  }
 
   async function api(url: string, method = 'GET', data?: ApiPayload | FormData | Blob) {
     const headers = new Headers({ 'X-CSRF-Token': csrf });
@@ -386,19 +369,12 @@
     editLogin = target.username;
     targetPassword = '';
     targetConfirm = '';
-    audit = null;
     userSettings = null;
     conflict = null;
   }
 
-  async function loadAudit(target: User) {
-    audit = (await api(`/api/manage/users/${target.player_id}/audit`)).events;
-  }
-
-  /** The user page shows everything at once: history always, settings for anyone but yourself. */
+  /** The user page shows everything at once: settings for anyone but yourself. */
   async function loadDetail(target: User) {
-    await loadAudit(target);
-
     if (target.player_id === user?.player_id) return;
     userSettings = await api(`/api/manage/users/${target.player_id}/settings`);
     applySettings(userSettings!);
@@ -554,7 +530,6 @@
     targetConfirm = '';
     await loadUsers();
     users = users.map((r) => (r.player_id === result.player_id ? { ...r, ...result } : r));
-    await loadAudit(result);
 
     const messages = {
       disable: result.completion_deadline
@@ -601,7 +576,6 @@
     });
     conflict = null;
     await loadUsers();
-    await loadAudit(selected);
     done('User saved.');
   }
 
@@ -1369,7 +1343,6 @@
                           'PATCH',
                           settingsBody(userSettings!),
                         );
-                        await loadAudit(selected!);
                         done('User settings saved.');
                       }, 'user-settings');
                     }}
@@ -1388,23 +1361,6 @@
                 </section>
               {/if}
             </div>
-
-            {#if audit}
-              <section class="panel">
-                <h2>Change history</h2>
-                {#if audit.length === 0}<p class="muted">No changes recorded yet.</p>{:else}
-                  <ol class="plain history">
-                    {#each audit as item (item.id)}<li>
-                        <span>{item.action.replaceAll('-', ' ')}</span>
-                        <span class="muted">{actor(item)}</span>
-                        <time class="num muted" datetime={new Date(item.timestamp).toISOString()}
-                          >{new Date(item.timestamp).toLocaleString()}</time
-                        >
-                      </li>{/each}
-                  </ol>
-                {/if}
-              </section>
-            {/if}
           {:else if !busy}
             <p class="empty">This user does not exist. {@render link('/manage', 'Show all users', false)}</p>
           {/if}
@@ -1440,7 +1396,12 @@
                     e.preventDefault();
                     void run(() => openUser(r));
                   }}
-                  ><span class="identity"><UserRow initials={initials(r)} name={label(r)} detail={r.username} /></span
+                  ><span class="identity"><UserRow
+                      initials={initials(r)}
+                      photo={r.avatar !== null ? `/api/manage/users/${r.player_id}/avatar?v=${r.avatar}` : null}
+                      name={label(r)}
+                      detail={r.username}
+                    /></span
                   ><span class="facts">{@render chips(r)}</span><span class="num muted id">#{r.player_id}</span><svg
                     class="go"
                     viewBox="0 0 24 24"
@@ -2186,29 +2147,6 @@
   .config dd {
     margin: 0;
     overflow-wrap: anywhere;
-  }
-  .history li {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 0 0.75rem;
-    padding: 0.45rem 0;
-    border-bottom: 1px solid var(--line);
-  }
-  .history li span:first-child::first-letter {
-    text-transform: uppercase;
-  }
-  .history time {
-    grid-column: 1 / -1;
-    font-size: 0.8125rem;
-  }
-  @media (min-width: 40rem) {
-    .history li {
-      grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto;
-      align-items: baseline;
-    }
-    .history time {
-      grid-column: auto;
-    }
   }
   .conflict {
     margin: 0.75rem 0;

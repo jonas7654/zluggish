@@ -110,3 +110,8 @@ CREATE TABLE management_operation (
 );
 DELETE FROM rider_document WHERE name='encryption_key.bin';
 `;
+
+// Version 9: the management change history is no longer kept.
+export const dropManagementAuditSQL = `
+DROP TABLE management_audit;
+`;
