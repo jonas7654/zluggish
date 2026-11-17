@@ -6,6 +6,8 @@ Zluggish is a self-hosted, open-source server implementation of [Zwift](http://z
 
 This project is a rewrite of [zwift-offline](https://github.com/zoffline/zwift-offline) and [its fork](https://github.com/fatsbrown/zwift-offline). If you are migrating from either, see [Migrating](#migrating).
 
+<img src="media/screenshots/webapp-activities.png" alt="The Zluggish web app showing a month of rides, with the route map, elevation profile and power and heart rate stats of the selected ride">
+
 ## Features
 
 Zluggish gives you complete control over the server, including the following features:
@@ -21,6 +23,15 @@ Zluggish gives you complete control over the server, including the following fea
 - **Equipment and progression control**: customize equipment availability and Drop balances on your own server, without grinding through unlocks.
 
 Note that Zluggish is offline-only: there is no connection to Zwift's public multiplayer world. You cannot join riders on the official service, participate in its races, group rides, or club events, or compete on its global leaderboards. Local progression and records are separate from your official Zwift account. You can still ride with family or friends connected to your own Zluggish server using private multiplayer.
+
+Everyone in the household picks themselves in the game launcher, then chooses a map and climb before starting Zwift:
+
+<table>
+  <tr>
+    <td><img src="media/screenshots/launcher-riders.png" alt="The launcher's Who's riding? screen listing five riders with their avatars"></td>
+    <td><img src="media/screenshots/launcher-dashboard.png" alt="The launcher after signing in, with Map and Climb choices and a Start Zwift button"></td>
+  </tr>
+</table>
 
 ## Requirements
 
@@ -78,7 +89,7 @@ zluggish-1  | 2026-11-17T11:40:23.126Z INFO server.ready Zluggish is ready
 
 ### First-time setup
 
-The first administrator must prove access to the server using a setup key. When setup has not been completed and the web app is enabled, the server generates a key and prints it in the **Zluggish first-time setup** block in its startup output. Keep this key private: it authorizes creation of the first administrator.
+The first administrator must prove access to the server using a setup key. Until setup is completed, and while the web app is enabled (the default), the server generates a key at each startup and prints it in the **Zluggish first-time setup** block in its startup output. Keep this key private: it authorizes creation of the first administrator.
 
 1. Start the server. Read the **Open:** address and **Setup key:** from the terminal, or retrieve them from the container logs:
 
@@ -123,10 +134,10 @@ The web app listener is configured under `network.web`:
 ```ts
 network: {
   web: {
-    enabled: true, // set to false to run without the web app
+    enabled: true, // set to false after setup to turn the web app off, see Web app
     host: null, // defaults to network.host
     port: 8080,
-    publicUrl: 'https://zluggish.example.com', // optional, see Web app
+    publicUrl: 'https://zluggish.example.com', // behind a reverse proxy, see Web app
   },
 },
 ```
@@ -248,13 +259,15 @@ To take your data with you, open **Export** and download the user files. If your
 
 ## Sharing activities
 
-Connections belong to the signed-in user and are managed under **Settings → Connections** in the [web app](#web-app). Completed activities are saved locally before uploads; a failed upload to one provider does not delete the saved activity. Live provider authorization and delivery still need verification for this TypeScript migration.
+Connections belong to the signed-in user and are managed under **Integrations** in the [web app](#web-app). Completed activities are saved locally before uploads; a failed upload to one provider does not delete the saved activity. Live provider authorization and delivery still need verification for this TypeScript migration.
+
+<img src="media/screenshots/webapp-integrations.png" alt="The Integrations page with Strava, Garmin, Intervals.icu and TrainingPeaks connected, and a list of recent activity uploads">
 
 <details><summary>Strava</summary>
 
-Two upload methods are available. Choose one with **Strava upload method** in **Settings**:
+Two upload methods are available. Choose one with **Upload method** under **Integrations → Strava**:
 
-- **API application:** obtain a client ID and secret from [Strava API settings](https://www.strava.com/settings/api), set the authorization callback domain to the web app's hostname (the host of `network.web.publicUrl`, or the address you open the web app at), save the credentials under **Connections → Strava API** and choose **Authorize**. Existing `storage/<local-player-id>/strava_token.txt` files are reused. API access depends on Strava's current application/account policy.
+- **API application:** obtain a client ID and secret from [Strava API settings](https://www.strava.com/settings/api), set the authorization callback domain to the web app's hostname (the host of `network.web.publicUrl`, or the address you open the web app at), save the credentials under **Integrations → Strava** and choose **Authorize**. Existing `storage/<local-player-id>/strava_token.txt` files are reused. API access depends on Strava's current application/account policy.
 - **Browser session cookie:** sign in to Strava in a browser, open developer tools, find `_strava4_session` under Application/Storage → Cookies, and paste it into **Strava session cookie**. Select the session-cookie upload method and use **Test session**. Treat this cookie as a credential.
 
 Screenshot upload uses the session-cookie method rather than the API. The old Python authorization helper is no longer needed or included.
@@ -263,7 +276,7 @@ Screenshot upload uses the session-cookie method rather than the API. The old Py
 
 <details><summary>Garmin Connect</summary>
 
-Open **Settings → Connections → Garmin**, save the credentials and choose **Authorize with Garmin**. Enter the verification code if Garmin requests MFA. Authorization and FIT uploads now run in TypeScript; there is no Python helper or separate Garmin image.
+Open **Integrations → Garmin**, save the credentials and choose **Authorize**. Enter the verification code if Garmin requests MFA. Authorization and FIT uploads now run in TypeScript; there is no Python helper or separate Garmin image.
 
 Existing `oauth1_token.json` and `oauth2_token.json` files from garth can remain in `storage/<local-player-id>/garth/`. For a China account, set `integrations.garmin.domain: 'garmin.cn'` in operator config. Live Garmin login/upload remains a verification gate.
 
@@ -271,9 +284,9 @@ Existing `oauth1_token.json` and `oauth2_token.json` files from garth can remain
 
 <details><summary>Intervals.icu and planned workouts</summary>
 
-Open **Settings → Connections → Intervals.icu**. Copy the athlete ID and API key from [Intervals.icu settings](https://intervals.icu/settings), under Developer Settings, and save them there. The provider refreshes automatically when you sign in to the launcher. Android game login also refreshes Intervals.icu when reusing saved login tokens. Automatic network refreshes have a five-second deadline and retain cached workouts on failure; **Sync workouts** under **Settings → Connections → Intervals.icu** refreshes them on demand. Cycling workouts appear in the launcher; completed activities can be uploaded and paired with their planned workout.
+Open **Integrations → Intervals.icu**. Copy the athlete ID and API key from [Intervals.icu settings](https://intervals.icu/settings), under Developer Settings, and save them there. The provider refreshes automatically when you sign in to the launcher. Android game login also refreshes Intervals.icu when reusing saved login tokens. Automatic network refreshes have a five-second deadline and retain cached workouts on failure; **Sync workouts** under **Integrations → Intervals.icu** refreshes them on demand. Cycling workouts appear in the launcher; completed activities can be uploaded and paired with their planned workout.
 
-Exported TrainingPeaks `.zwo` files can be imported through a local bridge folder. Set **TrainingPeaks export folder** in **Settings** or the `workouts.trainingpeaks.bridgeFolder` preference, then choose **Import workouts** under **Settings → Connections → TrainingPeaks**; paths must be accessible to the server, including inside Docker when used.
+Exported TrainingPeaks `.zwo` files can be imported through a local bridge folder. Set **Export folder** under **Integrations → TrainingPeaks** or the `workouts.trainingpeaks.bridgeFolder` preference, then choose **Import workouts** there; paths must be accessible to the server, including inside Docker when used.
 
 </details>
 
@@ -313,20 +326,29 @@ The web app is where users and administrators work with Zluggish. Use it only on
 
 To create the first administrator, follow [First-time setup](#first-time-setup) under Server install.
 
-Behind a reverse proxy, set `network.web.publicUrl` to the address users open, for example `https://zluggish.example.com`. The web app then accepts requests only from that address, and an `https` URL marks sign-in cookies `Secure`. Set `network.web.enabled: false` to run without the web app.
+Behind a reverse proxy, set `network.web.publicUrl` to the address users open, for example `https://zluggish.example.com`. The web app then accepts requests only from that address, and an `https` URL marks sign-in cookies `Secure`.
+
+First-time setup and creating users need the web app. After setup, an administrator can set `network.web.enabled: false` to turn it off. While it is off, nobody can create or manage users, browse activities, or change settings and integrations from a browser. Rides keep working: users who already have a password can still sign in through the game launcher, and activities are still saved and uploaded. Turn it back on and restart the server when you need it again.
 
 ### User pages
 
 Every user has these pages in the menu:
 
-| Page       | Use                                                                                               |
-| ---------- | ------------------------------------------------------------------------------------------------- |
-| Profile    | View and edit your profile and avatar                                                             |
-| Activities | Browse saved activities by month, see route, elevation and stats, download FIT files and images   |
-| Import     | Import profile data from local files or from your official Zwift account                          |
-| Export     | Download your user data                                                                           |
-| Settings   | Ghosts, Connections (Strava, Garmin, Intervals.icu, TrainingPeaks), and regenerating power curves |
-| Password   | Change your own password                                                                          |
+| Page         | Use                                                                                             |
+| ------------ | ----------------------------------------------------------------------------------------------- |
+| Profile      | View and edit your profile and avatar, and change your password                                 |
+| Activities   | Browse saved activities by month, see route, elevation and stats, download FIT files and images |
+| Import       | Import profile data from local files or from your official Zwift account                        |
+| Export       | Download your user data                                                                         |
+| Integrations | Connect Strava, Garmin, Intervals.icu and TrainingPeaks, and follow activity uploads            |
+| Settings     | Ride with ghosts, and regenerate power curves                                                   |
+
+<table>
+  <tr>
+    <td><img src="media/screenshots/webapp-profile.png" alt="The Profile page with avatar, name, email and birthday"></td>
+    <td><img src="media/screenshots/webapp-settings.png" alt="The Settings page with the Ride with ghosts option and Regenerate power curves"></td>
+  </tr>
+</table>
 
 ### Administrator pages
 
@@ -334,6 +356,8 @@ Administrators also see **Users** and **Server** under **Manage**:
 
 - **Users**: create users, enable or disable them, grant or remove the administrator role, set passwords, end sessions, delete users, and edit a user's settings.
 - **Server**: reload or command bots, edit stored world settings such as blob and peloton overrides, edit and delete events, and view the effective configuration. Changes to `zluggish.config.ts` still require a restart.
+
+<img src="media/screenshots/webapp-users.png" alt="The Users page listing five users, with an administrator, a disabled user and a user who is riding now">
 
 ### Ports
 
@@ -350,7 +374,7 @@ For a separate server, set `server.advertisedIp` and allow the ports below on th
 
 ## Password recovery
 
-Users change their own password on the **Password** page, and administrators set another user's password under **Manage → Users**. If nobody can sign in, use the recovery CLI below.
+Users change their own password with **Change password** on the **Profile** page, and administrators set another user's password under **Manage → Users**. If nobody can sign in, use the recovery CLI below.
 
 Stop the server before using the recovery CLI. Put the new password in a private file, then run from the repository root:
 
@@ -590,7 +614,7 @@ mise run install
 mise run check
 ```
 
-Build the web app with `pnpm --dir web build`, and type-check it with `pnpm --dir web check`. For individual pnpm commands and lint provenance, see the [CLI/tooling guide](server/README.md).
+Build the web app with `pnpm --dir web build`, and type-check it with `pnpm --dir web check`. Regenerate the screenshots in this README, from fictional riders on a throwaway server, with `pnpm --dir server screenshots`. For individual pnpm commands and lint provenance, see the [CLI/tooling guide](server/README.md).
 
 ## Legal notice
 
@@ -624,7 +648,7 @@ Progress includes elapsed seconds and distance in metres; a counter reset is
 flagged. Reconnecting transport does not start another ride. A ride ends on
 logout, inactivity cleanup, or shutdown; this does not imply that an activity was
 saved. Only successful durable finalization emits `activity.saved`, with recovery
-marked separately. External upload failures require a retry from the web app, under **Settings → Connections → Activity uploads**.
+marked separately. External upload failures require a retry from the web app, under **Integrations → Activity uploads**.
 
 Companion phone registration emits `companion.registered`. It does not establish
 a persistent connection, so logs do not claim a companion disconnect. Repeated

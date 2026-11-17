@@ -34,7 +34,8 @@
     "build:web": "pnpm --dir ../web build",
     "dev:web": "pnpm --dir ../web exec vite build --mode game --watch",
     "check:web": "pnpm --dir ../web check",
-    "test:browser": "pnpm build && node --test dist/tests/browser/*.spec.js"
+    "test:browser": "pnpm build && node --test dist/tests/browser/*.spec.js",
+    "screenshots": "pnpm build:web && node --conditions=development --import tsx --import ./scripts/register-svelte.mjs scripts/screenshots.ts"
   },
   "dependencies": {
     "@bufbuild/protobuf": "^2.0.0",
