@@ -7,7 +7,7 @@ export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
   app.post('/api/d-lock-service/device/authenticate', async (c) => {
     const rider = authenticated(c);
-    const credentials = connections.read(rider.player_id, 'zwift');
+    const { credentials } = connections.inspect(rider.player_id, 'zwift');
 
     const enabled = runtime.services.settings.resolveRiderSettings(
       runtime.config.riderDefaults,

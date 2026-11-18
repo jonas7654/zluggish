@@ -1,5 +1,6 @@
 import { uuid, metadataSchema, storedEntrySchema, type StoredEntry } from '#src/dtos/workout.dto';
 import type { RepositoryContext as Runtime } from '#src/context';
+import { UnreadableCredentialsError } from '#src/errors';
 import { BaseService } from '#src/services/base.service';
 import { SettingsService } from '#src/services/settings.service';
 import { XMLBuilder, XMLParser, XMLValidator } from 'fast-xml-parser';
@@ -258,7 +259,20 @@ export class WorkoutsService extends BaseService {
 
     if (provider !== 'intervals-icu') return 'Configure a workout provider first.';
 
-    const credentials = this.connectionsRepository.read(id, 'intervals');
+    let credentials: readonly [string, string] | null;
+
+    try {
+      credentials = this.connectionsRepository.read(id, 'intervals');
+    } catch (error) {
+      if (!(error instanceof UnreadableCredentialsError)) throw error;
+      this.runtime.world.lifecycle.log.warn('connections.unreadable', 'Saved credentials cannot be decrypted', {
+        playerId: id,
+        provider: 'intervals',
+        error,
+      });
+
+      return 'The saved Intervals.icu credentials cannot be read. Enter them again in Integrations.';
+    }
 
     if (!credentials) return 'Intervals.icu credentials are missing.';
     const [athlete, key] = credentials;
@@ -538,11 +552,11 @@ export class WorkoutsService extends BaseService {
     const request = workouts
       .sync(id, AbortSignal.timeout(5000))
       .then(() => {})
-      .catch(() => {
+      .catch((error) => {
         runtime.world.lifecycle.log.warn(
           'workout.sync_failed',
           'Automatic workout sync failed; retaining cached workouts',
-          { playerId: id },
+          { playerId: id, error: error instanceof Error ? error : String(error) },
         );
       })
       .finally(() => {

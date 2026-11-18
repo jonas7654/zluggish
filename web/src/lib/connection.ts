@@ -39,7 +39,8 @@ export async function request(url: string, init: RequestInit = {}) {
     throw new ConnectionError();
   }
 
-  if (response.status >= 500) {
+  // A 5xx with the server's own JSON error is an answer with a message, not a lost connection.
+  if (response.status >= 500 && !response.headers.get('Content-Type')?.startsWith('application/json')) {
     disconnected();
     throw new ConnectionError();
   }

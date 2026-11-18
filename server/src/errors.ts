@@ -7,6 +7,13 @@ export class ApplicationError extends Error {
   }
 }
 
+/** Stored provider credentials that the credentials key cannot decrypt: another key
+wrote them, or they are damaged. The rider has to enter them again.
+*/
+export class UnreadableCredentialsError extends Error {
+  override name = 'UnreadableCredentialsError';
+}
+
 /** The provider did not complete the delivery: the request was not sent, or the
 provider rejected it. Any other delivery error has an unknown remote result.
 */

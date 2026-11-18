@@ -6,7 +6,7 @@ import type { Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import { z } from 'zod';
-import { ApplicationError } from '#src/errors';
+import { ApplicationError, UnreadableCredentialsError } from '#src/errors';
 import { credentials, password, newUser } from '#src/dtos/management.dto';
 import type { HttpRuntime } from '#src/http/runtime';
 import { peerAddress } from '#src/http/routes/accounts';
@@ -432,13 +432,25 @@ export function createWebApp(runtime: HttpRuntime) {
 
     if (error instanceof ApplicationError) return c.json({ message: error.message }, error.status);
 
+    const route = c.req.routePath === '*' ? 'unmatched' : c.req.routePath;
+
+    if (error instanceof UnreadableCredentialsError) {
+      runtime.world.lifecycle.log.warn('connections.unreadable', 'Saved credentials cannot be decrypted', {
+        method: c.req.method,
+        route,
+        error,
+      });
+
+      return c.json({ message: 'The saved credentials cannot be read. Enter them again in Integrations.' }, 409);
+    }
+
     runtime.world.lifecycle.log.error('web.failed', 'Web request failed unexpectedly', {
       method: c.req.method,
-      route: c.req.routePath === '*' ? 'unmatched' : c.req.routePath,
+      route,
       error: error instanceof Error ? error : String(error),
     });
 
-    return c.json({ message: 'Request failed.' }, 500);
+    return c.json({ message: 'The server hit an unexpected error. The server log has the details.' }, 500);
   });
 
   return app;
