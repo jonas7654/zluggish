@@ -28,11 +28,17 @@ export class RiderDocuments {
   /** The 32-byte credentials key; created on first use. */
   key() {
     const file = resolve(this.storage, 'credentials-key.bin');
+    let key: Buffer;
 
-    if (!existsSync(file)) new AssetFiles().writeDurable(file, this.crypto.randomBytes(32));
-    const key = readFileSync(file);
+    try {
+      if (!existsSync(file)) new AssetFiles().writeDurable(file, this.crypto.randomBytes(32));
+      key = readFileSync(file);
+    } catch (error) {
+      throw new Error(`Could not read or create the credentials key ${file}; check its permissions`, { cause: error });
+    }
 
-    if (key.length !== 32) throw new Error('Invalid credentials key');
+    if (key.length !== 32)
+      throw new Error(`The credentials key ${file} has ${key.length} bytes, not 32; restore it from a backup`);
 
     return key;
   }

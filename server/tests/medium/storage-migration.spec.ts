@@ -232,6 +232,26 @@ await test('the storage merge imports every legacy store once and keeps the lega
     assert.ok(existsSync(resolve(storage, name)), `legacy ${name} is kept`);
 });
 
+await test('legacy credentials written with another key are reported and left in place', (t) => {
+  const { storage, open } = legacy(t);
+  write(storage, '2/garmin_credentials.bin', crypto.encryptCredentials(crypto.randomBytes(32), ['user', 'pass']));
+  const db = open();
+
+  assert.equal(new RiderDocuments(db, storage).has(2, 'garmin_credentials.bin'), false);
+  assert.equal(new RiderDocuments(db, storage).has(1, 'zwift_credentials.bin'), true);
+
+  const manifest = z
+    .object({ report: z.object({ invalidOptional: z.array(z.string()) }) })
+    .parse(JSON.parse(readFileSync(resolve(storage, StorageFile.Manifest), 'utf8')));
+
+  assert.deepEqual(manifest.report.invalidOptional, ['2/garmin_credentials.bin']);
+  db.close();
+  assert.ok(
+    legacyPlan(storage).kept.some(({ path }) => path === resolve(storage, '2/garmin_credentials.bin')),
+    'the legacy file is kept',
+  );
+});
+
 await test('a repeated start does not migrate again', (t) => {
   const { storage, open } = legacy(t);
   open().close();

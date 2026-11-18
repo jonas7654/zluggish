@@ -1,3 +1,4 @@
+import { UnreadableCredentialsError } from '#src/errors';
 import * as argon2 from 'argon2';
 import {
   createHash,
@@ -77,16 +78,28 @@ export class CryptoRepository {
   }
 
   decryptCredentials(key: Uint8Array, bytes: Uint8Array): readonly [string, string] {
-    if (key.length !== 32 || bytes.length < 16) throw new Error('Invalid credentials');
-    const decipher = createDecipheriv('aes-256-cfb8', key, bytes.subarray(0, 16));
+    if (key.length !== 32) throw new Error('Invalid credentials key');
 
-    const text = Buffer.concat([decipher.update(bytes.subarray(16)), decipher.final()]).toString('utf8');
+    if (bytes.length < 16) throw new UnreadableCredentialsError('Stored credentials are truncated');
+    const decipher = createDecipheriv('aes-256-cfb8', key, bytes.subarray(0, 16));
+    const plain = Buffer.concat([decipher.update(bytes.subarray(16)), decipher.final()]);
+    let text: string;
+
+    // CFB8 has no integrity check: a wrong key yields bytes that are almost never valid UTF-8.
+    try {
+      text = new TextDecoder('utf-8', { fatal: true }).decode(plain);
+    } catch (error) {
+      throw new UnreadableCredentialsError('Stored credentials do not decrypt with this credentials key', {
+        cause: error,
+      });
+    }
 
     const lines = text.split(/\r?\n/);
     const first = lines[0];
     const second = lines[1];
 
-    if (first === undefined || second === undefined) throw new Error('Invalid credentials');
+    if (first === undefined || second === undefined)
+      throw new UnreadableCredentialsError('Stored credentials do not decrypt with this credentials key');
 
     return [first, second];
   }
