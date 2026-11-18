@@ -109,6 +109,10 @@ export abstract class BaseService {
     return this.repositories.discordRepository;
   }
 
+  protected get matrixRepository() {
+    return this.repositories.matrixRepository;
+  }
+
   protected get profileRepository() {
     return this.repositories.profileRepository;
   }

@@ -16,6 +16,7 @@ import { resolve } from 'node:path';
 import { z } from 'zod';
 
 import { DiscordService } from '#src/services/discord.service';
+import { MatrixService } from '#src/services/matrix.service';
 
 export async function openRuntime(config: ResolvedConfig, assets: string) {
   const resources = new Resources();
@@ -54,7 +55,9 @@ export async function openRuntime(config: ResolvedConfig, assets: string) {
     resources.defer(() => checkpoints.close());
     // Stops after the job runner and the simulation: the last flush covers their commits.
     resources.defer(() => runtime.services.durability.close());
-    resources.defer(() => runtime.discord?.close());
+    resources.defer(async () => {
+      await Promise.all((runtime.bridges ?? []).map((bridge) => bridge.close()));
+    });
     resources.defer(() => runtime.services.jobs.close());
     resources.defer(() => simulation.close());
     resources.defer(() => runtime.services.recovery.close());
@@ -72,10 +75,12 @@ export async function openRuntime(config: ResolvedConfig, assets: string) {
     runtime.services.jobs.start();
     checkpoints.start();
 
+    const bridges: NonNullable<Runtime['bridges']> = [];
+    runtime.bridges = bridges;
+
     if (config.integrations.discord.enabled) {
       try {
-        runtime.discord = new DiscordService(runtime.accounts.repositories).startDiscord(runtime);
-        world.presence = (id, joining) => runtime.discord?.online(id, joining);
+        bridges.push(new DiscordService(runtime.accounts.repositories).startDiscord(runtime));
       } catch {
         world.lifecycle.log.warn(
           'discord.configuration_failed',
@@ -83,6 +88,22 @@ export async function openRuntime(config: ResolvedConfig, assets: string) {
         );
       }
     }
+
+    if (config.integrations.matrix.enabled) {
+      try {
+        bridges.push(new MatrixService(runtime.accounts.repositories).startMatrix(runtime));
+      } catch {
+        world.lifecycle.log.warn(
+          'matrix.configuration_failed',
+          'Matrix configuration failed; local riding remains available',
+        );
+      }
+    }
+
+    if (bridges.length > 0)
+      world.presence = (id, joining) => {
+        for (const bridge of bridges) bridge.online(id, joining);
+      };
 
     return { runtime, close: () => resources.close() };
   } catch (error) {

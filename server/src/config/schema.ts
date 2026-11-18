@@ -164,6 +164,21 @@ export const configSchema = z
           })
           .prefault({})
           .readonly(),
+        matrix: z
+          .strictObject({
+            enabled: z.boolean().default(false),
+            credentialsFile: optionalPath.default(''),
+            homeserver: z.union([z.literal(''), z.url({ protocol: /^https?$/ })]).default(''),
+            user: z.union([z.literal(''), z.string().regex(/^@?[^:\s]+(:\S+)?$/)]).default(''),
+            room: z.union([z.literal(''), z.string().regex(/^[!#][^:\s]+:\S+$/)]).default(''),
+            helpMessage: z
+              .string()
+              .refine((v) => !v.includes('\0'), 'Invalid string')
+              .default(''),
+            announcePlayers: z.boolean().default(false),
+          })
+          .prefault({})
+          .readonly(),
       })
       .prefault({})
       .readonly(),
