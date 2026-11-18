@@ -1,6 +1,4 @@
-import { defineConfig } from 'cf/config';
-
-export default defineConfig({
+module.exports = {
   worker: {
     name: 'zluggish-docs',
     compatibilityDate: '2026-11-18',
@@ -11,4 +9,4 @@ export default defineConfig({
       notFoundHandling: '404-page',
     },
   },
-});
+};
