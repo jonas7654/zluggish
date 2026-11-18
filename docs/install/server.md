@@ -10,23 +10,7 @@ If you use legacy zwift-offline now, do the steps in [Migrate from zwift-offline
 ## Install with Docker Compose
 
 1. Make an empty directory on the server, for example `/etc/zluggish`.
-2. In that directory, make a file with the name `docker-compose.yml` and this content:
-
-   ```yaml
-   services:
-     zluggish:
-       image: ghcr.io/zluggish/zluggish:latest
-       volumes:
-         - /etc/localtime:/etc/localtime:ro
-         - ./storage:/usr/src/app/zluggish/storage
-       ports:
-         - 80:80
-         - 443:443
-         - 8080:8080
-         - 3024:3024/udp
-         - 3025:3025
-       restart: unless-stopped
-   ```
+2. Download the [server Docker Compose file](../../docker/docker-compose.server.yml) to that directory and name it `docker-compose.yml`.
 
 3. Start the server from that directory:
 
@@ -55,6 +39,35 @@ The [ports reference](../reference/ports.md) tells what each port is for.
 
 This setup uses the `storage` directory in the repository root.
 
-## Next step
+# Set up server
 
-Do the [first-time setup](first-time-setup.md).
+In order to set up a new server, you must authenticate yourself as the administrator by entering the setup key. The docker output for the first-time zluggish server is something like
+
+```text
+============================================================
+Zluggish first-time setup
+Open: http://192.168.1.20:8080/setup
+Setup key: ABCD-EFGH-IJKL-MNOP
+This key works until setup is complete or the server stops.
+============================================================
+```
+
+:::warning
+
+Keep the setup key private, don't share it with anybody
+
+:::
+
+Now open the setup address in a browser. The default address is `http://<server-ip>:8080/setup`.
+
+Then paste the key into **Setup key**.
+
+Enter a name, a login name and a password for the new user.
+
+Select **Complete setup**.
+
+This account is now the initial administrator.
+
+## Next steps
+
+See the [server documentation](../reference/configuration.md) for configuration, then set up the client for [Windows](clients/windows.md), [macOS](clients/macos.md) or [Android](clients/android.md).

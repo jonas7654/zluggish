@@ -13,7 +13,7 @@ Use the web app only on a network that you trust. Without HTTPS, other devices o
 
 :::
 
-To make the first administrator, do the [first-time setup](../install/first-time-setup.md).
+To make the first administrator, do the [first-time setup](../install/server.md#set-up-server).
 
 ## User pages
 

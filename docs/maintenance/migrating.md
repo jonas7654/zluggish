@@ -25,7 +25,7 @@ Back up your zwift-offline folder before you start.
 2. Stop zwift-offline.
 3. Copy the zwift-offline `storage` directory to the `storage` directory of Zluggish.
 4. [Install the Zluggish server](../install/server.md) and start it. The server converts the storage when it starts.
-5. Do the [first-time setup](../install/first-time-setup.md). Select **Use an existing user** and select a migrated user that has a password. That user becomes the administrator.
+5. Follow [first-time setup](../install/server.md#set-up-server). Select **Use an existing user** and select a migrated user that has a password. That user becomes the administrator.
 6. Set the passwords of the other users again.
 
 Migrated users do not have passwords. Before a user without a password can become the administrator, set a password with [account recovery](../reference/cli/accounts.md#recover-a-local-account).
