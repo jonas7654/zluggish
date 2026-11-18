@@ -136,6 +136,7 @@ export class JobsService extends BaseService {
         type: claim.type,
         attempts: claim.attempts,
         code,
+        error: error instanceof Error ? error : String(error),
       });
     } finally {
       clearInterval(renewal);

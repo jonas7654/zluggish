@@ -200,7 +200,7 @@ export function createGameApp(metadata: PublicMetadata, runtime?: Runtime) {
       requestId: c.get('requestId'),
       method: c.req.method,
       route: c.req.routePath === '*' ? 'unmatched' : c.req.routePath,
-      error: error instanceof Error ? error : undefined,
+      error: error instanceof Error ? error : String(error),
     });
 
     return c.text('Request failed', 500);

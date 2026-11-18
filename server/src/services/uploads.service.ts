@@ -264,6 +264,7 @@ export class UploadsService extends BaseService {
 
     let outcome: 'sent' | 'failed' | 'ambiguous' = 'sent';
     let code: string | null = null;
+    let failure: unknown;
 
     try {
       await this.send(start.player, start.payload, {
@@ -274,6 +275,7 @@ export class UploadsService extends BaseService {
         signal: job.signal,
       });
     } catch (error) {
+      failure = error;
       outcome = error instanceof DeliveryRefusedError ? 'failed' : 'ambiguous';
       code = error instanceof DeliveryRefusedError ? error.code : error instanceof Error ? error.name : 'error';
     }
@@ -290,6 +292,7 @@ export class UploadsService extends BaseService {
         ...fields,
         outcome,
         retry: 'manual',
+        error: failure instanceof Error ? failure : String(failure),
       });
       this.warn(
         outcome === 'failed'
