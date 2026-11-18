@@ -644,6 +644,8 @@ mise run check
 
 Build the web app with `pnpm --dir web build`, and type-check it with `pnpm --dir web check`. Regenerate the screenshots in this README, from fictional riders on a throwaway server, with `pnpm --dir server screenshots`. For individual pnpm commands and lint provenance, see the [CLI/tooling guide](server/README.md).
 
+Before you open a pull request, read the [contributing guidelines](CONTRIBUTING.md).
+
 ## Legal notice
 
 Zluggish is an independent, community-developed project. It is **not affiliated with, endorsed by, sponsored by, or officially supported by Zwift, Inc.** Zwift is a trademark of Zwift, Inc. Other product and company names belong to their respective owners; references to them do not imply affiliation or endorsement.
