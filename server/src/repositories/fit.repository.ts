@@ -104,7 +104,7 @@ export class FitRepository {
       else pending.reject(new Error(parsed.error));
     });
 
-    worker.on('error', (error) => this.fail(error));
+    worker.on('error', (error) => this.fail(error instanceof Error ? error : new Error('FIT worker failed')));
     worker.on('exit', () => this.fail(new Error('FIT worker stopped')));
     this.worker = worker;
 

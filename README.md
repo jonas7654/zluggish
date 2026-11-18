@@ -604,7 +604,7 @@ Please join the community-supported [Discord](https://discord.gg/GMdn8F8) server
 
 ## Dependencies
 
-Use Docker, or Node 24 and pnpm 12 for a source installation. The web app is built with Svelte and Vite (see `web/`; Docker builds it for you). Runtime dependencies include Hono and its Node adapter, protobuf codecs, SQLite through Node's built-in module, native OS storage locks, Zod, Jiti, the Garmin FIT/Connect libraries and discord.js. Package manifests and lockfiles in `server/` are authoritative. No Python runtime or pip dependencies are required.
+Use Docker, or Node 26 and pnpm 12 for a source installation. The web app is built with Svelte and Vite (see `web/`; Docker builds it for you). Runtime dependencies include Hono and its Node adapter, protobuf codecs, SQLite through Node's built-in module, native OS storage locks, Zod, Jiti, the Garmin FIT/Connect libraries and discord.js. Package manifests and lockfiles in `server/` are authoritative. No Python runtime or pip dependencies are required.
 
 ## Note
 

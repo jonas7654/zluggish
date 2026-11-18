@@ -1,4 +1,4 @@
-FROM node:24-bookworm-slim AS build
+FROM node:26-bookworm-slim AS build
 WORKDIR /usr/src/app/zluggish
 RUN corepack enable && corepack prepare pnpm@12.18.0 --activate
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -13,7 +13,7 @@ RUN pnpm build
 # Install production dependencies in the same workspace layout; retain both entry outputs.
 RUN rm -rf node_modules server/node_modules web/node_modules && pnpm install --prod --frozen-lockfile
 
-FROM node:24-bookworm-slim AS runtime
+FROM node:26-bookworm-slim AS runtime
 WORKDIR /usr/src/app/zluggish/server
 COPY --from=build /usr/src/app/zluggish/node_modules ../node_modules
 COPY --from=build /usr/src/app/zluggish/server/package.json ./

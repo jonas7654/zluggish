@@ -127,7 +127,7 @@ export function startRideListeners(runtime: Runtime) {
 
     socket.on('data', (chunk) => {
       try {
-        for (const packet of framing.push(chunk)) {
+        for (const packet of framing.push(Buffer.from(chunk))) {
           const first = playerId === null;
 
           if (playerId !== null && active.get(playerId) !== socket) throw new Error('Superseded relay connection');
