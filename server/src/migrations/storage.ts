@@ -1,9 +1,11 @@
 import { ConfigError } from '#src/config/index';
 import { storageSchemaSQL } from '#src/db/ddl';
 import { RiderDocumentName, SecretDocuments } from '#src/enum';
+import { UnreadableCredentialsError } from '#src/errors';
 import { ActivitySchema } from '#src/protocol/generated/activity_pb';
 import { PlayerProfileSchema, StreaksSchema } from '#src/protocol/generated/profile_pb';
 import { PlayerStateSchema } from '#src/protocol/generated/udp-node-msgs_pb';
+import { connectionDocuments } from '#src/repositories/connections.repository';
 import { CryptoRepository } from '#src/repositories/crypto.repository';
 import { ProtobufRows } from '#src/repositories/protobuf.repository';
 import { StreakService } from '#src/services/streak.service';
@@ -297,6 +299,7 @@ function importSettings(storage: string, db: DatabaseSync) {
 }
 
 const documentNames = Object.values(RiderDocumentName);
+const credentialDocuments = new Set<string>(Object.values(connectionDocuments));
 
 function importRiderFiles(storage: string, db: DatabaseSync, key: Uint8Array, report: Report) {
   const users = new Set(
@@ -335,6 +338,17 @@ function importRiderFiles(storage: string, db: DatabaseSync, key: Uint8Array, re
       // Required progression documents must decode; invalid files stop the migration.
       if (document === 'profile.bin') fromBinary(PlayerProfileSchema, data);
       else if (document === 'streaks.bin') fromBinary(StreaksSchema, data);
+      else if (credentialDocuments.has(document))
+        try {
+          crypto.decryptCredentials(key, data);
+        } catch (error) {
+          if (!(error instanceof UnreadableCredentialsError)) throw error;
+
+          // Another credentials key wrote them. The legacy file stays; the rider enters them again.
+          report.invalidOptional.push(`${name}/${document}`);
+          continue;
+        }
+
       const secret = SecretDocuments.includes(document);
       insertDocument.run(player, document, secret ? crypto.encryptSecret(key, data) : data, secret ? 1 : 0);
       report.documents++;

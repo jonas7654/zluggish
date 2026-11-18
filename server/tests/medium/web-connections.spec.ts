@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createWebApp } from '#src/http/web-app';
+import { CryptoRepository } from '#src/repositories/crypto.repository';
 import { responseStatus } from '#tests/support/html';
 import { mediumFixture, mediumWeb } from '#tests/medium/support';
 
@@ -242,7 +243,7 @@ await test('unexpected web failures are logged with their stack trace', async (t
   const owner = f.services.management.sessions.create(f.accounts.identityOf(f.rider));
   const error = t.mock.method(f.world.lifecycle.log, 'error', () => {});
 
-  t.mock.method(f.services.connections, 'read', () => {
+  t.mock.method(f.services.connections, 'inspect', () => {
     throw new Error('connections unreadable');
   });
 
@@ -257,4 +258,58 @@ await test('unexpected web failures are logged with their stack trace', async (t
   assert.equal(fields?.route, '/api/me/connections');
   assert.ok(fields?.error instanceof Error);
   assert.equal(fields.error.message, 'connections unreadable');
+});
+
+await test('credentials written with another key ask the rider to enter them again', async (t) => {
+  const f = await mediumFixture(t);
+  const app = createWebApp(f);
+  const owner = f.services.management.sessions.create(f.accounts.identityOf(f.rider));
+  const crypto = new CryptoRepository();
+  const warn = t.mock.method(f.world.lifecycle.log, 'warn', () => {});
+
+  f.services.documents.put(
+    f.rider.player_id,
+    'garmin_credentials.bin',
+    crypto.encryptCredentials(crypto.randomBytes(32), ['athlete', 'old-password']),
+  );
+
+  const request = (path: string, method = 'GET', data?: Record<string, string>) =>
+    app.request(`https://web.example${path}`, {
+      method,
+      headers: {
+        Cookie: `zluggish_web_session=${owner.id}`,
+        Origin: 'https://web.example',
+        'X-CSRF-Token': owner.session.csrf,
+        'Content-Type': 'application/json',
+      },
+      ...(data && { body: JSON.stringify(data) }),
+    });
+
+  const response = await request('/api/me/connections');
+
+  assert.equal(response.status, 200);
+  const body = await response.json();
+
+  assert.deepEqual(body.garmin, {
+    username: '',
+    saved: true,
+    unreadable: true,
+    authorized: false,
+  });
+  assert.equal(warn.mock.calls[0]?.arguments[0], 'connections.unreadable');
+
+  // The secret cannot be kept, so it must be entered again.
+  assert.equal(
+    await responseStatus(request('/api/me/connections/garmin', 'PUT', { username: 'athlete', secret: '' })),
+    400,
+  );
+  assert.equal(
+    await responseStatus(request('/api/me/connections/garmin', 'PUT', { username: 'athlete', secret: 'new' })),
+    200,
+  );
+  assert.deepEqual(f.services.connections.read(f.rider.player_id, 'garmin'), ['athlete', 'new']);
+  const fixed = await request('/api/me/connections');
+  const repaired = await fixed.json();
+
+  assert.equal(repaired.garmin.unreadable, false);
 });

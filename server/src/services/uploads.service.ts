@@ -2,7 +2,7 @@ import { UploadProvider, UploadState } from '#src/enum';
 import type { RemovableCredentialFile } from '#src/enum';
 import type { RepositoryContext as Runtime } from '#src/context';
 import { atomic, immediate } from '#src/db/transaction';
-import { ApplicationError, DeliveryRefusedError, refused } from '#src/errors';
+import { ApplicationError, DeliveryRefusedError, refused, UnreadableCredentialsError } from '#src/errors';
 import type { Activity } from '#src/protocol/generated/activity_pb';
 import { ActivitySchema } from '#src/protocol/generated/activity_pb';
 import { PlayerProfileSchema } from '#src/protocol/generated/profile_pb';
@@ -276,8 +276,15 @@ export class UploadsService extends BaseService {
       });
     } catch (error) {
       failure = error;
-      outcome = error instanceof DeliveryRefusedError ? 'failed' : 'ambiguous';
-      code = error instanceof DeliveryRefusedError ? error.code : error instanceof Error ? error.name : 'error';
+
+      // Unreadable credentials stop the delivery before anything is sent.
+      if (error instanceof UnreadableCredentialsError) {
+        outcome = 'failed';
+        code = 'credentials_unreadable';
+      } else {
+        outcome = error instanceof DeliveryRefusedError ? 'failed' : 'ambiguous';
+        code = error instanceof DeliveryRefusedError ? error.code : error instanceof Error ? error.name : 'error';
+      }
     }
 
     // The provider result is the truth even when the lease expired during the request.

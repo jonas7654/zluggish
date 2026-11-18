@@ -21,7 +21,7 @@
 
   type Integration = Provider | 'trainingpeaks';
 
-  type Connection = { username: string; saved: boolean; authorized?: boolean; cookie?: boolean };
+  type Connection = { username: string; saved: boolean; unreadable: boolean; authorized?: boolean; cookie?: boolean };
 
   type UploadJob = { activity_id: number; provider: string; state: string };
 
@@ -103,9 +103,11 @@
           ? cookieStatus === 'invalid'
             ? 'Session expired or invalid'
             : 'Session saved · Not verified'
-          : connection.saved
-            ? 'Credentials saved'
-            : 'Not connected',
+          : connection.unreadable
+            ? 'Credentials unreadable · Enter them again'
+            : connection.saved
+              ? 'Credentials saved'
+              : 'Not connected',
     };
   }
 
@@ -340,9 +342,13 @@
       label={fields[name].secret}
       bind:value={secrets[name]}
       password
-      required={!connections![name].saved}
+      required={!connections![name].saved || connections![name].unreadable}
       maxlength={10000}
-      hint={connections![name].saved ? 'Leave blank to keep the saved secret.' : undefined}
+      hint={connections![name].unreadable
+        ? 'The saved credentials cannot be read. Enter them again.'
+        : connections![name].saved
+          ? 'Leave blank to keep the saved secret.'
+          : undefined}
     />
     <button disabled={busy}>Save credentials</button>
   </form>

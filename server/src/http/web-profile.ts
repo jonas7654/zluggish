@@ -5,6 +5,7 @@ import { ApplicationError } from '#src/errors';
 import { importFilenameSchema } from '#src/dtos/profile-import.dto';
 import type { ImportFiles } from '#src/dtos/profile-import.dto';
 import type { HttpRuntime } from '#src/http/runtime';
+import { providerFailure } from '#src/http/web-connections';
 import type { WebEnv } from '#src/http/web-app';
 
 export function webProfileRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
@@ -209,8 +210,8 @@ export function webProfileRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
         input.profile,
         input.achievements,
       );
-    } catch {
-      throw new ApplicationError(400, 'Download failed. Existing user data was retained.');
+    } catch (error) {
+      throw providerFailure(runtime, error, 400, 'Download failed. Existing user data was retained.');
     }
 
     return stageFiles(c, identity, files);

@@ -117,14 +117,23 @@ await test('a delivery lease expiry does not authorize a second send', async (t)
   const id = await completed(f);
   const repository = f.accounts.repositories.jobsRepository;
   const gate = Promise.withResolvers<Response>();
-  const sends = t.mock.method(globalThis, 'fetch', () => gate.promise);
+  const sent = Promise.withResolvers<void>();
+
+  const sends = t.mock.method(globalThis, 'fetch', () => {
+    sent.resolve();
+
+    return gate.promise;
+  });
+
   const jobs = new JobsService(f);
   new UploadsService(f).registerJobs(jobs);
 
   const first = repository.claim('delivery', 50);
   assert.ok(first);
   const sending = jobs.run(first);
-  await new Promise((resolve) => setImmediate(resolve));
+
+  // The send follows a durable flush, which can take more than one tick on slow file systems.
+  await sent.promise;
   assert.equal(sends.mock.callCount(), 1);
   assert.equal(f.services.uploads.status(f.rider.player_id)[0]?.state, 'sending');
 
