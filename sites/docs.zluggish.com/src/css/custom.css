@@ -1,0 +1,292 @@
+/* Zluggish documentation theme: "white road, orange route".
+   A white reading page with the web app's identity: Montserrat headings, its slate as ink and as the dark-mode ground,
+   and Zwift orange kept for one thing, the elevation-profile line under the navbar.
+   Body text is Atkinson Hyperlegible Next, so that 0/O and l/1/I differ in IP addresses and hosts lines.
+   Link colors pass WCAG AA: #b44408 on white is 5.6:1, #ff8a4c on slate is 6.6:1. */
+@import '@fontsource/montserrat/latin-700.css';
+@import '@fontsource/montserrat/latin-800.css';
+@import '@fontsource/atkinson-hyperlegible-next/latin-400.css';
+@import '@fontsource/atkinson-hyperlegible-next/latin-400-italic.css';
+@import '@fontsource/atkinson-hyperlegible-next/latin-700.css';
+
+:root {
+  --zl-paper: #ffffff;
+  --zl-slate: #1b2533;
+  --zl-route: #e2560c;
+  --zl-rust: #b44408;
+  --zl-tarmac: #eef1f4;
+  --zl-rule: #dde3e9;
+  --zl-muted: #55616f;
+  --zl-display: 'Montserrat', system-ui, sans-serif;
+
+  /* One climb, drawn as a single line. The flat parts are the navbar's bottom rule. */
+  --zl-profile: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1600 14' preserveAspectRatio='none'%3E%3Cpath d='M0 13 L120 13 C170 13 190 10 240 10 C290 10 310 12 360 12 C430 12 470 8 540 8 C600 8 620 11 680 11 C760 11 820 7 900 5 C960 3.5 1000 2 1060 2 C1110 2 1140 4 1190 7 C1260 11 1320 13 1400 13 L1600 13' fill='none' stroke='%23e2560c' stroke-width='2' stroke-linejoin='round' stroke-linecap='round' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E");
+
+  --ifm-color-primary: var(--zl-rust);
+  --ifm-color-primary-dark: #a23d07;
+  --ifm-color-primary-darker: #993a07;
+  --ifm-color-primary-darkest: #7e3006;
+  --ifm-color-primary-light: #c64b09;
+  --ifm-color-primary-lighter: #cf4e09;
+  --ifm-color-primary-lightest: #ea580a;
+
+  --ifm-background-color: var(--zl-paper);
+  --ifm-background-surface-color: var(--zl-paper);
+  --ifm-font-color-base: var(--zl-slate);
+  --ifm-heading-color: var(--zl-slate);
+  --ifm-color-emphasis-300: var(--zl-rule);
+  --ifm-toc-border-color: var(--zl-rule);
+  --ifm-hr-border-color: var(--zl-rule);
+  --ifm-table-border-color: var(--zl-rule);
+  --ifm-table-head-background: var(--zl-tarmac);
+  --ifm-table-stripe-background: transparent;
+  --ifm-code-background: var(--zl-tarmac);
+
+  /* Type: 17px body on a 1.25 (major third) scale. */
+  --ifm-font-size-base: 106.25%;
+  --ifm-line-height-base: 1.6;
+  --ifm-font-family-base: 'Atkinson Hyperlegible Next', system-ui, sans-serif;
+  --ifm-heading-font-family: var(--zl-display);
+  --ifm-heading-font-weight: 800;
+  --ifm-heading-line-height: 1.2;
+  --ifm-h1-font-size: 2.441rem;
+  --ifm-h2-font-size: 1.953rem;
+  --ifm-h3-font-size: 1.563rem;
+  --ifm-h4-font-size: 1.25rem;
+  --ifm-code-font-size: 88%;
+  --ifm-code-border-radius: 4px;
+
+  --ifm-navbar-height: 4rem;
+  --ifm-navbar-shadow: none;
+
+  --docusaurus-highlighted-code-line-bg: rgb(226 86 12 / 0.1);
+}
+
+html[data-theme='dark'] {
+  /* The web app's slate world and glass panels. */
+  --zl-rule: rgb(255 255 255 / 0.14);
+  --zl-tarmac: #242f3e;
+  --zl-muted: #c2cbd6;
+
+  --ifm-color-primary: #ff8a4c;
+  --ifm-color-primary-dark: #ff742b;
+  --ifm-color-primary-darker: #ff6a1a;
+  --ifm-color-primary-darkest: #e85000;
+  --ifm-color-primary-light: #ffa06d;
+  --ifm-color-primary-lighter: #ffaa7e;
+  --ifm-color-primary-lightest: #ffcbaf;
+
+  --ifm-background-color: var(--zl-slate);
+  --ifm-background-surface-color: var(--zl-slate);
+  --ifm-font-color-base: #e8edf2;
+  --ifm-heading-color: #ffffff;
+  --ifm-navbar-background-color: var(--zl-slate);
+  --ifm-code-background: rgb(12 18 26 / 0.55);
+
+  --docusaurus-highlighted-code-line-bg: rgb(255 138 76 / 0.16);
+}
+
+/* Navbar: the signature. The route line replaces a border. */
+.navbar {
+  position: sticky;
+  border-bottom: 0;
+}
+
+.navbar::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0;
+  height: 14px;
+  background: var(--zl-profile) bottom / 100% 14px no-repeat;
+  pointer-events: none;
+}
+
+.navbar__brand {
+  gap: 0.375rem;
+}
+
+.navbar__logo {
+  height: 2.5rem;
+}
+
+.navbar__title {
+  font-family: var(--zl-display);
+  font-weight: 800;
+  font-size: 1.375rem;
+  letter-spacing: -0.015em;
+}
+
+.navbar__link {
+  font-weight: 700;
+}
+
+/* Headings */
+.markdown h1:first-child {
+  letter-spacing: -0.02em;
+  margin-bottom: 1.5rem;
+}
+
+.markdown h2 {
+  letter-spacing: -0.01em;
+  margin-top: 2.75rem;
+}
+
+.markdown h3 {
+  font-weight: 700;
+  margin-top: 2rem;
+}
+
+/* Keep prose under about 72 characters a line. Tables and code may use the full column. */
+.markdown > p,
+.markdown > ul,
+.markdown > ol,
+.markdown > blockquote,
+.markdown > .theme-admonition {
+  max-width: 42rem;
+}
+
+.markdown a {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+.markdown a:hover {
+  text-decoration-thickness: 2px;
+}
+
+/* Steps in a procedure are a real sequence: give the step numbers the heading face. */
+.markdown ol > li::marker {
+  font-family: var(--zl-display);
+  font-weight: 800;
+  color: var(--ifm-heading-color);
+}
+
+.markdown li + li {
+  margin-top: 0.375rem;
+}
+
+/* Steps that hold a code block become loose lists; keep them as tight as the others. */
+.markdown li > p {
+  margin-bottom: 0.375rem;
+}
+
+/* Screenshots of the dark web app: a thin slate frame, so they read as a window into the app. */
+.markdown img {
+  display: block;
+  border: 1px solid var(--zl-slate);
+  border-radius: 6px;
+}
+
+html[data-theme='dark'] .markdown img {
+  border-color: var(--zl-rule);
+}
+
+/* Admonitions: tarmac panels with a colored edge, sentence-case titles, no tinted washes.
+   Notes and tips use slate, warnings the route orange, danger a red that passes AA on tarmac. */
+.theme-admonition {
+  --zl-edge: var(--ifm-heading-color);
+  background: var(--zl-tarmac);
+  color: var(--ifm-font-color-base);
+  border: 0;
+  border-left: 4px solid var(--zl-edge);
+  border-radius: 0 6px 6px 0;
+  box-shadow: none;
+}
+
+.theme-admonition-warning {
+  --zl-edge: var(--zl-route);
+}
+
+.theme-admonition-danger {
+  --zl-edge: #c0262d;
+}
+
+.theme-admonition [class*='admonitionHeading'] {
+  font-family: var(--zl-display);
+  font-weight: 700;
+  font-size: 1rem;
+  text-transform: capitalize;
+  color: var(--ifm-heading-color);
+}
+
+.theme-admonition [class*='admonitionIcon'] svg {
+  fill: var(--zl-edge);
+}
+
+.theme-admonition a {
+  color: var(--ifm-color-primary);
+  text-decoration-color: currentColor;
+}
+
+/* Tables: a tarmac header row, no zebra stripes. */
+.markdown table {
+  display: table;
+  width: 100%;
+  font-size: 0.9375rem;
+}
+
+.markdown table th {
+  font-family: var(--zl-display);
+  font-weight: 700;
+  text-align: left;
+}
+
+@media (max-width: 996px) {
+  .markdown table {
+    display: block;
+    overflow-x: auto;
+  }
+}
+
+/* Sidebar: sentence case. The active page gets the route color as a marker. */
+.menu {
+  font-size: 0.9375rem;
+}
+
+.menu__list-item-collapsible > .menu__link--sublist,
+.menu__link--sublist-caret {
+  font-weight: 700;
+}
+
+.menu__link--active:not(.menu__link--sublist) {
+  font-weight: 700;
+  background: none;
+  box-shadow: inset 3px 0 0 var(--zl-route);
+  border-radius: 0;
+}
+
+/* Generated category pages list their guides as cards; keep them plain. */
+.card {
+  box-shadow: none;
+  border: 1px solid var(--zl-rule);
+}
+
+.card h2 {
+  font-size: 1.125rem;
+}
+
+/* Footer */
+.footer {
+  --ifm-footer-background-color: var(--zl-tarmac);
+  --ifm-footer-title-color: var(--ifm-heading-color);
+  --ifm-footer-link-color: var(--ifm-font-color-base);
+  --ifm-footer-color: var(--zl-muted);
+}
+
+.footer__title {
+  font-family: var(--zl-display);
+  font-weight: 700;
+}
+
+.footer__copyright {
+  font-size: 0.875rem;
+  max-width: 60ch;
+  margin-inline: auto;
+}
+
+/* Visible keyboard focus everywhere. */
+:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: 2px;
+}

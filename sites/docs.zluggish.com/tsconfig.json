@@ -1,0 +1,8 @@
+{
+  // @docusaurus/tsconfig 3.10 still sets baseUrl, which TypeScript 6 deprecates.
+  "extends": "@docusaurus/tsconfig",
+  "compilerOptions": {
+    "ignoreDeprecations": "6.0"
+  },
+  "include": ["docusaurus.config.ts", "sidebars.ts", "cloudflare.config.ts", "src"]
+}

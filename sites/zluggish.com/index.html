@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Zluggish: a self-hosted Zwift server</title>
+    <meta
+      name="description"
+      content="Zluggish is a self-hosted, open-source server for Zwift. Run it at home and ride any map with your own ghosts, pacers and household riders."
+    />
+    <meta property="og:title" content="Zluggish" />
+    <meta property="og:description" content="A self-hosted, open-source server for Zwift." />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1b2533" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" href="../../media/zluggish.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <header class="masthead">
+      <a class="brand" href="/" aria-label="Zluggish home">
+        <img src="../../media/zluggish.svg" alt="" width="57" height="36" />
+        <span>Zluggish</span>
+      </a>
+      <nav aria-label="Main">
+        <a href="https://docs.zluggish.com/">Documentation</a>
+        <a href="https://github.com/zluggish/zluggish">GitHub</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero" aria-labelledby="title">
+        <h1 id="title">Zluggish</h1>
+        <p class="lead">
+          A self-hosted, open-source server for Zwift. Run it at home and ride any map, with your own ghosts, pacers and
+          household riders.
+        </p>
+        <p class="actions">
+          <a class="button primary" href="https://docs.zluggish.com/">Read the documentation</a>
+          <a class="button" href="https://github.com/zluggish/zluggish">Get the code on GitHub</a>
+        </p>
+      </section>
+
+      <!-- The signature: one climb, with the snail partway up and a KOM marker on the summit. The docs use the same line, thin, under their navbar. -->
+      <figure class="climb" aria-hidden="true">
+        <svg class="profile" viewBox="0 -40 1200 200" preserveAspectRatio="xMidYMid meet" focusable="false">
+          <path
+            d="M0 150 L80 150 C120 150 140 138 190 138 C240 138 260 146 310 146 C370 146 400 132 450 132 C500 132 520 140 560 140 L940 46 C965 40 990 38 1010 42 C1050 52 1080 150 1120 150 L1200 150"
+          />
+        </svg>
+        <!-- The logo's snail without the Z, so it does not repeat the logo. The spiral marks the shell. -->
+        <svg class="snail" viewBox="160 190 1140 720" width="114" height="72" focusable="false">
+          <path
+            d="M506 230H830Q856 230 870 254L1017 510Q1030 532 1016 555L867 804H427L300 566Q288 546 300 525L470 252Q482 230 506 230Z"
+          />
+          <path
+            d="M427 775 200 865H951Q1027 865 1066 798L1150 608Q1164 580 1193 565L1245 539Q1270 525 1263 498Q1257 473 1233 460L1252 364C1271 353 1269 322 1254 299C1240 276 1210 265 1186 276C1160 287 1150 315 1161 339Q1168 355 1181 362L1164 452 1141 457 1125 406C1144 391 1149 370 1140 350C1130 326 1103 313 1078 320C1052 328 1038 352 1044 377Q1050 400 1074 409L1098 475Q1067 493 1051 527L967 715Q943 764 893 785L867 798H450Z"
+          />
+          <path
+            class="snail-spiral"
+            d="M658 520 694 521 692 566 606 584 554 527 599 421 736 403 830 526 770 672 520 689 418 537 536 315"
+          />
+        </svg>
+        <svg class="kom" viewBox="0 0 40 64" focusable="false">
+          <defs>
+            <pattern id="kom-dots" width="6" height="6" patternUnits="userSpaceOnUse">
+              <circle cx="1.5" cy="1.5" r="1.35" />
+              <circle cx="4.5" cy="4.5" r="1.35" />
+            </pattern>
+          </defs>
+          <line class="kom-stem" x1="20" y1="49" x2="20" y2="63" />
+          <path class="kom-pin" d="M20 46 7.13 31.11A17 17 0 1 1 32.87 31.11Z" />
+          <circle class="kom-dots" cx="20" cy="20" r="12" fill="url(#kom-dots)" />
+        </svg>
+      </figure>
+
+      <figure class="screenshot">
+        <img
+          src="../../media/screenshots/webapp-activities.png"
+          width="2560"
+          height="1600"
+          alt="The Zluggish web app showing a month of rides, with the route map, elevation profile and power and heart rate stats of the selected ride"
+        />
+      </figure>
+
+      <section class="features" aria-labelledby="features-title">
+        <h2 id="features-title">What you get</h2>
+        <dl>
+          <div>
+            <dt>Offline play</dt>
+            <dd>Ride with no connection to the Zwift servers.</dd>
+          </div>
+          <div>
+            <dt>Any map</dt>
+            <dd>Ride the world you choose, not the official schedule.</dd>
+          </div>
+          <div>
+            <dt>Your own ghosts</dt>
+            <dd>Ride against your previous efforts on the same route.</dd>
+          </div>
+          <div>
+            <dt>RoboPacers and pelotons</dt>
+            <dd>Build pacers from recorded rides, with a group of followers behind them.</dd>
+          </div>
+          <div>
+            <dt>Planned workouts</dt>
+            <dd>Get your Intervals.icu workouts in the launcher, and send finished rides back.</dd>
+          </div>
+          <div>
+            <dt>A web app for the household</dt>
+            <dd>Manage riders, activities, uploads and settings from a browser.</dd>
+          </div>
+        </dl>
+        <p class="note">
+          Zluggish is offline only. It does not connect to the public Zwift world, so official races, group rides and
+          leaderboards are not available. Riders on the same Zluggish server can ride together.
+        </p>
+      </section>
+    </main>
+
+    <footer class="colophon">
+      <p>
+        Zluggish is an independent community project. It is not affiliated with, endorsed by, or supported by Zwift,
+        Inc. Zwift is a trademark of Zwift, Inc.
+      </p>
+      <p>
+        Licensed under the
+        <a href="https://github.com/zluggish/zluggish/blob/main/LICENSE">GNU AGPL, version 3</a>. Based on
+        <a href="https://github.com/zoffline/zwift-offline">zwift-offline</a>.
+      </p>
+    </footer>
+  </body>
+</html>

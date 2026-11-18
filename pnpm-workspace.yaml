@@ -1,13 +1,19 @@
 packages:
   - server
   - web
+  - sites/docs.zluggish.com
+  - sites/zluggish.com
 # pnpm 12 replaces onlyBuiltDependencies with explicit build decisions.
 allowBuilds:
   '@bufbuild/buf': true
   argon2: true
+  # Docs site: core-js only prints a banner; cf deploys prebuilt assets without workerd.
+  core-js: false
   esbuild: true
   # Runtime loads the shipped binaries; retain the previous no-build policy.
   fs-ext-extra-prebuilt: false
+  # See core-js above.
+  workerd: false
 
 # Preserve exact versions already locked before upgrading to pnpm 12.
 # All other packages and versions retain the default release-age policy.
