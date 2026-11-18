@@ -61,7 +61,6 @@ await test('safe serialization and sink failure containment', () => {
     playerId: 42n,
     token: 'sensitive-token',
     nested: { password: 'sensitive-password' },
-    error: new Error('sensitive-error-token'),
     circular,
   });
   assert.doesNotMatch(lines[0]!, /sensitive-/);
@@ -78,6 +77,32 @@ await test('safe serialization and sink failure containment', () => {
     }).info('ride.started', 'Ride'),
   );
   assert.throws(() => validateConfig({ logging: { rideProgressIntervalSeconds: 1 } }));
+});
+
+await test('errors keep their message, stack and cause', () => {
+  const lines: string[] = [];
+
+  const sink = (line: string) => {
+    lines.push(line);
+  };
+
+  const error = new Error('outer failure', { cause: new TypeError('inner failure') });
+
+  new LoggingRepository({ format: 'json', sink }).error('web.failed', 'Failed', { error });
+  const { fields } = JSON.parse(lines[0]!);
+  assert.equal(fields.error.type, 'Error');
+  assert.equal(fields.error.message, 'outer failure');
+  assert.match(fields.error.stack, /^Error: outer failure\n\s+at /);
+  assert.equal(fields.error.cause.type, 'TypeError');
+  assert.equal(fields.error.cause.message, 'inner failure');
+
+  new LoggingRepository({ sink }).error('web.failed', 'Failed', { error });
+  const [line, ...trace] = lines[1]!.split('\n');
+  assert.match(line!, /"message":"outer failure"/);
+  assert.doesNotMatch(line!, /"stack"/);
+  assert.match(trace[0]!, /^Error: outer failure$/);
+  assert.match(trace[1]!, /^\s+at /);
+  assert.ok(trace.some((frame) => frame.includes('[cause]: TypeError: inner failure')));
 });
 
 await test('children share configuration and retain their own context', () => {

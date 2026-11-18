@@ -178,7 +178,7 @@ export class ActivitiesService extends BaseService {
         playerId: activity.playerId,
         activityId: activity.id,
         recoverable: true,
-        error: error instanceof Error ? error : undefined,
+        error: error instanceof Error ? error : String(error),
       });
       throw error;
     }

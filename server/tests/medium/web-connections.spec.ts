@@ -235,3 +235,26 @@ await test('web riders remove one stored credential and keep the rest', async (t
   assert.equal(documents.has(f.other.player_id, 'strava4_session.txt'), true);
   assert.equal(documents.has(f.other.player_id, 'garth/oauth2_token.json'), true);
 });
+
+await test('unexpected web failures are logged with their stack trace', async (t) => {
+  const f = await mediumFixture(t);
+  const app = createWebApp(f);
+  const owner = f.services.management.sessions.create(f.accounts.identityOf(f.rider));
+  const error = t.mock.method(f.world.lifecycle.log, 'error', () => {});
+
+  t.mock.method(f.services.connections, 'read', () => {
+    throw new Error('connections unreadable');
+  });
+
+  const response = await app.request('https://web.example/api/me/connections', {
+    headers: { Cookie: `zluggish_web_session=${owner.id}` },
+  });
+
+  assert.equal(response.status, 500);
+  assert.equal(error.mock.callCount(), 1);
+  const [event, , fields] = error.mock.calls[0]!.arguments;
+  assert.equal(event, 'web.failed');
+  assert.equal(fields?.route, '/api/me/connections');
+  assert.ok(fields?.error instanceof Error);
+  assert.equal(fields.error.message, 'connections unreadable');
+});

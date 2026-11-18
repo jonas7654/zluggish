@@ -432,6 +432,12 @@ export function createWebApp(runtime: HttpRuntime) {
 
     if (error instanceof ApplicationError) return c.json({ message: error.message }, error.status);
 
+    runtime.world.lifecycle.log.error('web.failed', 'Web request failed unexpectedly', {
+      method: c.req.method,
+      route: c.req.routePath === '*' ? 'unmatched' : c.req.routePath,
+      error: error instanceof Error ? error : String(error),
+    });
+
     return c.json({ message: 'Request failed.' }, 500);
   });
 

@@ -154,14 +154,14 @@ async function start() {
       });
     } catch (error) {
       log.critical('server.start_failed', 'Required listener could not start', {
-        error: error instanceof Error ? error : undefined,
+        error: error instanceof Error ? error : String(error),
       });
       throw new Error('Required listener could not start', { cause: error });
     }
 
     for (const listener of [server, cdn, ride.tcp, ...(web ? [web] : [])])
-      listener.on('error', () => {
-        log.error('server.listener_failed', 'Network listener failed');
+      listener.on('error', (error) => {
+        log.error('server.listener_failed', 'Network listener failed', { error });
       });
 
     let state: 'ready' | 'stopping' | 'stopped' | 'failed' = 'ready';
@@ -189,10 +189,10 @@ async function start() {
           state = 'stopped';
           log.info('server.stopped', 'Zluggish stopped');
         })
-        .catch(() => {
+        .catch((error) => {
           clearTimeout(timer);
           state = 'failed';
-          log.error('server.stop_failed', 'Shutdown failed');
+          log.error('server.stop_failed', 'Shutdown failed', { error: error instanceof Error ? error : String(error) });
           process.exitCode = 1;
         });
     }
