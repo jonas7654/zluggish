@@ -4,6 +4,8 @@
   type Climb = {
     road: string;
     name: string;
+    distanceKm: number | null;
+    elevationM: number | null;
     rides: number;
     bestMs: number | null;
     lastRide: string | null;
@@ -20,16 +22,19 @@
   } = $props();
 
   let climbs = $state<Climb[] | null>(null);
+  let total = $state(0);
   let failure = $state('');
 
   const ridden = (climb: Climb) => (climb.lastRide ? Date.parse(climb.lastRide) : Number.NEGATIVE_INFINITY);
 
   /** The most recently ridden climb first. */
   const ordered = $derived([...(climbs ?? [])].sort((a, b) => ridden(b) - ridden(a)));
+  const rides = $derived((climbs ?? []).reduce((sum, climb) => sum + climb.rides, 0));
 
-  const clock = (ms: number | null) => {
-    if (ms === null) return '–';
+  const gradient = (climb: Climb) =>
+    climb.distanceKm && climb.elevationM !== null ? climb.elevationM / (climb.distanceKm * 10) : null;
 
+  const clock = (ms: number) => {
     const s = Math.round(ms / 1000);
     const seconds = String(s % 60).padStart(2, '0');
 
@@ -38,12 +43,16 @@
       : `${Math.floor(s / 60)}:${seconds}`;
   };
 
-  const day = (iso: string | null) =>
-    iso ? new Date(iso).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' }) : '–';
+  const day = (iso: string) =>
+    new Date(iso).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
+
+  const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
 
   onMount(async () => {
     try {
-      climbs = (await api<{ climbs: Climb[] }>('/api/me/climbs')).climbs;
+      const body = await api<{ climbs: Climb[]; total: number }>('/api/me/climbs');
+      total = body.total;
+      climbs = body.climbs;
     } catch (error) {
       failure = error instanceof Error ? error.message : 'Climbs could not be loaded.';
     }
@@ -55,42 +64,70 @@
   {#if !failure}<p class="delayed" role="status">Loading climbs…</p>{/if}
 {:else if climbs.length === 0}
   <section class="panel narrow">
+    <h2>No climb portals ridden yet</h2>
     <p>
-      No climb portals ridden yet. Climbs you ride in the game appear here, with your best time and your latest ride.
+      Pick a climb under Climb in the launcher before you start riding. Once you reach the top, it shows up here with
+      your time.
     </p>
   </section>
 {:else}
-  <section class="panel" aria-labelledby="climbs-title">
-    <h2 id="climbs-title">Climb portals ridden: {climbs.length}</h2>
-    <table class="climbs">
-      <thead>
-        <tr>
-          <th scope="col">Climb</th>
-          <th scope="col">Rides</th>
-          <th scope="col">Best time</th>
-          <th scope="col">Last ride</th>
-          <th scope="col">Strava</th>
-        </tr>
-      </thead>
-      <tbody>
-        {#each ordered as climb (climb.road)}
-          <tr>
-            <th scope="row">{climb.name}</th>
-            <td>{climb.rides}</td>
-            <td>{clock(climb.bestMs)}</td>
-            <td>{day(climb.lastRide)}</td>
-            <td class="segments">
-              {#if climb.strava}
-                <a href={segment(climb.strava.watopia)} target="_blank" rel="noopener noreferrer">Watopia</a>
-                <a href={segment(climb.strava.france)} target="_blank" rel="noopener noreferrer">France</a>
-              {:else}
-                –
-              {/if}
-            </td>
-          </tr>
-        {/each}
-      </tbody>
-    </table>
+  <section class="climbs" aria-label="Climb portals">
+    <ul class="panel">
+      {#each ordered as climb (climb.road)}
+        {@const grade = gradient(climb)}
+        <li>
+          <p class="height">
+            {#if climb.elevationM !== null}
+              <strong>{climb.elevationM.toLocaleString()} m<span class="hidden"> climbing</span></strong>
+            {/if}
+          </p>
+
+          <div class="name">
+            <h3>{climb.name}</h3>
+            {#if climb.distanceKm !== null && grade !== null}
+              <p>{climb.distanceKm} km at {grade.toFixed(1)}%</p>
+            {/if}
+          </div>
+
+          <p class="best">
+            {#if climb.bestMs !== null}
+              <strong>{clock(climb.bestMs)}</strong>
+              <span>best of {climb.rides}</span>
+            {:else}
+              <strong class="none">No time</strong>
+            {/if}
+          </p>
+
+          <p class="last">
+            {#if climb.lastRide}
+              <strong><time datetime={climb.lastRide}>{day(climb.lastRide)}</time></strong>
+              <span>last ride</span>
+            {/if}
+          </p>
+
+          {#if climb.strava}
+            <p class="strava">
+              <span class="links">
+                <a
+                  href={segment(climb.strava.watopia)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="{climb.name} on Strava, ridden from Watopia">Watopia</a
+                >
+                <a
+                  href={segment(climb.strava.france)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="{climb.name} on Strava, ridden from France">France</a
+                >
+              </span>
+              <span>on Strava</span>
+            </p>
+          {/if}
+        </li>
+      {/each}
+    </ul>
+    <p class="summary">{climbs.length} of {total} climb portals ridden, {plural(rides, 'ride')}</p>
   </section>
 {/if}
 
@@ -105,38 +142,166 @@
     }
   }
 
-  .climbs {
-    width: 100%;
-    border-collapse: collapse;
-    font-variant-numeric: tabular-nums;
+  /* Styles are scoped per component, so the glass panel of the other pages is repeated here. */
+  .panel {
+    background: var(--glass);
+    border-radius: 12px;
+    padding: 1.25rem;
+    margin: 0 0 1rem;
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
   }
-  .climbs th,
-  .climbs td {
-    padding: 0.5rem 0.5rem 0.5rem 0;
+  .narrow {
+    max-width: 34rem;
+  }
+  .narrow p {
+    margin-bottom: 0;
+  }
+  .notice.failed {
+    color: var(--alarm);
+    border-left: 3px solid #ff6b57;
+    padding-left: 0.75rem;
+  }
+
+  .climbs ul {
+    list-style: none;
+    margin: 0;
+    padding-block: 0.25rem;
+  }
+  /* How far through the collection the rider is, as a footnote to the list. */
+  .summary {
+    margin: 0.75rem 0 0;
+    padding-inline: 0.25rem;
+    color: var(--muted);
+  }
+
+  /* One climb per row, led by how much it climbs: the heights line up in the first column. */
+  .climbs li {
+    display: grid;
+    grid-template-columns: 8.5rem minmax(0, 1fr) 7rem 8.5rem 8.5rem;
+    grid-template-areas: 'height name best last strava';
+    align-items: center;
+    gap: 0.5rem 1.25rem;
+    padding: 0.85rem 0;
     border-bottom: 1px solid var(--line);
-    text-align: right;
-    font-weight: 700;
+  }
+  .climbs li:last-child {
+    border-bottom: 0;
+  }
+
+  /* The height is the number a climber looks for first, so it is the largest figure in the row. */
+  .height {
+    grid-area: height;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    margin: 0;
+    padding-right: 1.25rem;
+    border-right: 3px solid var(--orange);
     white-space: nowrap;
   }
-  .climbs thead th {
+  .height strong {
+    font-size: 1.5rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+  }
+
+  .name {
+    grid-area: name;
+    min-width: 0;
+  }
+  .name h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 800;
+    line-height: 1.25;
+  }
+  .hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .name p,
+  .best span,
+  .last span,
+  .strava > span:last-child {
+    margin: 0;
     color: var(--muted);
     font-size: 0.8125rem;
-    font-weight: 600;
   }
-  .climbs th:first-child {
-    text-align: left;
-    white-space: normal;
-  }
-  .climbs tbody th {
-    font-weight: 600;
-  }
-  .climbs tbody td:nth-child(3) {
-    font-weight: 800;
-  }
-  .climbs .segments {
+
+  .best,
+  .last,
+  .strava {
     display: flex;
-    justify-content: flex-end;
+    flex-direction: column;
+    align-items: flex-end;
+    margin: 0;
+    text-align: right;
+    white-space: nowrap;
+  }
+  .best {
+    grid-area: best;
+  }
+  .best strong {
+    font-size: 1.125rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.25;
+  }
+  .best .none {
+    font-size: 0.9375rem;
+    color: var(--muted);
+  }
+  .last {
+    grid-area: last;
+  }
+  .last strong {
+    font-weight: 800;
+    line-height: 1.45;
+  }
+  .strava {
+    grid-area: strava;
+  }
+  .strava .links {
+    display: flex;
     gap: 0.75rem;
-    font-weight: 600;
+    line-height: 1.45;
+  }
+
+  /* Narrow screens: the height keeps its own column; the date and the Strava links each become one line
+     under the name. */
+  @media (max-width: 44rem) {
+    .climbs li {
+      grid-template-columns: 4.5rem minmax(0, 1fr) auto;
+      grid-template-areas:
+        'height name best'
+        'height last last'
+        'height strava strava';
+      align-items: start;
+      gap: 0.35rem 0.75rem;
+    }
+    .height {
+      align-self: stretch;
+      padding-right: 0.6rem;
+    }
+    .height strong {
+      font-size: 1rem;
+    }
+    .last,
+    .strava {
+      flex-direction: row;
+      align-items: baseline;
+      gap: 0.5rem;
+      text-align: left;
+    }
+    .last strong {
+      font-weight: 600;
+    }
   }
 </style>

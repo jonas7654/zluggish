@@ -15,6 +15,15 @@ export function readClimbSegments(runtime: HttpRuntime) {
   );
 }
 
+/** 'Cauberg (0.8 km / 57 m)' -> the bare name with its length and height; names in another form stay whole. */
+export function climbFacts(label: string) {
+  const match = /^(?<name>.+) \((?<km>\d+(?:\.\d+)?) km \/ (?<m>\d+) m\)$/.exec(label);
+
+  if (!match?.groups) return { name: label, distanceKm: null, elevationM: null };
+
+  return { name: match.groups.name!, distanceKm: Number(match.groups.km), elevationM: Number(match.groups.m) };
+}
+
 /** The climb portal roads the launcher offers, with their display names. */
 export function readClimbs(runtime: HttpRuntime) {
   return z

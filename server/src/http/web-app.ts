@@ -9,7 +9,7 @@ import { z } from 'zod';
 import { ApplicationError, UnreadableCredentialsError } from '#src/errors';
 import { credentials, password, newUser } from '#src/dtos/management.dto';
 import type { HttpRuntime } from '#src/http/runtime';
-import { readClimbSegments, readClimbs } from '#src/http/climbs';
+import { climbFacts, readClimbSegments, readClimbs } from '#src/http/climbs';
 import { peerAddress } from '#src/http/routes/accounts';
 import { WORLD_TIME_EPOCH_MS } from '#src/world/state';
 import { resolve } from 'node:path';
@@ -235,14 +235,15 @@ export function createWebApp(runtime: HttpRuntime) {
 
     const climbs = [];
     const segments = readClimbSegments(runtime);
+    const all = readClimbs(runtime);
 
-    for (const climb of readClimbs(runtime)) {
+    for (const climb of all) {
       const row = stats.get(climb.road);
 
       if (row)
         climbs.push({
           road: climb.road,
-          name: climb.name,
+          ...climbFacts(climb.name),
           rides: row.rides,
           bestMs: row.best_ms,
           strava: segments[climb.road] ?? null,
@@ -251,7 +252,7 @@ export function createWebApp(runtime: HttpRuntime) {
         });
     }
 
-    return c.json({ climbs });
+    return c.json({ climbs, total: all.length });
   });
   app.get('/api/me/activities/:id', (c) =>
     c.json(activities.ownDetail(sessions.require(c.get('sessionId')).player_id, activityId.parse(c.req.param('id')))),

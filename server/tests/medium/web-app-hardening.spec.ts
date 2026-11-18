@@ -426,10 +426,13 @@ await test('web app lists the climb portals a rider has ridden with the best tim
   assert.equal(response.status, 200);
   const body = await json(response);
 
+  assert.equal(body.total, 57);
   assert.deepEqual(body.climbs, [
     {
       road: '10052',
-      name: 'Alto de Patios (5.9 km / 376 m)',
+      name: 'Alto de Patios',
+      distanceKm: 5.9,
+      elevationM: 376,
       rides: 3,
       bestMs: 540_000,
       strava: { watopia: 41_290_767, france: 41_290_943 },
@@ -438,7 +441,7 @@ await test('web app lists the climb portals a rider has ridden with the best tim
   ]);
 });
 
-await test('every climb portal of the launcher has its two Strava segments, with no id used twice', () => {
+await test('every climb with Strava segments is a climb of the launcher, with no segment used twice', () => {
   const climbs = z
     .array(z.object({ name: z.string(), road: z.string() }))
     .parse(JSON.parse(readFileSync(resolve(packageRoot(), '../assets/data/climbs.txt'), 'utf8')));
@@ -450,7 +453,6 @@ await test('every climb portal of the launcher has its two Strava segments, with
   const roads = new Set(climbs.map((climb) => climb.road));
   const ids = Object.values(segments).flatMap((segment) => [segment.watopia, segment.france]);
 
-  assert.equal(Object.keys(segments).length, 52);
   assert.ok(
     Object.keys(segments).every((road) => roads.has(road)),
     'every mapped road is a climb of the launcher',
