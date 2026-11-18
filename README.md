@@ -53,7 +53,7 @@ See Zwift's [official system requirements](https://support.zwift.com/en_us/suppo
 
 If you are upgrading from legacy zwift-offline, first follow [Migrating](#migrating).
 
-Create an empty directory on the server, for example `/etc/zluggish`, and download the [server Docker Compose file](docker/docker-compose.server.yml) to it as `docker-compose.yml`:
+Create an empty directory on the server, for example `/etc/zluggish`, and download the [Docker Compose file](docker/docker-compose.yml) to it as `docker-compose.yml`:
 
 Then start the server from that directory:
 

@@ -10,7 +10,7 @@ If you use legacy zwift-offline now, do the steps in [Migrate from zwift-offline
 ## Install with Docker Compose
 
 1. Make an empty directory on the server, for example `/etc/zluggish`.
-2. Download the [server Docker Compose file](../../docker/docker-compose.server.yml) to that directory and name it `docker-compose.yml`.
+2. Download the [Docker Compose file](https://github.com/zluggish/zluggish/blob/main/docker/docker-compose.yml) to that directory and name it `docker-compose.yml`.
 
 3. Start the server from that directory:
 
