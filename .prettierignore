@@ -3,6 +3,8 @@ cdn/
 data/
 storage/
 build/
+.docusaurus/
+.cloudflare/
 dist/
 *.egg-info/
 .venv/

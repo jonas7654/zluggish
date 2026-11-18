@@ -1,0 +1,5 @@
+{
+  "label": "Maintain",
+  "position": 4,
+  "link": { "type": "generated-index", "description": "Update, migrate, import, back up and uninstall Zluggish." }
+}

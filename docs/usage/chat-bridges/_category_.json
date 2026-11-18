@@ -1,0 +1,5 @@
+{
+  "label": "Chat bridges",
+  "position": 5,
+  "link": { "type": "generated-index", "description": "Connect the in-game chat to Discord or Matrix." }
+}
