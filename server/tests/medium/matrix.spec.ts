@@ -203,6 +203,7 @@ await test('Matrix transport relays new room chat and keeps one device across re
   await first.transport.close();
 
   const session = resolve(dir, 'matrix-session.json');
+
   // Windows has no POSIX permission bits to check.
   if (process.platform !== 'win32') assert.equal(statSync(session).mode & 0o777, 0o600);
   assert.equal(JSON.parse(readFileSync(session, 'utf8')).deviceId, 'DEVICE');
