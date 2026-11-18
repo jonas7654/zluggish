@@ -112,10 +112,10 @@ export class JobsService extends BaseService {
     // Renew while the handler runs. A failed renewal stops the handler: another claim
     // may own the job now.
     const renewal = setInterval(() => {
-      if (!this.jobsRepository.renew(claim, leaseMs)) controller.abort(new JobError('lease_lost'));
+      if (!this.jobsRepository.renew(claim, leaseMs)) controller.abort(new JobError({ code: 'lease_lost' }));
     }, leaseMs / 3);
 
-    const timeout = setTimeout(() => controller.abort(new JobError('timeout')), handler.timeoutMs);
+    const timeout = setTimeout(() => controller.abort(new JobError({ code: 'timeout' })), handler.timeoutMs);
 
     try {
       await handler.run(job);
@@ -177,7 +177,7 @@ export class JobsService extends BaseService {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
 
-    for (const controller of this.controllers) controller.abort(new JobError('shutdown'));
+    for (const controller of this.controllers) controller.abort(new JobError({ code: 'shutdown' }));
     await Promise.allSettled(this.running);
   }
 }

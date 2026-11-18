@@ -136,7 +136,7 @@ export class SettingsStore {
 
   save(playerId: number, overrides: Overrides, expected = this.versioned ? this.revision(playerId) : undefined) {
     if (expected !== undefined && this.revision(playerId) !== expected)
-      throw new ApplicationError(409, 'Settings changed. Review the new data.');
+      throw new ApplicationError({ status: 409, message: 'Settings changed. Review the new data.' });
     const candidate = preferenceSchema.parse({ playerId, overrides });
     const value = JSON.stringify(candidate.overrides);
     this.executor.run(
@@ -208,7 +208,7 @@ export class SettingsStore {
     expected = this.versioned ? this.worldRevision(id) : undefined,
   ) {
     if (expected !== undefined && this.worldRevision(id) !== expected)
-      throw new ApplicationError(409, 'Settings changed. Review the new data.');
+      throw new ApplicationError({ status: 409, message: 'Settings changed. Review the new data.' });
     const checked = z.record(z.string(), z.json()).parse(value);
     const serialized = JSON.stringify(checked);
     this.executor.run(

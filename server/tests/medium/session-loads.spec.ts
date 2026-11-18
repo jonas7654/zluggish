@@ -1,6 +1,7 @@
 import { PlayerProfileSchema } from '#src/protocol/generated/profile_pb';
 import { GhostSchema, PlayerStateSchema } from '#src/protocol/generated/udp-node-msgs_pb';
-import { FitQueueFullError, FitRepository } from '#src/repositories/fit.repository';
+import { FitQueueFullError } from '#src/errors';
+import { FitRepository } from '#src/repositories/fit.repository';
 import { AssetFiles } from '#src/repositories/files.repository';
 import { FitService } from '#src/services/fit.service';
 import { metrics } from '#src/repositories/metrics.repository';

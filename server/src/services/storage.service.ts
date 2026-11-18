@@ -20,7 +20,7 @@ const fileRow = z.object({
 });
 
 function safeName(value: string) {
-  if (!value || value === '.' || value === '..' || /[\\/\0]/.test(value)) throw new ApplicationError(400);
+  if (!value || value === '.' || value === '..' || /[\\/\0]/.test(value)) throw new ApplicationError({ status: 400 });
 
   return value;
 }
@@ -125,7 +125,7 @@ export class StorageService extends BaseService {
   upload(id: number, upload: { folder: string; filename: string; file: Uint8Array }) {
     const folder = safeName(upload.folder);
 
-    if (folder.startsWith('.')) throw new ApplicationError(400);
+    if (folder.startsWith('.')) throw new ApplicationError({ status: 400 });
     const name = safeName(upload.filename);
     this.filesRepository.write(resolve(this.context.profiles.folder(id), folder, name), upload.file);
     const existing = this.storageRepository.findZfile(id, folder, name);
@@ -147,7 +147,7 @@ export class StorageService extends BaseService {
   private owned(id: number, fileId: string) {
     const parsed = fileRow.safeParse(this.storageRepository.findZfileRow(fileId, id));
 
-    if (!parsed.success) throw new ApplicationError(404);
+    if (!parsed.success) throw new ApplicationError({ status: 404 });
 
     return parsed.data;
   }
@@ -167,7 +167,7 @@ export class StorageService extends BaseService {
       resolve(this.context.profiles.folder(id), safeName(row.folder), safeName(row.filename)),
     );
 
-    if (!contents) throw new ApplicationError(404);
+    if (!contents) throw new ApplicationError({ status: 404 });
 
     return contents;
   }

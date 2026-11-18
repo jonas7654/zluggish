@@ -58,17 +58,17 @@ export class ActivitiesService extends BaseService {
       token.length !== entry.token.length ||
       !this.cryptoRepository.timingSafeEqual(token, entry.token)
     )
-      throw new ApplicationError(403);
+      throw new ApplicationError({ status: 403 });
     entry.status = 'receiving';
 
     try {
-      if (!this.activitiesRepository.findActivityMedia(id)) throw new ApplicationError(404);
+      if (!this.activitiesRepository.findActivityMedia(id)) throw new ApplicationError({ status: 404 });
       const bytes = new Uint8Array(await read());
 
-      if (this.mediaTokens.get(id) !== entry || entry.expires < Date.now()) throw new ApplicationError(403);
+      if (this.mediaTokens.get(id) !== entry || entry.expires < Date.now()) throw new ApplicationError({ status: 403 });
       const row = activityMediaSchema.safeParse(this.activitiesRepository.findActivityMedia(id));
 
-      if (!row.success) throw new ApplicationError(404);
+      if (!row.success) throw new ApplicationError({ status: 404 });
       const extension = row.data.content_type.includes('quicktime') ? 'mov' : 'mp4';
       const path = resolve(this.context.profiles.folder(row.data.player_id), 'medias', `${id}.${extension}`);
       await this.filesRepository.writeDurableAsync(path, bytes, true);
@@ -77,7 +77,7 @@ export class ActivitiesService extends BaseService {
       // the write runs: then the file is removed, not kept as an orphan.
       if (!this.activitiesRepository.mediaState('activity_media', id, 'ready')) {
         await this.filesRepository.removeAsync(path);
-        throw new ApplicationError(404);
+        throw new ApplicationError({ status: 404 });
       }
 
       this.mediaTokens.delete(id);
@@ -106,7 +106,7 @@ export class ActivitiesService extends BaseService {
       ) ||
       !Buffer.from(stored).equals(Buffer.from(activity.fit))
     )
-      throw new ApplicationError(409, 'Completed activities cannot be replaced.');
+      throw new ApplicationError({ status: 409, message: 'Completed activities cannot be replaced.' });
 
     return true;
   }
@@ -292,7 +292,7 @@ export class ActivitiesService extends BaseService {
   */
   deleteActivity(id: bigint, player: number) {
     immediate(this.repositories.db, () => {
-      if (!this.activitiesRepository.findActivity(id, player)) throw new ApplicationError(404);
+      if (!this.activitiesRepository.findActivity(id, player)) throw new ApplicationError({ status: 404 });
 
       const payload = {
         activityId: Number(id),
@@ -326,7 +326,7 @@ export class ActivitiesService extends BaseService {
   }
 
   forViewer(activity: Activity, viewer: number) {
-    if (!this.visible(activity, viewer)) throw new ApplicationError(404);
+    if (!this.visible(activity, viewer)) throw new ApplicationError({ status: 404 });
 
     if (this.fitnessVisible(activity, viewer)) return activity;
 
@@ -374,7 +374,7 @@ export class ActivitiesService extends BaseService {
 
     if (!this.activitiesRepository.mediaState('activity_image', id, 'ready')) {
       await this.filesRepository.removeAsync(path);
-      throw new ApplicationError(404);
+      throw new ApplicationError({ status: 404 });
     }
 
     return id;
@@ -493,7 +493,7 @@ export class ActivitiesService extends BaseService {
   ownDetail(player: number, id: string) {
     const [activity] = this.own(player, id);
 
-    if (!activity) throw new ApplicationError(404, 'Activity not found.');
+    if (!activity) throw new ApplicationError({ status: 404, message: 'Activity not found.' });
 
     const images = z
       .array(z.object({ id: z.number(), state: z.string() }))
@@ -513,7 +513,8 @@ export class ActivitiesService extends BaseService {
   ownFit(player: number, id: string) {
     const stored = this.activitiesRepository.fit(id);
 
-    if (!stored?.fit || stored.player !== player) throw new ApplicationError(404, 'FIT file not found.');
+    if (!stored?.fit || stored.player !== player)
+      throw new ApplicationError({ status: 404, message: 'FIT file not found.' });
 
     const base = stored.filename
       .normalize('NFKD')
@@ -535,7 +536,8 @@ export class ActivitiesService extends BaseService {
 
     const path = resolve(this.context.profiles.folder(player), 'images', `${image}.jpg`);
 
-    if (!ready || !this.filesRepository.existsSync(path)) throw new ApplicationError(404, 'Image not found.');
+    if (!ready || !this.filesRepository.existsSync(path))
+      throw new ApplicationError({ status: 404, message: 'Image not found.' });
 
     return this.filesRepository.readFileSync(path);
   }

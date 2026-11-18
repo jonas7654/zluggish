@@ -93,7 +93,7 @@ export function createWebApp(runtime: HttpRuntime) {
 
     if (!['GET', 'HEAD'].includes(c.req.method)) {
       if (!sameOrigin(c.req.header('Origin'), c.req.url, publicUrl) || c.req.header('X-CSRF-Token') !== c.get('csrf'))
-        throw new ApplicationError(403, 'Reload the page and retry.');
+        throw new ApplicationError({ status: 403, message: 'Reload the page and retry.' });
 
       if (
         !(c.req.method === 'POST' && c.req.path === '/api/me/import'
@@ -103,7 +103,7 @@ export function createWebApp(runtime: HttpRuntime) {
             ? c.req.header('Content-Type') === 'image/jpeg'
             : c.req.header('Content-Type')?.startsWith('application/json'))
       )
-        throw new ApplicationError(400, 'JSON required.');
+        throw new ApplicationError({ status: 400, message: 'JSON required.' });
     }
 
     if (
@@ -165,7 +165,7 @@ export function createWebApp(runtime: HttpRuntime) {
     const live = unchanged(c);
     const user = await management.signIn(input.username, input.password);
 
-    if (!live()) throw new ApplicationError(401, 'Session changed.');
+    if (!live()) throw new ApplicationError({ status: 401, message: 'Session changed.' });
 
     return login(c, user);
   });
@@ -196,7 +196,7 @@ export function createWebApp(runtime: HttpRuntime) {
   app.get('/api/me/avatar', (c) => {
     const path = management.avatarPath(sessions.require(c.get('sessionId')).player_id);
 
-    if (!files.exists(path)) throw new ApplicationError(404, 'No photo.');
+    if (!files.exists(path)) throw new ApplicationError({ status: 404, message: 'No photo.' });
 
     return c.body(new Uint8Array(files.read(path)), 200, { 'Content-Type': 'image/jpeg' });
   });
@@ -295,7 +295,7 @@ export function createWebApp(runtime: HttpRuntime) {
   app.get('/api/manage/users/:id', (c) => {
     const user = accounts.get(z.coerce.number().int().positive().safe().parse(c.req.param('id')));
 
-    if (!user) throw new ApplicationError(404, 'User not found.');
+    if (!user) throw new ApplicationError({ status: 404, message: 'User not found.' });
 
     return c.json(management.publicUser(user));
   });
@@ -333,7 +333,7 @@ export function createWebApp(runtime: HttpRuntime) {
     const id = z.coerce.number().int().positive().safe().parse(c.req.param('id'));
     const path = management.avatarPath(id);
 
-    if (!accounts.get(id) || !files.exists(path)) throw new ApplicationError(404, 'No photo.');
+    if (!accounts.get(id) || !files.exists(path)) throw new ApplicationError({ status: 404, message: 'No photo.' });
 
     return c.body(new Uint8Array(files.read(path)), 200, { 'Content-Type': 'image/jpeg' });
   });

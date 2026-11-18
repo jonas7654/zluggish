@@ -16,7 +16,7 @@ export function rideCompletionRoutes(app: Hono<RuntimeEnv>, runtime: HttpRuntime
       .object({ id: z.string().regex(/^\d{1,10}$/), activityId: z.string().regex(/^\d{1,19}$/) })
       .safeParse(c.req.param());
 
-    if (!ids.success) throw new ApplicationError(400, 'Invalid ride identity.');
+    if (!ids.success) throw new ApplicationError({ status: 400, message: 'Invalid ride identity.' });
     const player = Number(ids.data.id);
     const activityId = BigInt(ids.data.activityId);
     const bytes = new Uint8Array(await c.req.arrayBuffer());
@@ -24,12 +24,13 @@ export function rideCompletionRoutes(app: Hono<RuntimeEnv>, runtime: HttpRuntime
     const permitted = completion.authorize(player, activityId, bearer, bytes);
 
     if (permitted.receipt !== null && (c.req.method !== 'PUT' || c.req.query('upload-to-strava') !== 'true'))
-      throw new ApplicationError(401, 'Final save retry only.');
+      throw new ApplicationError({ status: 401, message: 'Final save retry only.' });
 
     if (permitted.receipt !== null)
       return c.body(permitted.receipt, 200, { 'Content-Type': 'text/html; charset=utf-8' });
 
-    if (c.req.header('Source') === 'zwift-companion') throw new ApplicationError(403, 'Native ride saves only.');
+    if (c.req.header('Source') === 'zwift-companion')
+      throw new ApplicationError({ status: 403, message: 'Native ride saves only.' });
 
     if (c.req.method === 'DELETE') {
       runtime.services.activities.deleteActivity(activityId, player);
@@ -41,7 +42,7 @@ export function rideCompletionRoutes(app: Hono<RuntimeEnv>, runtime: HttpRuntime
     const activity = parseProtobuf(ActivitySchema, bytes);
 
     if (activity.playerId !== BigInt(player) || activity.id !== activityId)
-      throw new ApplicationError(403, 'Ride identity does not match.');
+      throw new ApplicationError({ status: 403, message: 'Ride identity does not match.' });
     const finish = c.req.query('upload-to-strava') === 'true';
     await runtime.services.activities.saveInTurn(
       activity,

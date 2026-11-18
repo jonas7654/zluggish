@@ -39,7 +39,8 @@ export class RideCompletionService extends BaseService {
     immediate(this.context.accounts.db, () => {
       const rider = this.context.accounts.get(player);
 
-      if (!rider?.enabled || rider.auth_version !== version) throw new ApplicationError(401, 'Relay revoked.');
+      if (!rider?.enabled || rider.auth_version !== version)
+        throw new ApplicationError({ status: 401, message: 'Relay revoked.' });
       this.riderDocuments.put(player, 'encryption_key.bin', key);
       this.riderDocuments.put(player, 'relay-auth-version', String(version));
     });
@@ -117,7 +118,7 @@ export class RideCompletionService extends BaseService {
     const body = this.cryptoRepository.sha256(bytes);
 
     if (receipt && receipt.until > Date.now() && receipt.token === digest && receipt.activity === activity) {
-      if (receipt.body !== body) throw new ApplicationError(409, 'Final save data changed.');
+      if (receipt.body !== body) throw new ApplicationError({ status: 409, message: 'Final save data changed.' });
 
       return { receipt: receipt.result };
     }
@@ -125,7 +126,7 @@ export class RideCompletionService extends BaseService {
     const permission = this.permission(player);
 
     if (!permission || permission.token !== digest || permission.activity !== activity)
-      throw new ApplicationError(401, 'Ride completion permission expired.');
+      throw new ApplicationError({ status: 401, message: 'Ride completion permission expired.' });
 
     return { receipt: null };
   }

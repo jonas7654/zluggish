@@ -97,7 +97,7 @@ export class GarminRepository {
   async uploadGarmin(store: TokenStore, domain: string, filename: string, fit: Uint8Array) {
     const client = this.garminClient(store, domain);
 
-    if (!(await client.loadTokens())) throw new DeliveryRefusedError('garmin_unauthorized');
+    if (!(await client.loadTokens())) throw new DeliveryRefusedError({ code: 'garmin_unauthorized' });
 
     try {
       await new Garmin(client).importActivity(
@@ -110,9 +110,9 @@ export class GarminRepository {
       if (http instanceof GarminHttpError && http.status === 409) return;
 
       if (http instanceof GarminHttpError && refused(http.status))
-        throw new DeliveryRefusedError(`garmin_${http.status}`);
+        throw new DeliveryRefusedError({ code: `garmin_${http.status}` });
 
-      if (error instanceof GarminAuthError) throw new DeliveryRefusedError('garmin_unauthorized');
+      if (error instanceof GarminAuthError) throw new DeliveryRefusedError({ code: 'garmin_unauthorized' });
       throw error;
     }
   }

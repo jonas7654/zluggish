@@ -1,3 +1,4 @@
+import { FitQueueFullError } from '#src/errors';
 import type { ActivityChart, PowerBests } from '#src/repositories/fit-decoder.repository';
 import { Metric, metrics } from '#src/repositories/metrics.repository';
 import { Worker } from 'node:worker_threads';
@@ -31,12 +32,6 @@ const bestsSchema = z.object({
   timestamp: z.number(),
   bests: z.array(z.object({ time: z.number(), power: z.number() })),
 });
-
-export class FitQueueFullError extends Error {
-  constructor() {
-    super('FIT processing queue is full');
-  }
-}
 
 /** One FIT worker thread with a bounded queue of pending tasks. The worker starts
 on first use and does not keep the process alive.

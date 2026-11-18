@@ -61,7 +61,7 @@ export class SessionsService extends BaseService {
           touched = session.touched;
         }
 
-      if (oldest === undefined) throw new ApplicationError(503, 'Too many browser sessions');
+      if (oldest === undefined) throw new ApplicationError({ status: 503, message: 'Too many browser sessions' });
       this.end(oldest);
     }
 
@@ -173,7 +173,8 @@ export class SessionsService extends BaseService {
   ) {
     const identity = this.accounts.identityOf(rider);
 
-    if (!this.accounts.identity(identity)) throw new ApplicationError(401, 'Account changed. Sign in again.');
+    if (!this.accounts.identity(identity))
+      throw new ApplicationError({ status: 401, message: 'Account changed. Sign in again.' });
 
     return {
       access_token: this.token(identity, templates.access),

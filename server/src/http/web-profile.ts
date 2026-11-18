@@ -47,16 +47,20 @@ export function webProfileRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
   function stageFiles(c: Context<WebEnv>, identity: string, files: ImportFiles) {
     const { id, user, session } = context(c);
 
-    if (!sessions.current(id, identity)) throw new ApplicationError(401, 'Session changed. Sign in again.');
+    if (!sessions.current(id, identity))
+      throw new ApplicationError({ status: 401, message: 'Session changed. Sign in again.' });
 
     if (runtime.world.active(user.player_id))
-      throw new ApplicationError(409, 'Finish the active ride before importing.');
+      throw new ApplicationError({ status: 409, message: 'Finish the active ride before importing.' });
     let stage: string;
 
     try {
       stage = imports.prepare(user, files);
     } catch {
-      throw new ApplicationError(400, 'Could not import these files. Select valid user data and retry.');
+      throw new ApplicationError({
+        status: 400,
+        message: 'Could not import these files. Select valid user data and retry.',
+      });
     }
 
     if (session.pendingImport) imports.cancel(user, session.pendingImport);
@@ -77,7 +81,7 @@ export function webProfileRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
     const filename = z.enum(DownloadFile).parse(c.req.param('filename'));
     const data = runtime.services.documents.get(user.player_id, filename);
 
-    if (!data) throw new ApplicationError(404, 'File not found.');
+    if (!data) throw new ApplicationError({ status: 404, message: 'File not found.' });
 
     return c.body(new Uint8Array(data), 200, {
       'Content-Type': 'application/octet-stream',
@@ -127,15 +131,15 @@ export function webProfileRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
     const current = review(c);
 
     if (!current || current.stage !== input.stage)
-      throw new ApplicationError(409, 'The import changed. Reload and review it again.');
+      throw new ApplicationError({ status: 409, message: 'The import changed. Reload and review it again.' });
 
     if (input.cancel) imports.cancel(user, current.stage);
     else {
       if (current.confirmSource && !input.confirmSource)
-        throw new ApplicationError(400, 'Confirm the import source first.');
+        throw new ApplicationError({ status: 400, message: 'Confirm the import source first.' });
 
       if (runtime.world.active(user.player_id))
-        throw new ApplicationError(409, 'Finish the active ride before importing.');
+        throw new ApplicationError({ status: 409, message: 'Finish the active ride before importing.' });
       imports.publish(user, current.stage, input.keepName);
     }
 
@@ -170,10 +174,10 @@ export function webProfileRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
     const username = input.username.trim();
 
     if (Boolean(username) !== Boolean(input.password))
-      throw new ApplicationError(400, 'Enter both username and password.');
+      throw new ApplicationError({ status: 400, message: 'Enter both username and password.' });
 
     if (!username && !connections.has(user.player_id, 'zwift') && (input.upload || input.click))
-      throw new ApplicationError(400, 'Save credentials before enabling uploads or Click.');
+      throw new ApplicationError({ status: 400, message: 'Save credentials before enabling uploads or Click.' });
 
     if (username) connections.save(user.player_id, 'zwift', [username, input.password]);
     settings.save(user.player_id, {
@@ -197,10 +201,10 @@ export function webProfileRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
     const credentials = connections.read(user.player_id, 'zwift');
 
     if (!credentials || (!input.profile && !input.achievements))
-      throw new ApplicationError(400, 'Save credentials and choose at least one download.');
+      throw new ApplicationError({ status: 400, message: 'Save credentials and choose at least one download.' });
 
     if (runtime.world.active(user.player_id))
-      throw new ApplicationError(409, 'Finish the active ride before importing.');
+      throw new ApplicationError({ status: 409, message: 'Finish the active ride before importing.' });
     let files: ImportFiles;
 
     try {

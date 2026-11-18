@@ -69,7 +69,7 @@ export class WebSessionsService extends BaseService {
     for (const [key, value] of this.sessions) if (value.expires <= now) this.sessions.delete(key);
     this.accounts.db.prepare('DELETE FROM web_session WHERE expires <= ?').run(now);
 
-    if (this.sessions.size >= 10_000) throw new ApplicationError(503, 'Too many web sessions');
+    if (this.sessions.size >= 10_000) throw new ApplicationError({ status: 503, message: 'Too many web sessions' });
     const id = this.token();
     const session: WebSession = { csrf: this.token(), identity, expires: now + 86_400_000, confirmedUntil };
     this.sessions.set(id, session);
@@ -101,9 +101,10 @@ export class WebSessionsService extends BaseService {
   require(id: string, manage = false, _confirm = true) {
     const user = this.user(id);
 
-    if (!user) throw new ApplicationError(401, 'Sign in again.');
+    if (!user) throw new ApplicationError({ status: 401, message: 'Sign in again.' });
 
-    if (manage && user.role !== 'administrator') throw new ApplicationError(403, 'Administrator role required.');
+    if (manage && user.role !== 'administrator')
+      throw new ApplicationError({ status: 403, message: 'Administrator role required.' });
 
     return user;
   }

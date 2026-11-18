@@ -172,7 +172,7 @@ export class StravaRepository {
     const expiresAt = Number(expires);
 
     if (!clientId || !clientSecret || !access || !refresh || !Number.isFinite(expiresAt))
-      throw new DeliveryRefusedError('strava_invalid_token');
+      throw new DeliveryRefusedError({ code: 'strava_invalid_token' });
 
     return { clientId, clientSecret, access, refresh, expiresAt };
   }
@@ -219,7 +219,7 @@ export class StravaRepository {
           refresh_token: token.refresh,
         });
       } catch {
-        throw new DeliveryRefusedError('strava_refresh');
+        throw new DeliveryRefusedError({ code: 'strava_refresh' });
       }
 
       token = {
@@ -246,7 +246,7 @@ export class StravaRepository {
     if (response.ok) return true;
     await response.body?.cancel();
 
-    if (refused(response.status)) throw new DeliveryRefusedError(`strava_${response.status}`);
+    if (refused(response.status)) throw new DeliveryRefusedError({ code: `strava_${response.status}` });
     throw new Error(`Strava upload failed: ${response.status}`);
   }
 
@@ -322,10 +322,10 @@ export class StravaRepository {
       const select = await session.request(selectUrl);
       text = await select.text();
     } catch {
-      throw new DeliveryRefusedError('strava_session_unavailable');
+      throw new DeliveryRefusedError({ code: 'strava_session_unavailable' });
     }
 
-    if (!text.includes(marker)) throw new DeliveryRefusedError('strava_session_invalid');
+    if (!text.includes(marker)) throw new DeliveryRefusedError({ code: 'strava_session_invalid' });
 
     try {
       await this.sendFree(session, text, filename, fit, name, photos, delay);
@@ -347,7 +347,7 @@ export class StravaRepository {
       /<meta name="csrf-token" content="([^"]+)"/.exec(text)?.[1] ??
       /name="authenticity_token" value="([^"]+)"/.exec(text)?.[1];
 
-    if (token === undefined) throw new DeliveryRefusedError('strava_upload_token');
+    if (token === undefined) throw new DeliveryRefusedError({ code: 'strava_upload_token' });
 
     const form = new FormData();
     form.set('_method', 'post');

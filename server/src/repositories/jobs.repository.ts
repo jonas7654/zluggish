@@ -272,7 +272,7 @@ export class RunningJob {
   number(key: string) {
     const value = this.claim.payload[key];
 
-    if (!Number.isSafeInteger(value)) throw new JobError('invalid_payload', false);
+    if (!Number.isSafeInteger(value)) throw new JobError({ code: 'invalid_payload', retry: false });
 
     return Number(value);
   }
@@ -280,7 +280,7 @@ export class RunningJob {
   text(key: string) {
     const value = this.claim.payload[key];
 
-    if (value === undefined) throw new JobError('invalid_payload', false);
+    if (value === undefined) throw new JobError({ code: 'invalid_payload', retry: false });
 
     return String(value);
   }

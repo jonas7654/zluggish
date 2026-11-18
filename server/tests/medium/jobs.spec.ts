@@ -220,7 +220,7 @@ await test('a job that cannot succeed fails at once, and each type runs at most 
     concurrency: 1,
     attempts: 5,
     timeoutMs: 10_000,
-    run: () => Promise.reject(new JobError('invalid_payload', false)),
+    run: () => Promise.reject(new JobError({ code: 'invalid_payload', retry: false })),
   });
   repository.enqueue('power_curve', {});
   await jobs.drain();

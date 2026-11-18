@@ -51,7 +51,7 @@ export class EventsService extends BaseService {
   markNotification(player: number, id: string, update: z.infer<typeof notificationUpdateSchema>) {
     const row = this.findNotification(id, player);
 
-    if (!row) throw new ApplicationError(404);
+    if (!row) throw new ApplicationError({ status: 404 });
     const notification = z.record(z.string(), z.json()).parse(JSON.parse(z.string().parse(row.json)));
     Object.assign(notification, update, { lastModified: update.readDate });
     this.updateNotification(JSON.stringify(notification), id);
@@ -74,7 +74,7 @@ export class EventsService extends BaseService {
   read(id: string) {
     const row = this.findPrivateEvent(id);
 
-    if (!row) throw new ApplicationError(404);
+    if (!row) throw new ApplicationError({ status: 404 });
 
     return storedSchema.parse(JSON.parse(z.string().parse(row.json)));
   }
@@ -225,7 +225,8 @@ export class EventsService extends BaseService {
   createMeetup(user: User, input: MeetupInput) {
     input.invitedProfileIds = [...new Set(input.invitedProfileIds)].filter((id) => id !== user.player_id);
 
-    for (const id of input.invitedProfileIds) if (!this.context.accounts.get(id)) throw new ApplicationError(400);
+    for (const id of input.invitedProfileIds)
+      if (!this.context.accounts.get(id)) throw new ApplicationError({ status: 400 });
     this.begin();
     let event: Meetup;
 
@@ -289,7 +290,8 @@ export class EventsService extends BaseService {
   updateMeetup(event: Meetup, update: MeetupInput, commit: () => void = () => {}) {
     update.invitedProfileIds = [...new Set(update.invitedProfileIds)].filter((id) => id !== event.organizerProfileId);
 
-    for (const id of update.invitedProfileIds) if (!this.context.accounts.get(id)) throw new ApplicationError(400);
+    for (const id of update.invitedProfileIds)
+      if (!this.context.accounts.get(id)) throw new ApplicationError({ status: 400 });
     const next = { ...event, ...update, updateDate: new Date().toISOString() };
     next.eventInvites = [
       { invitedProfile: this.profile(event.organizerProfileId), status: 'ACCEPTED' },
@@ -344,7 +346,7 @@ export class EventsService extends BaseService {
   respondToInvite(event: Meetup, playerId: number, accepting: boolean) {
     const invite = event.eventInvites.find((invite) => invite.invitedProfile.id === playerId);
 
-    if (!invite) throw new ApplicationError(403);
+    if (!invite) throw new ApplicationError({ status: 403 });
     invite.status = accepting ? 'ACCEPTED' : 'REJECTED';
     this.save(event);
   }

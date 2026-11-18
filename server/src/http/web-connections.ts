@@ -34,7 +34,7 @@ export function providerFailure(runtime: HttpRuntime, cause: unknown, status: 40
     error: cause instanceof Error ? cause : String(cause),
   });
 
-  return new ApplicationError(status, message);
+  return new ApplicationError({ status, message });
 }
 
 export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
@@ -72,7 +72,7 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
     if (name === 'intervals') z.string().regex(/^\d+$/).parse(input.username);
     const secret = input.secret || connections.inspect(player, name).credentials?.[1];
 
-    if (!secret) throw new ApplicationError(400, 'Enter a secret.');
+    if (!secret) throw new ApplicationError({ status: 400, message: 'Enter a secret.' });
     connections.save(player, name, [input.username, secret]);
 
     return c.json({ ok: true });
@@ -150,7 +150,7 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
       const session = sessions.find(id)!;
 
       if (!session.stravaState || input.state !== session.stravaState)
-        throw new ApplicationError(403, 'Authorization expired.');
+        throw new ApplicationError({ status: 403, message: 'Authorization expired.' });
       delete session.stravaState;
 
       try {
@@ -164,7 +164,7 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
 
     const client = connections.read(user.player_id, 'strava');
 
-    if (!client) throw new ApplicationError(400, 'Save Strava API credentials first.');
+    if (!client) throw new ApplicationError({ status: 400, message: 'Save Strava API credentials first.' });
     const redirect = new URL('/integrations', runtime.config.network.web.publicUrl ?? c.req.url).href;
     const state = sessions.token();
     sessions.find(id)!.stravaState = state;
@@ -175,7 +175,7 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
     const player = sessions.require(c.get('sessionId')).player_id;
     const cookie = documents.text(player, 'strava4_session.txt')?.split(/\r?\n/, 1)[0];
 
-    if (!cookie) throw new ApplicationError(400, 'Save a session cookie first.');
+    if (!cookie) throw new ApplicationError({ status: 400, message: 'Save a session cookie first.' });
 
     try {
       return c.json({
@@ -206,7 +206,7 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
       throw providerFailure(runtime, error, 503, 'Workout sync failed. Existing workouts were retained.');
     }
 
-    if (!sessions.current(id, identity)) throw new ApplicationError(401, 'Session changed.');
+    if (!sessions.current(id, identity)) throw new ApplicationError({ status: 401, message: 'Session changed.' });
 
     return c.json({ message });
   });

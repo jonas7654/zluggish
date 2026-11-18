@@ -73,11 +73,12 @@ export class ManagementService extends BaseService {
 
   /** Lets the setup form check the key before asking for account details. */
   checkSetupKey(key: string) {
-    if (this.store.complete() || !this.keyValid(key)) throw new ApplicationError(403, 'Setup refused.');
+    if (this.store.complete() || !this.keyValid(key))
+      throw new ApplicationError({ status: 403, message: 'Setup refused.' });
   }
 
   async passwordTask<T>(work: () => Promise<T>) {
-    if (this.passwordWork >= 4) throw new ApplicationError(503, 'Try again shortly.');
+    if (this.passwordWork >= 4) throw new ApplicationError({ status: 503, message: 'Try again shortly.' });
     this.passwordWork++;
 
     try {
@@ -89,7 +90,7 @@ export class ManagementService extends BaseService {
 
   private insert(input: z.infer<typeof newUser>, hash: string) {
     if (this.context.accounts.loginNameTaken(input.username))
-      throw new ApplicationError(409, 'Login name already exists.');
+      throw new ApplicationError({ status: 409, message: 'Login name already exists.' });
 
     const occupied = [
       ...this.context.accounts.list().map((r) => r.player_id),
@@ -101,7 +102,8 @@ export class ManagementService extends BaseService {
 
     const id = Math.max(0, ...occupied) + 1;
 
-    if (!Number.isSafeInteger(id) || id > 2_147_483_647) throw new ApplicationError(409, 'User ID space exhausted.');
+    if (!Number.isSafeInteger(id) || id > 2_147_483_647)
+      throw new ApplicationError({ status: 409, message: 'User ID space exhausted.' });
     this.accountsRepository.insert({
       player_id: id,
       username: input.username,
@@ -116,7 +118,8 @@ export class ManagementService extends BaseService {
   async setup(raw: z.input<typeof setupRequest>, live: () => boolean = () => true) {
     const input = setupRequest.parse(raw);
 
-    if (this.store.complete() || !this.keyValid(input.key)) throw new ApplicationError(403, 'Setup refused.');
+    if (this.store.complete() || !this.keyValid(input.key))
+      throw new ApplicationError({ status: 403, message: 'Setup refused.' });
 
     const existing =
       input.mode === 'existing'
@@ -126,20 +129,23 @@ export class ManagementService extends BaseService {
         : null;
 
     if (input.mode === 'existing' && existing && !existing.pass_hash)
-      throw new ApplicationError(400, 'This user has no password. Create a new user, or set a password with the CLI.');
+      throw new ApplicationError({
+        status: 400,
+        message: 'This user has no password. Create a new user, or set a password with the CLI.',
+      });
 
     const hash = await this.passwordTask(async () => {
       if (input.mode === 'new') return this.cryptoRepository.hashPassword(input.password);
 
       if (!existing || !(await this.context.accounts.verify(existing, input.password)))
-        throw new ApplicationError(403, 'Setup refused.');
+        throw new ApplicationError({ status: 403, message: 'Setup refused.' });
 
       return null;
     });
 
     const user = this.store.transaction(() => {
       if (!live() || this.store.complete() || !this.keyValid(input.key))
-        throw new ApplicationError(409, 'Setup refused.');
+        throw new ApplicationError({ status: 409, message: 'Setup refused.' });
       let target: User;
 
       if (input.mode === 'new') target = this.insert(input, hash!);
@@ -153,7 +159,7 @@ export class ManagementService extends BaseService {
           current.pass_hash !== existing!.pass_hash ||
           current.username !== existing!.username
         )
-          throw new ApplicationError(409, 'Account changed. Retry.');
+          throw new ApplicationError({ status: 409, message: 'Account changed. Retry.' });
         target = current;
       }
 
@@ -188,7 +194,7 @@ export class ManagementService extends BaseService {
       current.pass_hash !== user.pass_hash ||
       current.username !== user.username
     )
-      throw new ApplicationError(401, 'Login name or password is incorrect.');
+      throw new ApplicationError({ status: 401, message: 'Login name or password is incorrect.' });
 
     return user;
   }
@@ -201,7 +207,7 @@ export class ManagementService extends BaseService {
       !(await this.passwordTask(() => this.context.accounts.verify(user, password))) ||
       !this.sessions.current(id, identity)
     )
-      throw new ApplicationError(401, 'Confirmation refused.');
+      throw new ApplicationError({ status: 401, message: 'Confirmation refused.' });
     this.sessions.require(id, true, false);
     this.sessions.sessions.get(id)!.confirmedUntil = Date.now() + 900_000;
   }
@@ -213,13 +219,14 @@ export class ManagementService extends BaseService {
 
     const hash = await this.passwordTask(async () => {
       if (user.role !== 'administrator' && !(await this.context.accounts.verify(user, current ?? '')))
-        throw new ApplicationError(403, 'Password incorrect.');
+        throw new ApplicationError({ status: 403, message: 'Password incorrect.' });
 
       return this.cryptoRepository.hashPassword(password);
     });
 
     this.store.transaction(() => {
-      if (!this.sessions.current(id, identity)) throw new ApplicationError(401, 'Session changed.');
+      if (!this.sessions.current(id, identity))
+        throw new ApplicationError({ status: 401, message: 'Session changed.' });
       this.store.update(user.player_id, { pass_hash: hash });
     });
     this.completion.cancel(user.player_id);
@@ -243,7 +250,7 @@ export class ManagementService extends BaseService {
 
       if (prior) {
         if (prior.action !== 'create' || prior.fingerprint !== fingerprint)
-          throw new ApplicationError(409, 'Operation changed.');
+          throw new ApplicationError({ status: 409, message: 'Operation changed.' });
 
         return JSON.parse(prior.result!);
       }
@@ -272,20 +279,22 @@ export class ManagementService extends BaseService {
       const actor = this.sessions.require(id, true);
 
       if (actor.player_id === targetId && action === 'password')
-        throw new ApplicationError(403, 'Change your own password on your profile.');
+        throw new ApplicationError({ status: 403, message: 'Change your own password on your profile.' });
       const target = this.context.accounts.get(targetId);
 
-      if (!target) throw new ApplicationError(404, 'User not found.');
+      if (!target) throw new ApplicationError({ status: 404, message: 'User not found.' });
       const fingerprint = this.fingerprint({ action, targetId, input });
       const prior = this.store.operation(actor.player_id, input.operation);
 
       if (prior) {
-        if (prior.fingerprint !== fingerprint) throw new ApplicationError(409, 'Operation changed.');
+        if (prior.fingerprint !== fingerprint)
+          throw new ApplicationError({ status: 409, message: 'Operation changed.' });
 
         return JSON.parse(prior.result!);
       }
 
-      if (target.revision !== input.revision) throw new ApplicationError(409, 'User changed. Review the new data.');
+      if (target.revision !== input.revision)
+        throw new ApplicationError({ status: 409, message: 'User changed. Review the new data.' });
 
       if (
         target.enabled &&
@@ -293,7 +302,7 @@ export class ManagementService extends BaseService {
         (action === 'disable' || (action === 'role' && input.role === 'rider')) &&
         this.store.administrators() <= 1
       )
-        throw new ApplicationError(409, 'Keep at least one enabled administrator.');
+        throw new ApplicationError({ status: 409, message: 'Keep at least one enabled administrator.' });
 
       if (action === 'disable') permission = this.completion.capture(targetId);
 
@@ -310,7 +319,7 @@ export class ManagementService extends BaseService {
                   ? {}
                   : null;
 
-      if (!values) throw new ApplicationError(400, 'Invalid action.');
+      if (!values) throw new ApplicationError({ status: 400, message: 'Invalid action.' });
       this.store.update(targetId, values);
       committed = true;
 
@@ -339,24 +348,25 @@ export class ManagementService extends BaseService {
       const actor = this.sessions.require(id, true);
       const target = this.context.accounts.get(player);
 
-      if (!target) throw new ApplicationError(404, 'User not found.');
+      if (!target) throw new ApplicationError({ status: 404, message: 'User not found.' });
       const fingerprint = this.fingerprint(input);
       const prior = this.store.operation(actor.player_id, input.operation);
 
       if (prior) {
         if (prior.fingerprint !== fingerprint || prior.action !== 'edit')
-          throw new ApplicationError(409, 'Operation changed.');
+          throw new ApplicationError({ status: 409, message: 'Operation changed.' });
 
         return JSON.parse(prior.result!);
       }
 
       if (this.context.world.active(player))
-        throw new ApplicationError(409, 'Disconnect the user before changing names.');
+        throw new ApplicationError({ status: 409, message: 'Disconnect the user before changing names.' });
 
-      if (target.revision !== input.revision) throw new ApplicationError(409, 'User changed. Review the new data.');
+      if (target.revision !== input.revision)
+        throw new ApplicationError({ status: 409, message: 'User changed. Review the new data.' });
 
       if (this.context.accounts.loginNameTaken(input.username, player))
-        throw new ApplicationError(409, 'Login name already exists.');
+        throw new ApplicationError({ status: 409, message: 'Login name already exists.' });
 
       const profile = this.context.profiles.get(player);
       profile.firstName = input.first_name;
@@ -375,7 +385,7 @@ export class ManagementService extends BaseService {
     const actor = this.sessions.require(id, player !== undefined);
     const user = player === undefined ? actor : this.context.accounts.get(player);
 
-    if (!user) throw new ApplicationError(404, 'User not found.');
+    if (!user) throw new ApplicationError({ status: 404, message: 'User not found.' });
     const [month, day, year] = this.context.profiles.get(user.player_id).dob.split('/', 3);
 
     return {
@@ -401,10 +411,10 @@ export class ManagementService extends BaseService {
     const actor = this.sessions.require(id, player !== undefined);
     const user = player === undefined ? actor : this.context.accounts.get(player);
 
-    if (!user) throw new ApplicationError(404, 'User not found.');
+    if (!user) throw new ApplicationError({ status: 404, message: 'User not found.' });
 
     if (image.length < 4 || image[0] !== 0xff || image[1] !== 0xd8 || image.at(-2) !== 0xff || image.at(-1) !== 0xd9)
-      throw new ApplicationError(400, 'Choose a JPG or PNG image.');
+      throw new ApplicationError({ status: 400, message: 'Choose a JPG or PNG image.' });
     this.filesRepository.write(this.avatarPath(user.player_id), image);
 
     return { avatar: this.avatarVersion(user.player_id) };
@@ -414,7 +424,7 @@ export class ManagementService extends BaseService {
     const actor = this.sessions.require(id, player !== undefined);
     const user = player === undefined ? actor : this.context.accounts.get(player);
 
-    if (!user) throw new ApplicationError(404, 'User not found.');
+    if (!user) throw new ApplicationError({ status: 404, message: 'User not found.' });
     const path = this.avatarPath(user.player_id);
 
     if (this.filesRepository.existsSync(path)) this.filesRepository.unlinkSync(path);
@@ -430,24 +440,25 @@ export class ManagementService extends BaseService {
       const player = targetPlayer ?? actor.player_id;
       const target = this.context.accounts.get(player);
 
-      if (!target) throw new ApplicationError(404, 'User not found.');
+      if (!target) throw new ApplicationError({ status: 404, message: 'User not found.' });
       const fingerprint = this.fingerprint({ ...input, player });
       const prior = this.store.operation(actor.player_id, input.operation);
 
       if (prior) {
         if (prior.fingerprint !== fingerprint || prior.action !== 'profile')
-          throw new ApplicationError(409, 'Operation changed.');
+          throw new ApplicationError({ status: 409, message: 'Operation changed.' });
 
         return JSON.parse(prior.result!);
       }
 
       if (this.context.world.active(player))
-        throw new ApplicationError(409, 'Leave the game before changing your profile.');
+        throw new ApplicationError({ status: 409, message: 'Leave the game before changing your profile.' });
 
-      if (target.revision !== input.revision) throw new ApplicationError(409, 'Profile changed. Reload the page.');
+      if (target.revision !== input.revision)
+        throw new ApplicationError({ status: 409, message: 'Profile changed. Reload the page.' });
 
       if (this.context.accounts.loginNameTaken(input.username, player))
-        throw new ApplicationError(409, 'Email address already in use.');
+        throw new ApplicationError({ status: 409, message: 'Email address already in use.' });
 
       const profile = this.context.profiles.get(player);
       profile.firstName = input.first_name;
@@ -478,15 +489,15 @@ export class ManagementService extends BaseService {
       const actor = this.sessions.require(id, manage);
 
       if ((manage && actor.player_id === player) || (!manage && actor.player_id !== player))
-        throw new ApplicationError(403, 'Own settings only.');
+        throw new ApplicationError({ status: 403, message: 'Own settings only.' });
 
-      if (!this.context.accounts.get(player)) throw new ApplicationError(404, 'User not found.');
+      if (!this.context.accounts.get(player)) throw new ApplicationError({ status: 404, message: 'User not found.' });
       const fingerprint = this.fingerprint({ player, input });
       const prior = this.store.operation(actor.player_id, input.operation);
 
       if (prior) {
         if (prior.action !== 'settings' || prior.fingerprint !== fingerprint)
-          throw new ApplicationError(409, 'Operation changed.');
+          throw new ApplicationError({ status: 409, message: 'Operation changed.' });
 
         return JSON.parse(prior.result!);
       }
@@ -510,7 +521,7 @@ export class ManagementService extends BaseService {
     const input = serverRequest.parse(raw);
 
     if (action === 'bots' && (!input.user || !input.command))
-      throw new ApplicationError(400, 'Choose a user and a bot command.');
+      throw new ApplicationError({ status: 400, message: 'Choose a user and a bot command.' });
     const fingerprint = this.fingerprint({ action, input });
 
     // The retry check and the intent share one transaction, so a duplicate request never dispatches twice.
@@ -520,13 +531,13 @@ export class ManagementService extends BaseService {
 
       if (prior) {
         if (prior.action !== action || prior.fingerprint !== fingerprint)
-          throw new ApplicationError(409, 'Operation changed.');
+          throw new ApplicationError({ status: 409, message: 'Operation changed.' });
 
         return { actor, prior };
       }
 
       if (action === 'bots' && !this.context.world.active(input.user!))
-        throw new ApplicationError(409, 'The user must be riding now.');
+        throw new ApplicationError({ status: 409, message: 'The user must be riding now.' });
       this.store.intent(actor.player_id, input.operation, action, fingerprint);
 
       return { actor, prior: null };
@@ -561,7 +572,7 @@ export class ManagementService extends BaseService {
         }
 
         default: {
-          throw new ApplicationError(400, 'Unknown server operation.');
+          throw new ApplicationError({ status: 400, message: 'Unknown server operation.' });
         }
       }
     } catch {
@@ -611,7 +622,7 @@ export class ManagementService extends BaseService {
 
     if (prior) {
       if (prior.action !== action || prior.fingerprint !== fingerprint)
-        throw new ApplicationError(409, 'Operation changed.');
+        throw new ApplicationError({ status: 409, message: 'Operation changed.' });
 
       return JSON.parse(prior.result!);
     }
@@ -619,7 +630,8 @@ export class ManagementService extends BaseService {
     const events = new EventsService(this.context);
     const event = events.read(String(eventId));
 
-    if (event.updateDate !== input.revision) throw new ApplicationError(409, 'Event changed. Reload and review.');
+    if (event.updateDate !== input.revision)
+      throw new ApplicationError({ status: 409, message: 'Event changed. Reload and review.' });
     const result = { id: eventId, action };
 
     const commit = () => {
@@ -674,7 +686,7 @@ export class ManagementService extends BaseService {
 
       if (prior) {
         if (prior.action !== 'world-settings' || prior.fingerprint !== fingerprint)
-          throw new ApplicationError(409, 'Operation changed.');
+          throw new ApplicationError({ status: 409, message: 'Operation changed.' });
 
         return JSON.parse(prior.result!);
       }
@@ -683,11 +695,11 @@ export class ManagementService extends BaseService {
         const id = input.id.slice(8);
         const base = this.context.config.pelotons.find((value) => value.id === id);
 
-        if (!base) throw new ApplicationError(404, 'Unknown peloton.');
+        if (!base) throw new ApplicationError({ status: 404, message: 'Unknown peloton.' });
         configSchema.parse({ pelotons: [{ ...base, ...input.values, id }] });
       } else if (input.id.startsWith('blob:') && this.context.accounts.get(Number(input.id.slice(5)))) {
         configSchema.parse({ soloBlob: { ...this.context.config.soloBlob, ...input.values } });
-      } else throw new ApplicationError(400, 'Unknown world settings.');
+      } else throw new ApplicationError({ status: 400, message: 'Unknown world settings.' });
       this.context.settings.saveWorld(input.id, input.values, input.revision);
 
       const after = {

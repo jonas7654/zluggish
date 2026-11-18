@@ -58,7 +58,7 @@ export class GoalService extends BaseService {
   }
 
   requireOwned(playerId: number, id: bigint) {
-    if (!this.goalRepository.exists(playerId, id)) throw new ApplicationError(404);
+    if (!this.goalRepository.exists(playerId, id)) throw new ApplicationError({ status: 404 });
   }
 
   private progress(goal: Goal) {

@@ -48,7 +48,7 @@ async function checked(response: Response, code: string) {
   if (response.ok) return response;
   await response.body?.cancel();
 
-  if (refused(response.status)) throw new DeliveryRefusedError(`${code}_${response.status}`);
+  if (refused(response.status)) throw new DeliveryRefusedError({ code: `${code}_${response.status}` });
   throw new Error(`${code}_${response.status}`);
 }
 
@@ -117,19 +117,26 @@ export class UploadsService extends BaseService {
     immediate(this.repositories.db, () => {
       const stored = this.activitiesRepository.fit(activity);
 
-      if (!stored || stored.player !== player) throw new ApplicationError(404, 'Activity not found.');
+      if (!stored || stored.player !== player)
+        throw new ApplicationError({ status: 404, message: 'Activity not found.' });
 
       if (!stored.fit?.length || !this.uploadPayload(activity))
-        throw new ApplicationError(409, 'Only a finished activity with a FIT file can be uploaded.');
+        throw new ApplicationError({
+          status: 409,
+          message: 'Only a finished activity with a FIT file can be uploaded.',
+        });
 
       if (!this.configured(player).includes(provider))
-        throw new ApplicationError(409, 'Connect this service in Integrations first.');
+        throw new ApplicationError({ status: 409, message: 'Connect this service in Integrations first.' });
       const state = this.uploadsRepository.get(activity, provider)?.state;
 
       if (state === 'pending' || state === 'sending') return;
 
       if ((state === 'sent' || state === 'ambiguous') && !again)
-        throw new ApplicationError(409, 'This activity may already be there. Confirm to upload it again.');
+        throw new ApplicationError({
+          status: 409,
+          message: 'This activity may already be there. Confirm to upload it again.',
+        });
 
       if (state === undefined) this.uploadsRepository.insert(activity, provider);
       else this.uploadsRepository.requeue(activity, provider, z.enum(UploadState).parse(state));
@@ -345,7 +352,7 @@ export class UploadsService extends BaseService {
   async strava(player: number, activity: Activity) {
     const text = this.riderDocuments.text(player, 'strava_token.txt');
 
-    if (!text) throw new DeliveryRefusedError('strava_unauthorized');
+    if (!text) throw new DeliveryRefusedError({ code: 'strava_unauthorized' });
 
     await this.stravaRepository.uploadPaid(
       this.stravaRepository.parseToken(text),
@@ -358,7 +365,7 @@ export class UploadsService extends BaseService {
   async freeStrava(player: number, activity: Activity, photos: readonly string[]) {
     const cookie = this.riderDocuments.text(player, 'strava4_session.txt')?.split(/\r?\n/, 1)[0] ?? '';
 
-    if (!cookie) throw new DeliveryRefusedError('strava_session_missing');
+    if (!cookie) throw new DeliveryRefusedError({ code: 'strava_session_missing' });
     await this.stravaRepository.uploadFree(
       cookie,
       activity.fitFilename,
@@ -372,7 +379,7 @@ export class UploadsService extends BaseService {
 
   async garmin(player: number, activity: Activity) {
     if (!this.riderDocuments.has(player, 'garth/oauth1_token.json'))
-      throw new DeliveryRefusedError('garmin_unauthorized');
+      throw new DeliveryRefusedError({ code: 'garmin_unauthorized' });
 
     await this.garminRepository.uploadGarmin(
       this.garminRepository.tokenStore(this.riderDocuments, player),
@@ -385,7 +392,7 @@ export class UploadsService extends BaseService {
   async runalyze(player: number, activity: Activity) {
     const token = this.riderDocuments.text(player, 'runalyze_token.txt')?.split(/\r?\n/, 1)[0] ?? '';
 
-    if (!token) throw new DeliveryRefusedError('runalyze_unauthorized');
+    if (!token) throw new DeliveryRefusedError({ code: 'runalyze_unauthorized' });
     const form = new FormData();
     form.set('file', this.sessionRepository.binaryBlob(activity.fit), 'file');
 
@@ -403,10 +410,10 @@ export class UploadsService extends BaseService {
   async intervals(player: number, activity: Activity) {
     const credentials = this.connectionsRepository.read(player, 'intervals');
 
-    if (!credentials) throw new DeliveryRefusedError('intervals_unauthorized');
+    if (!credentials) throw new DeliveryRefusedError({ code: 'intervals_unauthorized' });
     const [athlete, key] = credentials;
 
-    if (!/^\d+$/.test(athlete)) throw new DeliveryRefusedError('intervals_invalid_athlete');
+    if (!/^\d+$/.test(athlete)) throw new DeliveryRefusedError({ code: 'intervals_invalid_athlete' });
     const workouts = new WorkoutsService(this.runtime);
     const paired = UploadsService.pairedEvent(activity, workouts.stored(player));
     const query = new URLSearchParams({ name: activity.name });
@@ -437,14 +444,14 @@ export class UploadsService extends BaseService {
   async zwift(player: number, activity: Activity, attempt?: Attempt) {
     const credentials = this.connectionsRepository.read(player, 'zwift');
 
-    if (!credentials) throw new DeliveryRefusedError('zwift_unauthorized');
+    if (!credentials) throw new DeliveryRefusedError({ code: 'zwift_unauthorized' });
 
     let token: string;
 
     try {
       token = await this.zwiftRepository.officialLogin(credentials[0], credentials[1]);
     } catch {
-      throw new DeliveryRefusedError('zwift_login');
+      throw new DeliveryRefusedError({ code: 'zwift_login' });
     }
 
     const headers = this.zwiftRepository.officialHeaders(token);
@@ -463,7 +470,7 @@ export class UploadsService extends BaseService {
 
       official = fromBinary(PlayerProfileSchema, new Uint8Array(await me.arrayBuffer())).id;
     } catch (error) {
-      throw error instanceof DeliveryRefusedError ? error : new DeliveryRefusedError('zwift_profile');
+      throw error instanceof DeliveryRefusedError ? error : new DeliveryRefusedError({ code: 'zwift_profile' });
     }
 
     const full = clone(ActivitySchema, activity);
