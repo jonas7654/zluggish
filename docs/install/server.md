@@ -39,7 +39,7 @@ The [ports reference](../reference/ports.md) tells what each port is for.
 
 This setup uses the `storage` directory in the repository root.
 
-# Set up server
+## First-time setup
 
 In order to set up a new server, you must authenticate yourself as the administrator by entering the setup key. The docker output for the first-time zluggish server is something like
 

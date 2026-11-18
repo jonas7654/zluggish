@@ -43,7 +43,7 @@ Each rider selects their name in the game launcher. Then the rider selects a map
 
 1. Read the [requirements](install/requirements.md).
 2. [Install the server](install/server.md).
-3. Do the [first-time setup](install/server.md#set-up-server).
+3. Do the [first-time setup](install/server.md#first-time-setup).
 4. Set up the client for [Windows](install/clients/windows.md), [macOS](install/clients/macos.md) or [Android](install/clients/android.md).
 
 ## Community
