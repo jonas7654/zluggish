@@ -250,7 +250,8 @@ export function socialRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
         return c.body(null, 201);
       }
 
-      runtime.discord?.send(action.message, `${profile.firstName} ${profile.lastName}`);
+      for (const bridge of runtime.bridges ?? [])
+        bridge.send(action.message, `${profile.firstName} ${profile.lastName}`);
       const state = runtime.world.online.get(id);
       recipients = [...runtime.world.online].flatMap(([peerId, peer]) =>
         state &&

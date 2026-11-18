@@ -6,7 +6,7 @@ import type { SettingsStore } from '#src/repositories/settings.repository';
 import type { World } from '#src/world/state';
 
 export interface RepositoryContext {
-  discord?: import('#src/services/discord.service').DiscordBridge;
+  bridges?: import('#src/services/chat-bridge.service').Bridge[];
   config: ResolvedConfig;
   accounts: AccountsService;
   sessions: SessionsService;

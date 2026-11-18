@@ -7,7 +7,8 @@ import { create, toBinary } from '@bufbuild/protobuf';
 
 export class MessageService extends BaseService {
   sendMessage(runtime: RepositoryContext, message: string, recipients?: bigint[], sender = 'Server') {
-    if (sender === 'Server' && recipients === undefined) runtime.discord?.send(message);
+    if (sender === 'Server' && recipients === undefined)
+      for (const bridge of runtime.bridges ?? []) bridge.send(message);
     runtime.world.enqueue(
       create(WorldAttributeSchema, {
         serverRealm: 1n,

@@ -10,6 +10,7 @@ import { Completions } from '#src/repositories/completion.repository';
 import { Connections } from '#src/repositories/connections.repository';
 import { CryptoRepository } from '#src/repositories/crypto.repository';
 import { DiscordRepository } from '#src/repositories/discord.repository';
+import { MatrixRepository } from '#src/repositories/matrix.repository';
 import { EventCatalogRepository } from '#src/repositories/event-catalog.repository';
 import { EventsRepository } from '#src/repositories/events.repository';
 import { AssetFiles } from '#src/repositories/files.repository';
@@ -91,6 +92,8 @@ export class Repositories {
 
   readonly discordRepository: DiscordRepository;
 
+  readonly matrixRepository: MatrixRepository;
+
   readonly profileRepository: Profiles;
 
   readonly riderDocuments: RiderDocuments;
@@ -135,6 +138,7 @@ export class Repositories {
     this.sessionRepository = new SessionRepository();
     this.zwiftRepository = new ZwiftRepository();
     this.discordRepository = new DiscordRepository();
+    this.matrixRepository = new MatrixRepository();
     this.profileRepository = new Profiles(storage, this.db, this.accountsRepository, this.riderDocuments);
   }
 

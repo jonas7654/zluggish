@@ -570,6 +570,50 @@ Enable guild-member and message-content intents for the bot. The bridge supports
 
 </details>
 
+<details><summary>Matrix bridge (experimental)</summary>
+
+Matrix support is experimental and has not yet been verified against a live homeserver. The bridge runs in the Node server, including Docker, and can run alongside the Discord bridge. Create a private `storage/matrix.cfg` file with the bot's password:
+
+```ini
+[matrix]
+password = YOUR_BOT_PASSWORD
+```
+
+or, for a homeserver without password login, an access token for the bot:
+
+```ini
+[matrix]
+access_token = YOUR_BOT_ACCESS_TOKEN
+```
+
+Then configure operator settings, using a path relative to the config file (this example assumes `examples/zluggish.config.ts`):
+
+```ts
+import { defineConfig } from 'zluggish/config';
+
+export default defineConfig({
+  integrations: {
+    matrix: {
+      enabled: true,
+      credentialsFile: '../storage/matrix.cfg',
+      homeserver: 'https://matrix.example.org',
+      user: '@zluggish:matrix.example.org',
+      room: '#ride:matrix.example.org', // A room alias or a room ID such as '!abc123:matrix.example.org'.
+      helpMessage: 'Commands: !online, !ping, !help. Other messages are relayed to riders in-game.',
+      announcePlayers: true,
+    },
+  },
+});
+```
+
+- `homeserver` is the client-server API URL. The server does not follow `.well-known` delegation, so use the URL your Matrix client connects to.
+- The bot joins the room on startup. It must already be a member, be invited, or the room must be public.
+- Room chat is relayed to riders in-game, and in-game chat is posted to the room as `Name: message`. `!online`, `!ping` and `!help` are answered in the room.
+- Encrypted rooms are not supported. The bridge logs a warning and never posts into an encrypted room.
+- After a password login, the session is kept in `storage/matrix-session.json` so restarts reuse the same device. Keep this file private.
+
+</details>
+
 ## Community Discord server and Strava club
 
 Please join the community-supported [Discord](https://discord.gg/GMdn8F8) server and [Strava](https://www.strava.com/clubs/zoffline) club.

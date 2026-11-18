@@ -203,6 +203,21 @@ await test('invalid real config files stop the server before creating runtime st
       'export default { integrations: { discord: { enabled: true } } };',
       /integrations\.discord\.credentialsFile/,
     ],
+    [
+      'missing Matrix room',
+      "export default { integrations: { matrix: { enabled: true, credentialsFile: 'matrix.cfg', homeserver: 'https://matrix.example.org', user: 'bot' } } };",
+      /integrations\.matrix\.room: required when enabled/,
+    ],
+    [
+      'invalid Matrix room',
+      "export default { integrations: { matrix: { room: 'general' } } };",
+      /integrations\.matrix\.room/,
+    ],
+    [
+      'invalid Matrix homeserver',
+      "export default { integrations: { matrix: { homeserver: 'matrix.example.org' } } };",
+      /integrations\.matrix\.homeserver/,
+    ],
     ['blank storage', "export default { storageDir: '' };", /storageDir/],
     ['whitespace storage', "export default { storageDir: '   ' };", /storageDir/],
     ['blank group ID', "export default { pelotons: [{ id: ' ', pacer: 1 }] };", /pelotons\.0\.id/],

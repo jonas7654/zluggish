@@ -190,6 +190,10 @@ export async function loadConfig(options: LoadOptions = {}): Promise<LoadedConfi
         ...config.integrations.discord,
         credentialsFile: relative(config.integrations.discord.credentialsFile),
       },
+      matrix: {
+        ...config.integrations.matrix,
+        credentialsFile: relative(config.integrations.matrix.credentialsFile),
+      },
     },
     tls: {
       certFile: relative(config.tls.certFile),
@@ -209,6 +213,7 @@ export async function loadConfig(options: LoadOptions = {}): Promise<LoadedConfi
     ['ghosts.profileFile', resolved.ghosts.profileFile],
     ['bots.ridersFile', resolved.bots.ridersFile],
     ['integrations.discord.credentialsFile', resolved.integrations.discord.credentialsFile],
+    ['integrations.matrix.credentialsFile', resolved.integrations.matrix.credentialsFile],
     ['tls.certFile', resolved.tls.certFile],
     ['tls.keyFile', resolved.tls.keyFile],
   ]) {

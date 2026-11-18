@@ -114,6 +114,21 @@ export default defineConfig({
       // Announce riders joining and leaving.
       announcePlayers: false,
     },
+    matrix: {
+      enabled: false,
+      // Private file with the bot password or access token. See the Matrix section of the README.
+      credentialsFile: '',
+      // Client-server API URL of the homeserver, such as 'https://matrix.example.org'.
+      homeserver: '',
+      // Bot user, as '@bot:example.org' or just 'bot'.
+      user: '',
+      // Room ID ('!abc:example.org') or alias ('#ride:example.org'). The room must not be encrypted.
+      room: '',
+      // Reply to !help. Empty sends nothing.
+      helpMessage: '',
+      // Announce riders joining and leaving.
+      announcePlayers: false,
+    },
   },
 
   logging: {
