@@ -12,7 +12,8 @@
     "preview": "vite preview",
     "package": "node ../scripts/build-cf-output.mjs",
     "deploy:dry-run": "pnpm build && pnpm package && cf deploy --prebuilt --dry-run",
-    "deploy": "pnpm build && pnpm package && cf deploy --prebuilt"
+    "deploy": "pnpm build && pnpm package && cf deploy --prebuilt",
+    "deploy:preview": "pnpm build && pnpm package --preview && cf previews deploy --prebuilt"
   },
   "devDependencies": {
     "@fontsource/atkinson-hyperlegible-next": "5.3.0",

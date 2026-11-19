@@ -11,9 +11,10 @@
     "serve": "docusaurus serve",
     "clear": "docusaurus clear",
     "typecheck": "tsc --noEmit",
-    "package": "node ../scripts/build-cf-output.mjs",
+    "package": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON ../scripts/build-cf-output.mjs",
     "deploy:dry-run": "pnpm build && pnpm package && cf deploy --prebuilt --dry-run",
-    "deploy": "pnpm build && pnpm package && cf deploy --prebuilt"
+    "deploy": "pnpm build && pnpm package && cf deploy --prebuilt",
+    "deploy:preview": "pnpm build && pnpm package --preview && cf previews deploy --prebuilt"
   },
   "dependencies": {
     "@docusaurus/core": "3.10.2",
