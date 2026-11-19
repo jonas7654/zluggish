@@ -299,10 +299,10 @@ await test('account recovery uses config storage and honors an explicit storage 
     /Missing/,
   );
   const configured = resolve(f.root, 'configured');
-  const intended = new AccountsService(configured);
+  const intended = AccountsService.open(configured);
   const user = await intended.create('Configured Rider', 'old');
   intended.close();
-  const other = new AccountsService(f.storage);
+  const other = AccountsService.open(f.storage);
   const decoy = await other.create('Other Rider', 'unchanged');
   other.close();
   mkdirSync(resolve(f.root, 'external'));
@@ -313,13 +313,13 @@ await test('account recovery uses config storage and honors an explicit storage 
     ['--config', f.output, 'accounts', 'recover', '--user', String(user.player_id), '--password-file', passwordFile],
     () => {},
   );
-  const recovered = new AccountsService(configured);
+  const recovered = AccountsService.open(configured);
   const saved = recovered.get(user.player_id);
   assert.ok(saved);
   assert.equal(await recovered.verify(saved, 'new-password'), true);
   assert.equal(saved.auth_version, user.auth_version + 1);
   recovered.close();
-  const untouched = new AccountsService(f.storage);
+  const untouched = AccountsService.open(f.storage);
   const stillThere = untouched.get(decoy.player_id);
   assert.ok(stillThere);
   assert.equal(await untouched.verify(stillThere, 'unchanged'), true);
@@ -339,7 +339,7 @@ await test('account recovery uses config storage and honors an explicit storage 
     ],
     () => {},
   );
-  const overridden = new AccountsService(f.storage);
+  const overridden = AccountsService.open(f.storage);
   const changed = overridden.get(decoy.player_id);
   assert.ok(changed);
   assert.equal(await overridden.verify(changed, 'new-password'), true);
@@ -349,7 +349,7 @@ await test('account recovery uses config storage and honors an explicit storage 
 await test('account migration uses the selected config storage', async (t) => {
   const f = fixture(t);
   const configured = resolve(f.root, 'configured');
-  const accounts = new AccountsService(configured);
+  const accounts = AccountsService.open(configured);
   const user = await accounts.create('Legacy Rider', 'test-password');
   accounts.close();
   renameSync(resolve(configured, 'zluggish.db'), resolve(configured, 'zwift-offline.db'));
@@ -363,7 +363,7 @@ await test('account migration uses the selected config storage', async (t) => {
     clearInterval(keepAlive);
   }
 
-  const migrated = new AccountsService(configured);
+  const migrated = AccountsService.open(configured);
   assert.equal(migrated.get(user.player_id)?.first_name, 'Legacy');
   migrated.close();
   assert.equal(existsSync(resolve(f.storage, 'zluggish.db')), false);

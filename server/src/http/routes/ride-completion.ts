@@ -1,3 +1,4 @@
+import { SessionsService } from '#src/services/browser-session.service';
 import { Effect, Option, Schema } from 'effect';
 import { ActivitiesService } from '#src/services/activities.service';
 import { RideCompletionService } from '#src/services/ride-completion.service';
@@ -16,7 +17,7 @@ export function rideCompletionRoutes(app: Hono<RuntimeEnv>, runtime: HttpRuntime
         const activities = yield* ActivitiesService;
         const bearer = c.req.header('Authorization') ?? '';
 
-        if (!bearer || runtime.services.sessions.bearer(bearer.replace(/^Bearer /i, '')))
+        if (!bearer || runtime.effects.runSync(SessionsService).bearer(bearer.replace(/^Bearer /i, '')))
           return yield* Effect.promise(() => next());
 
         const ids = Schema.decodeUnknownOption(

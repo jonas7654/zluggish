@@ -1,4 +1,3 @@
-import { createServices } from '#src/composition';
 import { makeAppRuntime } from '#src/layers';
 import { validateConfig } from '#src/config/index';
 import { packageRoot } from '#src/config/load';
@@ -14,8 +13,8 @@ import { Schema } from 'effect';
 
 export function runtimeFixture(t: TestContext) {
   const storage = mkdtempSync(resolve(tmpdir(), 'zluggish-accounts-'));
-  const accounts = new AccountsService(storage);
-  const sessions = new SessionsService(accounts);
+  const accounts = AccountsService.open(storage);
+  const sessions = SessionsService.open(accounts);
   const profiles = accounts.repositories.profileRepository;
   const settings = accounts.repositories.settingsRepository;
   const world = new World();
@@ -38,8 +37,7 @@ export function runtimeFixture(t: TestContext) {
   };
 
   const effects = makeAppRuntime(context);
-  Object.assign(context, { bridge: effects });
-  const runtime = Object.assign(context, { services: createServices(context), effects });
+  const runtime = Object.assign(context, { effects });
 
   const app = createGameApp({ gameInfo: '{}', gameInfoHash: '0', variants: '{}' }, runtime);
 

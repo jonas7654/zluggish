@@ -121,7 +121,7 @@ export async function run(argv: string[], output: (message: string) => void = co
         const passwordFile = values['password-file'];
 
         if (!passwordFile) throw new ConfigError('Choose --password-file PATH');
-        const accounts = new AccountsService(storage);
+        const accounts = AccountsService.open(storage);
 
         try {
           if (!accounts.get(playerId)) throw new ConfigError('Unknown user');
@@ -374,7 +374,7 @@ async function storageCommand(
   output: (message: string) => void,
 ) {
   if (action === 'usage' || action === 'cleanup') {
-    const accounts = new AccountsService(storage);
+    const accounts = AccountsService.open(storage);
 
     try {
       const service = RetentionService.forScope({ repositories: accounts.repositories, retention, storage });
@@ -456,7 +456,7 @@ function uploadsCommand(
     return 0;
   }
 
-  const accounts = new AccountsService(storage);
+  const accounts = AccountsService.open(storage);
 
   try {
     const repositories = accounts.repositories;

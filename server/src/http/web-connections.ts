@@ -1,3 +1,4 @@
+import { AccountsService } from '#src/services/auth.service';
 import { WebSessionsService } from '#src/services/web-session.service';
 import { UploadsService } from '#src/services/uploads.service';
 import { WorkoutsService } from '#src/services/workout.service';
@@ -179,7 +180,7 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
 
       const id = c.get('sessionId');
       const user = yield* webSessionsService.require(id);
-      const identity = runtime.services.accounts.identityOf(user);
+      const identity = runtime.effects.runSync(AccountsService).identityOf(user);
 
       const input = Schema.decodeUnknownSync(
         Strict({ code: Schema.optional(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(32))) }),
@@ -207,7 +208,7 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
 
       const id = c.get('sessionId');
       const user = yield* webSessionsService.require(id);
-      const identity = runtime.services.accounts.identityOf(user);
+      const identity = runtime.effects.runSync(AccountsService).identityOf(user);
 
       const input = Schema.decodeUnknownSync(
         Strict({
@@ -274,7 +275,7 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
 
       const id = c.get('sessionId');
       const user = yield* webSessionsService.require(id);
-      const identity = runtime.services.accounts.identityOf(user);
+      const identity = runtime.effects.runSync(AccountsService).identityOf(user);
 
       const input = Schema.decodeUnknownSync(Strict({ provider: Schema.Literals(['intervals', 'trainingpeaks']) }))(
         yield* Effect.promise(() => c.req.json()),

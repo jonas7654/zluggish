@@ -1,6 +1,10 @@
 import { validateConfig } from '#src/config/index';
 import { MatrixRepository } from '#src/repositories/matrix.repository';
-import { MatrixBridge } from '#src/services/matrix.service';
+import { MatrixService } from '#src/services/matrix.service';
+import { ChatService } from '#src/services/chat-bridge.service';
+import { MessageService } from '#src/services/message.service';
+import { RuntimeContext } from '#src/context';
+import type { RepositoryContext } from '#src/context';
 import { SocialPlayerActionSchema } from '#src/protocol/generated/tcp-node-msgs_pb';
 import { PlayerStateSchema } from '#src/protocol/generated/udp-node-msgs_pb';
 import { runtimeFixture } from '#tests/support/runtime';
@@ -14,7 +18,21 @@ import { resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { test } from 'node:test';
 import type { TestContext } from 'node:test';
-import { Schema } from 'effect';
+import { Effect, Layer, Schema } from 'effect';
+
+/** The Matrix service over the given runtime context. */
+function matrixService(context: RepositoryContext) {
+  return Effect.runSync(
+    Effect.gen(function* () {
+      return yield* MatrixService;
+    }).pipe(
+      Effect.provide(MatrixService.layer),
+      Effect.provide(ChatService.layer),
+      Effect.provide(MessageService.layer),
+      Effect.provide(Layer.succeed(RuntimeContext, context)),
+    ),
+  );
+}
 
 async function until(condition: () => boolean) {
   for (let attempt = 0; attempt < 200 && !condition(); attempt++) await sleep(10);
@@ -270,17 +288,19 @@ await test('Matrix bridge prefixes rider names, handles commands and stops after
     }),
   };
 
-  const bridge = new MatrixBridge(runtime, {
-    send: (content) => {
-      sent.push(content);
+  const bridge = Effect.runSync(
+    matrixService(runtime).bridge({
+      send: (content) => {
+        sent.push(content);
 
-      return Promise.resolve();
-    },
-    presence: (count) => {
-      presence.push(count);
-    },
-    close: () => Promise.resolve(),
-  });
+        return Promise.resolve();
+      },
+      presence: (count) => {
+        presence.push(count);
+      },
+      close: () => Promise.resolve(),
+    }),
+  );
 
   f.world.online.set(BigInt(user.player_id), create(PlayerStateSchema));
   bridge.receive('Alice', 'Ride on!');

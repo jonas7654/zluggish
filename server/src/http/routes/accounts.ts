@@ -1,3 +1,5 @@
+import { SessionsService } from '#src/services/browser-session.service';
+import { AccountsService } from '#src/services/auth.service';
 import { WorkoutsService } from '#src/services/workout.service';
 import { FilesService } from '#src/services/files.service';
 import { ProfilesService } from '#src/services/profile.service';
@@ -74,10 +76,9 @@ export async function csrf(c: Context<RuntimeEnv>, runtime: Runtime): Promise<Fo
   const form = await c.req.parseBody();
 
   if (
-    !runtime.services.sessions.validCsrf(
-      c.get('browser'),
-      Schema.decodeUnknownSync(Schema.String.pipe(orElse('')))(form.csrf_token),
-    )
+    !runtime.effects
+      .runSync(SessionsService)
+      .validCsrf(c.get('browser'), Schema.decodeUnknownSync(Schema.String.pipe(orElse('')))(form.csrf_token))
   )
     throw new HTTPException(400, {
       message: 'The form expired. Reload and retry.',
@@ -104,7 +105,8 @@ export function peerAddress(c: Context) {
 }
 
 export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
-  const { accounts, sessions } = runtime.services;
+  const accounts = runtime.effects.runSync(AccountsService);
+  const sessions = runtime.effects.runSync(SessionsService);
   const { world } = runtime;
   app.use('*', async (c, next) => {
     const authorization = c.req.header('Authorization');
@@ -294,7 +296,10 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
         else deleteCookie(c, rememberCookie(user.player_id), { path: '/login/' });
         sessions.end(c.get('browserId'));
         const fresh = sessions.open();
-        sessions.transition(fresh.session, { type: 'login', identity: runtime.services.accounts.identityOf(user) });
+        sessions.transition(fresh.session, {
+          type: 'login',
+          identity: runtime.effects.runSync(AccountsService).identityOf(user),
+        });
         setCookie(c, 'zluggish_session', fresh.id, {
           httpOnly: true,
           sameSite: 'Lax',
@@ -426,7 +431,7 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     if (world.active(user.player_id)) throw new HTTPException(409);
 
     return c.redirect(
-      `http://zwift/?code=zwift_refresh_token${sessions.token(runtime.services.accounts.identityOf(user), runtime.tokens.refresh)}`,
+      `http://zwift/?code=zwift_refresh_token${sessions.token(runtime.effects.runSync(AccountsService).identityOf(user), runtime.tokens.refresh)}`,
     );
   });
 

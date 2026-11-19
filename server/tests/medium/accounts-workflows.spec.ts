@@ -367,7 +367,7 @@ await test('existing Zluggish database is renamed without losing riders', async 
   const legacy = resolve(f.accounts.storage, 'zwift-offline.db');
   assert.ok(existsSync(current));
   renameSync(current, legacy);
-  const reopened = new AccountsService(f.accounts.storage);
+  const reopened = AccountsService.open(f.accounts.storage);
   t.after(() => reopened.close());
   assert.equal(reopened.get(rider.player_id)?.first_name, 'Existing');
   assert.ok(existsSync(current));
@@ -392,7 +392,7 @@ await test('account migration publishes the renamed database and preserves rider
   const current = resolve(f.accounts.storage, 'zluggish.db');
   const legacy = resolve(f.accounts.storage, 'zwift-offline.db');
   renameSync(current, legacy);
-  assert.throws(() => new AccountsService(f.accounts.storage), /upgrade required/);
+  assert.throws(() => AccountsService.open(f.accounts.storage), /upgrade required/);
   // SQLite backup work needs a live event loop on newer Node releases.
   const keepAlive = setInterval(() => {}, 1000);
 
@@ -405,7 +405,7 @@ await test('account migration publishes the renamed database and preserves rider
 
   assert.ok(existsSync(current));
   assert.ok(!existsSync(legacy));
-  const reopened = new AccountsService(f.accounts.storage);
+  const reopened = AccountsService.open(f.accounts.storage);
   assert.equal(reopened.get(rider.player_id)?.first_name, 'Migrated');
 
   for (const previous of [rider, oldScrypt]) {

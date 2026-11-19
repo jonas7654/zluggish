@@ -1,5 +1,5 @@
-import type { RepositoryContext as Runtime } from '#src/context';
-import { BaseService } from '#src/services/base.service';
+import { Context, Effect, Layer } from 'effect';
+import { RuntimeContext } from '#src/context';
 import { MessageService } from '#src/services/message.service';
 
 /** What the server needs from any chat bridge it relays riders' chat to. */
@@ -20,65 +20,70 @@ export interface ChatSettings {
   readonly announcePlayers: boolean;
 }
 
-/** All external work is bounded and detached from the ride tick. */
-export class ChatBridge extends BaseService implements Bridge {
-  // Open admits at most 100 sends; close permanently stops admission. Each settled send releases one slot.
-  private pending = 0;
+const make = Effect.gen(function* () {
+  const context = yield* RuntimeContext;
+  const messages = yield* MessageService;
 
-  private stopped = false;
-
-  constructor(
-    readonly runtime: Runtime,
-    readonly transport: ChatTransport,
-    private readonly name: string,
-    private readonly settings: () => ChatSettings,
+  /** A chat connection. All external work is bounded and detached from the ride tick. */
+  const open = Effect.fn('ChatService.open')(function* (
+    transport: ChatTransport,
+    name: string,
+    settings: () => ChatSettings,
   ) {
-    super(runtime.accounts.repositories);
-  }
+    // Open admits at most 100 sends; close permanently stops admission. Each settled send releases one slot.
+    let pending = 0;
+    let stopped = false;
 
-  get closed() {
-    return this.stopped;
-  }
+    const send = (content: string, sender = 'Server') => {
+      if (stopped || pending >= 100) return;
+      pending++;
+      void transport
+        .deliver(content, sender)
+        .catch(() => {
+          context.world.lifecycle.log.warn(`${name.toLowerCase()}.delivery_failed`, `${name} delivery failed`);
+        })
+        .finally(() => {
+          pending--;
+        });
+    };
 
-  /** Answers bridge commands and relays anything else to riders in-game. */
-  relay(author: string, content: string) {
-    const settings = this.settings();
+    return {
+      get closed() {
+        return stopped;
+      },
 
-    if (content === '!online') this.send(`${this.runtime.world.online.size} riders online`);
-    else if (content === '!ping') this.send('pong');
-    else if (content === '!help' && settings.helpMessage) this.send(settings.helpMessage);
-    else if (!content.startsWith('!'))
-      this.runtime.bridge!.runSync(
-        MessageService.use((messages) => messages.sendMessage(content.slice(0, 2000), undefined, author)),
-      );
-  }
+      /** Answers bridge commands and relays anything else to riders in-game. */
+      relay(author: string, content: string) {
+        const current = settings();
 
-  send(content: string, sender = 'Server') {
-    if (this.stopped || this.pending >= 100) return;
-    this.pending++;
-    void this.transport
-      .deliver(content, sender)
-      .catch(() => {
-        this.runtime.world.lifecycle.log.warn(
-          `${this.name.toLowerCase()}.delivery_failed`,
-          `${this.name} delivery failed`,
-        );
-      })
-      .finally(() => {
-        this.pending--;
-      });
-  }
+        if (content === '!online') send(`${context.world.online.size} riders online`);
+        else if (content === '!ping') send('pong');
+        else if (content === '!help' && current.helpMessage) send(current.helpMessage);
+        else if (!content.startsWith('!'))
+          Effect.runSync(messages.sendMessage(content.slice(0, 2000), undefined, author));
+      },
 
-  online(id: bigint, joining: boolean) {
-    this.transport.presence(this.runtime.world.online.size);
+      send,
 
-    if (!this.settings().announcePlayers) return;
-    const profile = this.runtime.profiles.get(Number(id));
-    this.send(joining ? 'Riding' : 'Leaving', `${profile.firstName} ${profile.lastName}`);
-  }
+      online(id: bigint, joining: boolean) {
+        transport.presence(context.world.online.size);
 
-  async close() {
-    this.stopped = true;
-    await this.transport.close();
-  }
+        if (!settings().announcePlayers) return;
+        const profile = context.profiles.get(Number(id));
+        send(joining ? 'Riding' : 'Leaving', `${profile.firstName} ${profile.lastName}`);
+      },
+
+      async close() {
+        stopped = true;
+        await transport.close();
+      },
+    };
+  });
+
+  return { open };
+});
+
+/** The behavior every chat bridge shares: commands, bounded delivery and presence. */
+export class ChatService extends Context.Service<ChatService, Effect.Success<typeof make>>()('zluggish/ChatService') {
+  static readonly layer = Layer.effect(ChatService, make);
 }

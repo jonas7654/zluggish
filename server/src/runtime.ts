@@ -6,7 +6,6 @@ import { JobsService } from '#src/services/jobs.service';
 import { DurabilityService } from '#src/services/durability.service';
 import { MetricsService } from '#src/services/metrics.service';
 import { Resources } from '#src/node/lifecycle/resources';
-import { createServices } from '#src/composition';
 import { makeAppRuntime } from '#src/layers';
 import type { ResolvedConfig } from '#src/config/index';
 import { packageRoot } from '#src/config/load';
@@ -32,11 +31,11 @@ export async function openRuntime(config: ResolvedConfig, assets: string) {
   resources.defer(release);
 
   try {
-    const accounts = new AccountsService(config.storageDir);
+    const accounts = AccountsService.open(config.storageDir);
     resources.defer(() => accounts.close());
     const settings = accounts.repositories.settingsRepository;
     resources.defer(() => settings.close());
-    const sessions = new SessionsService(accounts);
+    const sessions = SessionsService.open(accounts);
     const profiles = accounts.repositories.profileRepository;
     const world = new World();
 
@@ -56,9 +55,8 @@ export async function openRuntime(config: ResolvedConfig, assets: string) {
     };
 
     const effects = makeAppRuntime(context);
-    context.bridge = effects;
     resources.defer(() => effects.dispose());
-    const runtime: Runtime = Object.assign(context, { services: createServices(context), effects });
+    const runtime: Runtime = Object.assign(context, { effects });
 
     effects.runSync(ImportsService.use((imports) => imports.recover()));
     const simulation = new Simulation(runtime);
@@ -98,7 +96,7 @@ export async function openRuntime(config: ResolvedConfig, assets: string) {
 
     if (config.integrations.discord.enabled) {
       try {
-        bridges.push(new DiscordService(runtime.accounts.repositories).startDiscord(runtime));
+        bridges.push(runtime.effects.runSync(DiscordService.use((discord) => discord.start())));
       } catch {
         world.lifecycle.log.warn(
           'discord.configuration_failed',
@@ -109,7 +107,7 @@ export async function openRuntime(config: ResolvedConfig, assets: string) {
 
     if (config.integrations.matrix.enabled) {
       try {
-        bridges.push(new MatrixService(runtime.accounts.repositories).startMatrix(runtime));
+        bridges.push(runtime.effects.runSync(MatrixService.use((matrix) => matrix.start())));
       } catch {
         world.lifecycle.log.warn(
           'matrix.configuration_failed',

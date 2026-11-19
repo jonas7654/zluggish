@@ -462,13 +462,13 @@ await test('backup and restore preserve complete setup, operation results and th
   backupStorage(f.accounts.storage, backup, null);
   f.accounts.close();
   restoreStorage(f.config.storageDir, backup, null);
-  const restored = new AccountsService(f.config.storageDir);
+  const restored = AccountsService.open(f.config.storageDir);
   t.after(() => restored.close());
   const store = new ManagementRepository(restored.db);
   assert.equal(store.complete(), true);
   assert.equal(restored.get(owner.player_id)!.role, 'administrator');
   assert.deepEqual(JSON.parse(store.operation(owner.player_id, operation)!.result!), result);
-  const sessions = new SessionsService(restored);
+  const sessions = SessionsService.open(restored);
   assert.deepEqual(sessions.secret, secret);
   assert.equal(sessions.browsers.size, 0);
   restored.close();

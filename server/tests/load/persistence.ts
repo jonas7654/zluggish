@@ -7,7 +7,6 @@ import { SettingsService } from '#src/services/settings.service';
 // Repeatable persistence and riding-latency load test. Run with `pnpm test:load`.
 // It drives the riding path in process, finishes a group of riders at once while
 // others keep riding, and can add a slow disk, large media and a slow provider.
-import { createServices } from '#src/composition';
 import { makeAppRuntime } from '#src/layers';
 import { validateConfig } from '#src/config/index';
 import { packageRoot } from '#src/config/load';
@@ -137,8 +136,8 @@ const storage = values.storage ? resolve(values.storage) : mkdtempSync(resolve(t
 
 mkdirSync(storage, { recursive: true });
 
-const accounts = new AccountsService(storage);
-const sessions = new SessionsService(accounts);
+const accounts = AccountsService.open(storage);
+const sessions = SessionsService.open(accounts);
 
 const config = validateConfig({
   storageDir: storage,
@@ -167,7 +166,7 @@ const context = {
 };
 
 const effects = makeAppRuntime(context);
-const runtime = Object.assign(context, { effects, services: createServices(context) });
+const runtime = Object.assign(context, { effects });
 const app = createGameApp({ gameInfo: '{}', gameInfoHash: '0', variants: '{}' }, runtime);
 const providerCalls = { started: 0, finished: 0 };
 

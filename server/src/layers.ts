@@ -31,6 +31,11 @@ import { RideRecoveryService } from '#src/services/ride-recovery.service';
 import { RideCompletionService } from '#src/services/ride-completion.service';
 import { WebSessionsService } from '#src/services/web-session.service';
 import { ManagementService } from '#src/services/management.service';
+import { ChatService } from '#src/services/chat-bridge.service';
+import { DiscordService } from '#src/services/discord.service';
+import { MatrixService } from '#src/services/matrix.service';
+import { AccountsService } from '#src/services/auth.service';
+import { SessionsService } from '#src/services/browser-session.service';
 import { Layer, ManagedRuntime } from 'effect';
 
 /** Services that use only repositories. */
@@ -50,12 +55,14 @@ const foundationLayer = Layer.mergeAll(
   DocumentsService.layer,
 );
 
-/** Uploads, which the account and activity services below cancel and query. */
-const uploadsLayer = UploadsService.layer.pipe(Layer.provideMerge(foundationLayer));
+/** Uploads, which the account and activity services cancel and query, and the chat that bridges share. */
+const sharedLayer = Layer.mergeAll(UploadsService.layer, ChatService.layer).pipe(Layer.provideMerge(foundationLayer));
 
 /** The account, activity and world services. Each tier may use the ones below it. */
 const featuresLayer = Layer.mergeAll(
   ProfilesService.layer,
+  DiscordService.layer,
+  MatrixService.layer,
   ActivitiesService.layer,
   RideRecoveryService.layer,
   RideCompletionService.layer,
@@ -71,7 +78,7 @@ const featuresLayer = Layer.mergeAll(
   GoalService.layer,
   SettingsService.layer,
   RecordsService.layer,
-).pipe(Layer.provideMerge(uploadsLayer));
+).pipe(Layer.provideMerge(sharedLayer));
 
 /** Every application service, built from the runtime context. Management uses the services below it. */
 export const servicesLayer = ManagementService.layer.pipe(Layer.provideMerge(featuresLayer));
@@ -81,6 +88,11 @@ refers to the runtime, so an inferred type would be circular.
 */
 export type AppServices =
   | RuntimeContext
+  | AccountsService
+  | SessionsService
+  | ChatService
+  | DiscordService
+  | MatrixService
   | WebSessionsService
   | ManagementService
   | UploadsService
@@ -115,11 +127,26 @@ export type AppServices =
 
 /** The application layer for one runtime context. */
 export function appLayer(context: RepositoryContext) {
-  return servicesLayer.pipe(Layer.provideMerge(Layer.succeed(RuntimeContext, context)));
+  return servicesLayer.pipe(
+    Layer.provideMerge(
+      Layer.mergeAll(
+        Layer.succeed(RuntimeContext, context),
+        Layer.succeed(AccountsService, context.accounts),
+        Layer.succeed(SessionsService, context.sessions),
+      ),
+    ),
+  );
 }
 
-/** Runs application effects. HTTP handlers, sockets and the world loop use it at their edges. */
+/** Runs application effects. HTTP handlers, sockets and the world loop use it at their edges. Opening
+it configures logging for the context, so the server logs from the start.
+*/
 export function makeAppRuntime(context: RepositoryContext): AppRuntime {
+  const logging = context.accounts.repositories.loggingRepository;
+  logging.configure(context.config.logging);
+  context.world.lifecycle.log = logging.child({ component: 'server' });
+  context.world.lifecycle.intervalSeconds = context.config.logging.rideProgressIntervalSeconds;
+
   return ManagedRuntime.make(appLayer(context));
 }
 

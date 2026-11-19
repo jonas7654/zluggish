@@ -1,3 +1,4 @@
+import { AccountsService } from '#src/services/auth.service';
 import { FilesService } from '#src/services/files.service';
 import { ProfilesService } from '#src/services/profile.service';
 import { DocumentsService } from '#src/services/documents.service';
@@ -69,7 +70,7 @@ export function socialRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
           PlayerProfilesSchema,
           create(PlayerProfilesSchema, {
             profiles: yield* Effect.forEach(ids, (id) =>
-              profilesService.synthetic.has(BigInt(id)) || runtime.services.accounts.get(id)
+              profilesService.synthetic.has(BigInt(id)) || runtime.effects.runSync(AccountsService).get(id)
                 ? profilesService
                     .get(id)
                     .pipe(Effect.flatMap((profile) => profilesService.forViewer(profile, c.get('user')?.player_id)))
@@ -94,15 +95,18 @@ export function socialRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       if (c.req.header('Accept') === 'application/x-protobuf-lite') return c.body(null, 200);
 
       return c.json(
-        runtime.services.accounts.list().map((user) => ({
-          id: 0,
-          followerId: user.player_id,
-          followeeId: Number(c.req.param('id')),
-          status: 'IS_FOLLOWING',
-          isFolloweeFavoriteOfFollower: true,
-          followerProfile: summary(user.player_id),
-          followeeProfile: null,
-        })),
+        runtime.effects
+          .runSync(AccountsService)
+          .list()
+          .map((user) => ({
+            id: 0,
+            followerId: user.player_id,
+            followeeId: Number(c.req.param('id')),
+            status: 'IS_FOLLOWING',
+            isFolloweeFavoriteOfFollower: true,
+            followerProfile: summary(user.player_id),
+            followeeProfile: null,
+          })),
       );
     },
   );

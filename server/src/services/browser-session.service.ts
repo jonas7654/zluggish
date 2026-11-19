@@ -1,9 +1,8 @@
 import { ApplicationError } from '#src/errors';
 import type { User } from '#src/repositories/accounts.repository';
 import { AccountsService } from '#src/services/auth.service';
-import { BaseService } from '#src/services/base.service';
 import { resolve } from 'node:path';
-import { Schema } from 'effect';
+import { Context, Schema } from 'effect';
 
 export interface BrowserSession {
   csrf: string;
@@ -23,27 +22,26 @@ export interface OpenedSession {
   session: BrowserSession;
 }
 
-export class SessionsService extends BaseService {
-  readonly secret: Buffer;
+/** The launcher's browser sessions for an account database. Tokens are signed with the storage
+folder's secret key, created on first use.
+*/
+function openSessions(accounts: AccountsService['Service']) {
+  const repositories = accounts.repositories;
+  const browsers = new Map<string, BrowserSession>();
+  let secret: Buffer;
+  const path = resolve(accounts.storage, 'secret-key.txt');
 
-  readonly browsers = new Map<string, BrowserSession>();
-
-  constructor(readonly accounts: AccountsService) {
-    super(accounts.repositories);
-    const path = resolve(accounts.storage, 'secret-key.txt');
-
-    if (this.filesRepository.existsSync(path)) this.secret = this.filesRepository.readFileSync(path);
-    else {
-      this.secret = this.cryptoRepository.randomBytes(32);
-      this.filesRepository.writeDurable(path, this.secret);
-    }
+  if (repositories.filesRepository.existsSync(path)) secret = repositories.filesRepository.readFileSync(path);
+  else {
+    secret = repositories.cryptoRepository.randomBytes(32);
+    repositories.filesRepository.writeDurable(path, secret);
   }
 
-  open(id?: string): OpenedSession {
+  function open(id?: string): OpenedSession {
     const now = Date.now();
 
-    for (const [key, session] of this.browsers) if (now - session.touched > 86_400_000) this.end(key);
-    const previous = id ? this.browsers.get(id) : undefined;
+    for (const [key, session] of browsers) if (now - session.touched > 86_400_000) end(key);
+    const previous = id ? browsers.get(id) : undefined;
 
     if (id && previous) {
       previous.touched = now;
@@ -51,36 +49,36 @@ export class SessionsService extends BaseService {
       return { id, session: previous };
     }
 
-    if (this.browsers.size >= 10_000) {
+    if (browsers.size >= 10_000) {
       let oldest: string | undefined;
       let touched = Infinity;
 
-      for (const [key, session] of this.browsers)
+      for (const [key, session] of browsers)
         if (!session.identity && session.touched < touched) {
           oldest = key;
           touched = session.touched;
         }
 
       if (oldest === undefined) throw new ApplicationError({ status: 503, message: 'Too many browser sessions' });
-      this.end(oldest);
+      end(oldest);
     }
 
-    const token = this.cryptoRepository.randomBytes(32).toString('base64url');
+    const token = repositories.cryptoRepository.randomBytes(32).toString('base64url');
 
     const session: BrowserSession = {
-      csrf: this.cryptoRepository.randomBytes(32).toString('base64url'),
+      csrf: repositories.cryptoRepository.randomBytes(32).toString('base64url'),
       identity: null,
       selected: false,
       touched: now,
     };
 
-    this.browsers.set(token, session);
+    browsers.set(token, session);
 
     return { id: token, session };
   }
 
   /** Identity and launch selection are independent session dimensions. */
-  transition(session: BrowserSession, event: BrowserEvent) {
+  function transition(session: BrowserSession, event: BrowserEvent) {
     switch (event.type) {
       case 'login': {
         session.identity = event.identity;
@@ -95,44 +93,44 @@ export class SessionsService extends BaseService {
     }
   }
 
-  end(id: string) {
-    this.browsers.delete(id);
+  function end(id: string) {
+    browsers.delete(id);
   }
 
   /** Recheck after awaits: logout, eviction or password change invalidates continuation. */
-  current(id: string, session: BrowserSession, identity: string) {
-    return this.browsers.get(id) === session && session.identity === identity && !!this.accounts.identity(identity);
+  function current(id: string, session: BrowserSession, identity: string) {
+    return browsers.get(id) === session && session.identity === identity && !!accounts.identity(identity);
   }
 
-  validCsrf(session: BrowserSession, token: string) {
+  function validCsrf(session: BrowserSession, token: string) {
     if (!session.csrf) return false;
     const expected = Buffer.from(session.csrf);
     const supplied = Buffer.from(token);
 
-    return supplied.length === expected.length && this.cryptoRepository.timingSafeEqual(expected, supplied);
+    return supplied.length === expected.length && repositories.cryptoRepository.timingSafeEqual(expected, supplied);
   }
 
   /** A signed "remember password" token for one rider; a password change bumps auth_version and revokes it. */
-  remember(rider: User, now = Date.now()) {
+  function remember(rider: User, now = Date.now()) {
     const expires = Math.floor(now / 1000) + REMEMBER_SECONDS;
 
-    return this.cryptoRepository.signIdentity(`remember:${this.accounts.identityOf(rider)}:${expires}`, this.secret);
+    return repositories.cryptoRepository.signIdentity(`remember:${accounts.identityOf(rider)}:${expires}`, secret);
   }
 
-  remembered(token: string, playerId: number, now = Date.now()) {
-    const match = /^remember:(\d+:\d+):(\d+)$/.exec(this.cryptoRepository.verifyIdentity(token, this.secret) ?? '');
+  function remembered(token: string, playerId: number, now = Date.now()) {
+    const match = /^remember:(\d+:\d+):(\d+)$/.exec(repositories.cryptoRepository.verifyIdentity(token, secret) ?? '');
 
     if (!match?.[1] || Number(match[2]) * 1000 < now) return null;
-    const rider = this.accounts.identity(match[1]);
+    const rider = accounts.identity(match[1]);
 
     return rider?.player_id === playerId ? rider : null;
   }
 
-  user(session: BrowserSession) {
-    return session.identity ? this.accounts.identity(session.identity) : null;
+  function user(session: BrowserSession) {
+    return session.identity ? accounts.identity(session.identity) : null;
   }
 
-  bearer(token: string) {
+  function bearer(token: string) {
     const payload = token.split('.', 2)[1];
 
     if (!payload) return null;
@@ -142,15 +140,15 @@ export class SessionsService extends BaseService {
         JSON.parse(Buffer.from(payload, 'base64url').toString()),
       );
 
-      const identity = this.cryptoRepository.verifyIdentity(parsed.session_cookie, this.secret);
+      const identity = repositories.cryptoRepository.verifyIdentity(parsed.session_cookie, secret);
 
-      return identity ? this.accounts.identity(identity) : null;
+      return identity ? accounts.identity(identity) : null;
     } catch {
       return null;
     }
   }
 
-  token(identity: string, template: string) {
+  function token(identity: string, template: string) {
     const payload = JSON.parse(Buffer.from(template.split('.', 2)[1] ?? '', 'base64url').toString());
 
     const values = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))(payload);
@@ -158,31 +156,31 @@ export class SessionsService extends BaseService {
     const body = Buffer.from(
       JSON.stringify({
         ...values,
-        session_cookie: this.cryptoRepository.signIdentity(identity, this.secret),
+        session_cookie: repositories.cryptoRepository.signIdentity(identity, secret),
       }),
     ).toString('base64url');
 
     const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
 
-    const signature = this.cryptoRepository.signToken(`${header}.${body}`);
+    const signature = repositories.cryptoRepository.signToken(`${header}.${body}`);
 
     return `${header}.${body}.${signature}`;
   }
 
-  tokens(
-    rider: NonNullable<ReturnType<AccountsService['get']>>,
+  function tokens(
+    rider: NonNullable<ReturnType<AccountsService['Service']['get']>>,
     templates: { access: string; refresh: string; id: string },
   ) {
-    const identity = this.accounts.identityOf(rider);
+    const identity = accounts.identityOf(rider);
 
-    if (!this.accounts.identity(identity))
+    if (!accounts.identity(identity))
       throw new ApplicationError({ status: 401, message: 'Account changed. Sign in again.' });
 
     return {
-      access_token: this.token(identity, templates.access),
+      access_token: token(identity, templates.access),
       expires_in: 1_000_021_600,
       refresh_expires_in: 611_975_560,
-      refresh_token: this.token(identity, templates.refresh),
+      refresh_token: token(identity, templates.refresh),
       token_type: 'bearer',
       id_token: templates.id,
       'not-before-policy': 1_408_478_984,
@@ -190,4 +188,27 @@ export class SessionsService extends BaseService {
       scope: '',
     };
   }
+
+  return {
+    secret,
+    browsers,
+    accounts,
+    open,
+    transition,
+    end,
+    current,
+    validCsrf,
+    remember,
+    remembered,
+    user,
+    bearer,
+    token,
+    tokens,
+  };
+}
+
+export class SessionsService extends Context.Service<SessionsService, ReturnType<typeof openSessions>>()(
+  'zluggish/SessionsService',
+) {
+  static readonly open = openSessions;
 }

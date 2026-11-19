@@ -154,10 +154,10 @@ await test('reopened delivery queues mark interrupted sends ambiguous and honor 
   );
   f.accounts.db.exec("UPDATE activity_upload SET state='sending'");
   f.accounts.close();
-  const reopened = new AccountsService(f.accounts.storage);
+  const reopened = AccountsService.open(f.accounts.storage);
   const context = { ...f, accounts: reopened, settings: reopened.repositories.settingsRepository };
   const effects = makeAppRuntime(context);
-  Object.assign(context, { effects, bridge: effects });
+  Object.assign(context, { effects });
   const queue = effects.runSync(UploadsService);
   const jobs = effects.runSync(JobsService);
 

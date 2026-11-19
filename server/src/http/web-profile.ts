@@ -1,3 +1,4 @@
+import { AccountsService } from '#src/services/auth.service';
 import { WebSessionsService } from '#src/services/web-session.service';
 import { ManagementService } from '#src/services/management.service';
 import { UploadsService } from '#src/services/uploads.service';
@@ -22,7 +23,7 @@ import type { WebEnv } from '#src/http/web-app';
 export function webProfileRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
   const appRoutes = effectRoutes(app, runtime);
 
-  const { accounts } = runtime.services;
+  const accounts = runtime.effects.runSync(AccountsService);
   const imports = runtime.effects.runSync(ImportsService);
   const sessions = runtime.effects.runSync(WebSessionsService);
 

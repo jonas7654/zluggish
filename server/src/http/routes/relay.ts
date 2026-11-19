@@ -1,3 +1,4 @@
+import { AccountsService } from '#src/services/auth.service';
 import { WorkoutsService } from '#src/services/workout.service';
 import { FilesService } from '#src/services/files.service';
 import { ProfilesService } from '#src/services/profile.service';
@@ -60,7 +61,8 @@ export function relayRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       if (c.req.header('User-Agent')?.toLowerCase().includes('android'))
         yield* workoutsService.syncWorkoutsAutomatically(user.player_id, true);
 
-      if (!runtime.services.accounts.identity(runtime.services.accounts.identityOf(user))) throw new HTTPException(401);
+      if (!runtime.effects.runSync(AccountsService).identity(runtime.effects.runSync(AccountsService).identityOf(user)))
+        throw new HTTPException(401);
       runtime.world.login(BigInt(user.player_id), request.key);
 
       const imported = yield* documentsService.text(user.player_id, 'economy_config.txt');

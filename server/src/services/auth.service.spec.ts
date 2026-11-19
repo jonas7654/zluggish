@@ -5,18 +5,18 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 await test('malformed account identities are rejected before any repository access', (t) => {
-  const lookup = t.mock.method(AccountsService.prototype, 'get', () => {
+  const lookup = t.mock.fn((_id: number): null => {
     throw new Error('Unexpected lookup');
   });
 
   for (const identity of ['', '1', '1:2:3', '-1:2', '1:-2', '1.5:2', '1:2.5', ' 1:2', '1:2 ', '1e2:3']) {
-    assert.equal(AccountsService.prototype.identity(identity), null);
+    assert.equal(AccountsService.resolveIdentity(identity, lookup), null);
   }
 
   assert.equal(lookup.mock.callCount(), 0);
 });
 
-await test('account identities require an existing rider with the current auth version', (t) => {
+await test('account identities require an existing rider with the current auth version', () => {
   const rider = Schema.decodeUnknownSync(riderSchema)({
     player_id: 7,
     username: 'rider@example.test',
@@ -31,12 +31,11 @@ await test('account identities require an existing rider with the current auth v
     is_admin: 0,
   });
 
-  t.mock.method(AccountsService.prototype, 'get', (id: number) => (id === rider.player_id ? rider : null));
-  const service = AccountsService.prototype;
+  const get = (id: number) => (id === rider.player_id ? rider : null);
 
-  assert.equal(service.identityOf(rider), '7:3');
-  assert.equal(service.identity('7:3'), rider);
-  assert.equal(service.identity('7:2'), null);
-  assert.equal(service.identity('7:4'), null);
-  assert.equal(service.identity('8:3'), null);
+  assert.equal(AccountsService.identityOf(rider), '7:3');
+  assert.equal(AccountsService.resolveIdentity('7:3', get), rider);
+  assert.equal(AccountsService.resolveIdentity('7:2', get), null);
+  assert.equal(AccountsService.resolveIdentity('7:4', get), null);
+  assert.equal(AccountsService.resolveIdentity('8:3', get), null);
 });

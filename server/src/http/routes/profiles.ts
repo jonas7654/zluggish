@@ -1,3 +1,4 @@
+import { AccountsService } from '#src/services/auth.service';
 import { ImportsService } from '#src/services/profile-import.service';
 import { FilesService } from '#src/services/files.service';
 import { effectRoutes } from '#src/http/effect';
@@ -86,7 +87,7 @@ export function profileRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       );
 
       if (
-        !runtime.services.accounts.get(id) &&
+        !runtime.effects.runSync(AccountsService).get(id) &&
         !profilesService.synthetic.has(BigInt(id)) &&
         !(yield* profilesService.exists(id))
       )
@@ -132,7 +133,7 @@ export function profileRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       if (update.useMetric !== undefined) profile.useMetric = update.useMetric;
 
       if (update.weight !== undefined) profile.weightInGrams = update.weight;
-      const current = runtime.services.accounts.get(user.player_id);
+      const current = runtime.effects.runSync(AccountsService).get(user.player_id);
 
       if (!current?.enabled || current.auth_version !== user.auth_version || current.revision !== user.revision)
         throw new HTTPException(409, { message: 'User changed. Reload and retry.' });
@@ -156,7 +157,7 @@ export function profileRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
         new Uint8Array(yield* Effect.promise(() => c.req.arrayBuffer())),
       );
 
-      const current = runtime.services.accounts.get(user.player_id);
+      const current = runtime.effects.runSync(AccountsService).get(user.player_id);
 
       if (!current?.enabled || current.auth_version !== user.auth_version || current.revision !== user.revision)
         throw new HTTPException(409, { message: 'User changed. Reload and retry.' });

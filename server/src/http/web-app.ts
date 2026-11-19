@@ -1,3 +1,4 @@
+import { AccountsService } from '#src/services/auth.service';
 import { ManagementService } from '#src/services/management.service';
 import { WebSessionsService } from '#src/services/web-session.service';
 import { ActivitiesService } from '#src/services/activities.service';
@@ -39,7 +40,7 @@ function sameOrigin(origin: string | undefined, url: string, publicUrl: string |
 export function createWebApp(runtime: HttpRuntime) {
   const app = new Hono<WebEnv>();
   const appRoutes = effectRoutes(app, runtime);
-  const { accounts } = runtime.services;
+  const accounts = runtime.effects.runSync(AccountsService);
   const management = runtime.effects.runSync(ManagementService);
   const durability = runtime.effects.runSync(DurabilityService);
   const sessions = runtime.effects.runSync(WebSessionsService);

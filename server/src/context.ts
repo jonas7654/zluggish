@@ -9,16 +9,13 @@ import type { World } from '#src/world/state';
 export interface RepositoryContext {
   bridges?: import('#src/services/chat-bridge.service').Bridge[];
   config: ResolvedConfig;
-  accounts: AccountsService;
-  sessions: SessionsService;
+  accounts: AccountsService['Service'];
+  sessions: SessionsService['Service'];
   world: World;
   settings: SettingsStore;
   profiles: Profiles;
   assets: string;
   tokens: { access: string; refresh: string; id: string };
-  /** Bridge for services not yet built as Effect services: runs application effects. Set once the
-  runtime exists. */
-  bridge?: import('#src/layers').AppRuntime;
 }
 
 /** The runtime context as an Effect service. Services read the parts they need from it. */

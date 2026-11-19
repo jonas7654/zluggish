@@ -450,7 +450,7 @@ await test('activity create, save and restart preserve ownership, FIT bytes and 
 
   assert.equal(attempt.status, 401);
   f.accounts.close();
-  const reopened = new AccountsService(f.accounts.storage);
+  const reopened = AccountsService.open(f.accounts.storage);
 
   try {
     assert.equal(reopened.db.prepare('SELECT name FROM activity WHERE id=?').get(id)?.name, 'Synthetic ride');

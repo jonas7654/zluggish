@@ -1,3 +1,4 @@
+import { AccountsService } from '#src/services/auth.service';
 import { RideCompletionService } from '#src/services/ride-completion.service';
 import { ActivitiesService } from '#src/services/activities.service';
 import { FilesService } from '#src/services/files.service';
@@ -40,7 +41,9 @@ export function activityRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
           new Uint8Array(yield* Effect.promise(() => c.req.arrayBuffer())),
         );
 
-        if (!runtime.services.accounts.identity(runtime.services.accounts.identityOf(user)))
+        if (
+          !runtime.effects.runSync(AccountsService).identity(runtime.effects.runSync(AccountsService).identityOf(user))
+        )
           throw new HTTPException(401);
         activity.playerId = id;
 
@@ -97,7 +100,9 @@ export function activityRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       const finish = c.req.query('upload-to-strava') === 'true';
 
       const outcome = yield* activitiesService.saveInTurn(activity, finish, () => {
-        if (!runtime.services.accounts.identity(runtime.services.accounts.identityOf(user)))
+        if (
+          !runtime.effects.runSync(AccountsService).identity(runtime.effects.runSync(AccountsService).identityOf(user))
+        )
           throw new HTTPException(401);
       });
 

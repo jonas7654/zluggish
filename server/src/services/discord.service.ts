@@ -1,70 +1,68 @@
-import type { RepositoryContext as Runtime } from '#src/context';
+import { Context, Effect, Layer } from 'effect';
+import { RuntimeContext } from '#src/context';
 import type { DiscordTransport } from '#src/repositories/discord.repository';
-import { BaseService } from '#src/services/base.service';
-import type { Bridge } from '#src/services/chat-bridge.service';
-import { ChatBridge } from '#src/services/chat-bridge.service';
+import { ChatService } from '#src/services/chat-bridge.service';
 
-export class DiscordBridge extends BaseService implements Bridge {
-  private readonly chat: ChatBridge;
+const make = Effect.gen(function* () {
+  const context = yield* RuntimeContext;
+  const chats = yield* ChatService;
+  const settings = () => context.config.integrations.discord;
 
-  constructor(
-    readonly runtime: Runtime,
-    readonly transport: DiscordTransport,
-  ) {
-    super(runtime.accounts.repositories);
-    this.chat = new ChatBridge(
-      runtime,
+  /** The Discord side of the chat bridge over a transport. */
+  const bridge = Effect.fn('DiscordService.bridge')(function* (transport: DiscordTransport) {
+    const chat = yield* chats.open(
       {
         deliver: (content, sender) => transport.send(content.slice(0, 2000), sender.slice(0, 80)),
         presence: (count) => transport.presence(count),
         close: () => transport.close(),
       },
       'Discord',
-      () => runtime.config.integrations.discord,
+      settings,
     );
-  }
 
-  receive(channel: string, author: string, bot: boolean, content: string) {
-    if (this.chat.closed || bot || channel !== String(this.runtime.config.integrations.discord.channel)) return;
-    this.chat.relay(author, content);
-  }
+    return {
+      receive(channel: string, author: string, bot: boolean, content: string) {
+        if (chat.closed || bot || channel !== String(settings().channel)) return;
+        chat.relay(author, content);
+      },
+      welcome(member: string) {
+        const message = settings().welcomeMessage;
 
-  welcome(member: string) {
-    const message = this.runtime.config.integrations.discord.welcomeMessage;
+        if (message) chat.send(`${member}\n${message}`);
+      },
+      send: chat.send,
+      online: chat.online,
+      close: chat.close,
+    };
+  });
 
-    if (message) this.send(`${member}\n${message}`);
-  }
+  /** Connect to Discord with the configured credentials. */
+  const start = Effect.fn('DiscordService.start')(function* () {
+    let receiver: Effect.Success<ReturnType<typeof bridge>> | undefined;
 
-  send(content: string, sender?: string) {
-    this.chat.send(content, sender);
-  }
-
-  online(id: bigint, joining: boolean) {
-    this.chat.online(id, joining);
-  }
-
-  close() {
-    return this.chat.close();
-  }
-}
-
-export class DiscordService extends BaseService {
-  startDiscord(runtime: Runtime) {
-    const transport = this.discordRepository.openDiscordTransport(runtime.config.integrations.discord, {
-      receive: (channel, author, bot, content) => bridge.receive(channel, author, bot, content),
-      welcome: (member) => bridge.welcome(member),
-      onlineCount: () => runtime.world.online.size,
+    const transport = context.accounts.repositories.discordRepository.openDiscordTransport(settings(), {
+      receive: (channel, author, bot, content) => receiver?.receive(channel, author, bot, content),
+      welcome: (member) => receiver?.welcome(member),
+      onlineCount: () => context.world.online.size,
       connectionFailed: () =>
-        runtime.world.lifecycle.log.warn('discord.connection_failed', 'Discord connection failed'),
+        context.world.lifecycle.log.warn('discord.connection_failed', 'Discord connection failed'),
       loginFailed: () =>
-        runtime.world.lifecycle.log.warn(
+        context.world.lifecycle.log.warn(
           'discord.login_failed',
           'Discord login failed; local riding remains available',
         ),
     });
 
-    const bridge = new DiscordBridge(runtime, transport);
+    receiver = yield* bridge(transport);
 
-    return bridge;
-  }
+    return receiver;
+  });
+
+  return { bridge, start };
+});
+
+export class DiscordService extends Context.Service<DiscordService, Effect.Success<typeof make>>()(
+  'zluggish/DiscordService',
+) {
+  static readonly layer = Layer.effect(DiscordService, make);
 }

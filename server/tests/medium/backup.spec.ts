@@ -57,10 +57,10 @@ async function backedUp(t: TestContext) {
 }
 
 function reopen(cleanup: (() => Promise<void>)[], f: Awaited<ReturnType<typeof mediumFixture>>) {
-  const accounts = new AccountsService(f.config.storageDir);
+  const accounts = AccountsService.open(f.config.storageDir);
   const context = { ...f, accounts, settings: accounts.repositories.settingsRepository };
   const effects = makeAppRuntime(context);
-  Object.assign(context, { effects, bridge: effects });
+  Object.assign(context, { effects });
   const uploads = effects.runSync(UploadsService);
   const jobs = effects.runSync(JobsService);
   cleanup.push(async () => {
