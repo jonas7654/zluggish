@@ -186,6 +186,9 @@ export class Simulation {
 
       try {
         const profile = fromBinary(PlayerProfileSchema, profileBytes);
+
+        profile.privacyBits |= 4n;
+
         const states = fromBinary(GhostSchema, routeBytes).states;
         profile.ftp = 400;
 
@@ -225,7 +228,7 @@ export class Simulation {
               const id = BigInt(1_000_000 + index + copy * 10_000);
               const profile = this.pool.profile(id);
               profile.ftp = owner?.ftp || 300;
-              profile.weightInGrams = owner?.weightInGrams || 80_000;
+              profile.weightInGrams = (owner?.privacyBits ?? 0n) & 4n ? owner?.weightInGrams || 80_000 : 80_000;
               replays.set(id, {
                 profile,
                 states,

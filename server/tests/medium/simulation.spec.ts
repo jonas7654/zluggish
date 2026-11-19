@@ -241,6 +241,7 @@ await test('synthetic riders carry an FTP: pacers 400, bots and blobs from their
   const owner = f.profiles.get(rider.player_id);
   owner.ftp = 250;
   owner.weightInGrams = 70_000;
+  owner.privacyBits |= 4n;
   f.profiles.save(rider.player_id, owner);
 
   const pacer = resolve(f.accounts.storage, 'robopacers/demo');
@@ -310,4 +311,33 @@ await test('synthetic riders carry an FTP: pacers 400, bots and blobs from their
   assert.equal(blob.riders.length, 3);
 
   for (const bot of blob.riders) assert.equal(bot.profile.ftp, 250);
+});
+
+await test('bots only copy the owner weight when the owner shows it', async (t) => {
+  const f = runtimeFixture(t);
+  const rider = await f.accounts.create('Hidden Rider', 'test-password');
+  const owner = f.profiles.get(rider.player_id);
+  owner.weightInGrams = 70_000;
+  owner.privacyBits &= ~4n;
+  f.profiles.save(rider.player_id, owner);
+
+  new AssetFiles().writeDurable(
+    resolve(f.profiles.folder(rider.player_id), 'ghosts/6/1/a.bin'),
+    toBinary(
+      GhostSchema,
+      create(GhostSchema, { playerId: 1, states: [create(PlayerStateSchema, { id: 1n, roadTime: 1 })] }),
+    ),
+  );
+
+  const simulation = new Simulation(
+    { ...f, config: validateConfig({ storageDir: f.config.storageDir, bots: { enabled: true } }) },
+    () => 100,
+  );
+
+  t.after(() => simulation.close());
+  await simulation.ready;
+
+  const bot = simulation.replays.values().find((replay) => !replay.pacer);
+  assert.equal(bot?.profile.weightInGrams, 80_000);
+  assert.equal((bot?.profile.privacyBits ?? 0n) & 4n, 4n);
 });
