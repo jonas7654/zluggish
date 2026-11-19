@@ -13,7 +13,7 @@ export interface ReplayRider {
   position: number;
   folder: string;
   pacer: boolean;
-  ownerId?: number;
+  ownerId?: number | undefined;
 }
 
 type PelotonConfig = ResolvedConfig['pelotons'][number];
