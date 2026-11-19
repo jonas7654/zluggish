@@ -1,3 +1,4 @@
+import { JobsService } from '#src/services/jobs.service';
 import { DocumentsService } from '#src/services/documents.service';
 import { validateConfig } from '#src/config/index';
 import { ActivitySchema } from '#src/protocol/generated/activity_pb';
@@ -10,7 +11,7 @@ import { existsSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from '
 import { resolve } from 'node:path';
 import type { TestContext } from 'node:test';
 import { test } from 'node:test';
-import { Schema } from 'effect';
+import { Effect, Schema } from 'effect';
 
 const fit = readFileSync(new URL('../fixtures/ride.fit', import.meta.url));
 const day = 86_400_000;
@@ -45,7 +46,7 @@ async function storage(t: TestContext) {
 
   const { id } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await response.json());
   f.services.activities.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }));
-  await f.services.jobs.drain();
+  await f.effects.runPromise(JobsService.use((service) => service.drain()));
 
   const root = f.config.storageDir;
   const folder = f.profiles.folder(f.rider.player_id);
@@ -111,13 +112,13 @@ async function storage(t: TestContext) {
     root,
     reserved,
     fresh,
-    service: new RetentionService(f.accounts.repositories, retention, root),
+    service: RetentionService.forScope({ repositories: f.accounts.repositories, retention, storage: root }),
   };
 }
 
 await test('a cleanup preview lists the candidates and removes nothing', async (t) => {
   const { f, folder, root, reserved, service } = await storage(t);
-  const plan = await service.plan();
+  const plan = await Effect.runPromise(service.plan());
   const reasons = new Map(plan.files.map((file) => [file.path, file.reason]));
 
   assert.equal(reasons.get(resolve(root, 'activities', '999')), 'orphaned chart');
@@ -138,7 +139,7 @@ await test('a cleanup preview lists the candidates and removes nothing', async (
 
 await test('a cleanup keeps unfinished work, owned artifacts and the canonical FIT payload', async (t) => {
   const { f, id, folder, fresh, service } = await storage(t);
-  const removed = await service.apply(await service.plan());
+  const removed = await Effect.runPromise(service.apply(await Effect.runPromise(service.plan())));
   assert.equal(removed.files, 7);
   const db = f.accounts.db;
 
@@ -166,13 +167,13 @@ await test('a cleanup keeps unfinished work, owned artifacts and the canonical F
   assert.ok(existsSync(resolve(folder, 'ride-recovery.bin')));
   assert.ok(existsSync(resolve(folder, 'ghosts', '6', '1', 'b.bin')));
 
-  const again = await service.plan();
+  const again = await Effect.runPromise(service.plan());
   assert.equal(again.files.length, 0);
 });
 
 await test('a cleanup that stops between file removals completes on the next run', async (t) => {
   const { f, service } = await storage(t);
-  const plan = await service.plan();
+  const plan = await Effect.runPromise(service.plan());
   let removals = 0;
   const original = AssetFiles.prototype.removeTreeAsync;
 
@@ -181,10 +182,10 @@ await test('a cleanup that stops between file removals completes on the next run
     await original.call(this, path);
   });
 
-  await assert.rejects(service.apply(plan), /stopped/);
+  await assert.rejects(Effect.runPromise(service.apply(plan)), /stopped/);
   stop.mock.restore();
-  await service.apply(await service.plan());
-  const after = await service.plan();
+  await Effect.runPromise(service.apply(await Effect.runPromise(service.plan())));
+  const after = await Effect.runPromise(service.plan());
   assert.equal(after.files.length, 0);
   assert.equal(after.media.length, 0);
   assert.equal(f.accounts.db.prepare("SELECT count(*) AS n FROM activity_media WHERE state='reserved'").get()?.n, 1);
@@ -192,7 +193,7 @@ await test('a cleanup that stops between file removals completes on the next run
 
 await test('storage use is reported by category', async (t) => {
   const { service } = await storage(t);
-  const usage = await service.usage();
+  const usage = await Effect.runPromise(service.usage());
 
   assert.ok(usage.database > 0);
   assert.ok(usage.media > 0);

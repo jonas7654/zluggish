@@ -319,7 +319,7 @@ await test('zfile uploads cannot create internal import journals through either 
     }
 
   assert.equal(f.accounts.db.prepare('SELECT count(*) AS n FROM zfile').get()?.n, 0);
-  assert.doesNotThrow(() => new ImportsService(f.accounts, f.world).recover());
+  assert.doesNotThrow(() => f.effects.runSync(ImportsService.use((service) => service.recover())));
 });
 
 await test('bike upgrade unlocks include extra frames, preserve settings and leave saved progress unchanged', async (t) => {

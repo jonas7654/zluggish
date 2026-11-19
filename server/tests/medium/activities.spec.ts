@@ -1,3 +1,4 @@
+import { JobsService } from '#src/services/jobs.service';
 import {
   ActivityImageSchema,
   ActivityListSchema,
@@ -397,7 +398,7 @@ for (const discard of [false, true])
 
     assert.equal(deleted.status, 200);
     // The rows go with the request; a cleanup job removes the files.
-    await f.services.jobs.drain();
+    await f.effects.runPromise(JobsService.use((service) => service.drain()));
 
     for (const path of paths) assert.equal(existsSync(path), false);
 

@@ -1,3 +1,4 @@
+import { makeAppRuntime } from '#src/layers';
 import { DocumentsService } from '#src/services/documents.service';
 import { validateConfig } from '#src/config/index';
 import { createGameApp } from '#src/http/app';
@@ -59,7 +60,7 @@ await test('deleting a queued activity while another upload is sending prevents 
 
   const deleted = await f.request(`/api/profiles/${f.rider.player_id}/activities/${ids[1]}`, { method: 'DELETE' });
   assert.equal(deleted.status, 200);
-  const draining = f.services.jobs.drain();
+  const draining = f.effects.runPromise(JobsService.use((service) => service.drain()));
   await new Promise((resolve) => setImmediate(resolve));
   delivery.emit('release');
   await draining;
@@ -110,7 +111,7 @@ await test('a failed completion transaction commits nothing and a repeated save 
     assert.equal(saved.status, 200);
   }
 
-  await f.services.jobs.drain();
+  await f.effects.runPromise(JobsService.use((service) => service.drain()));
   const streaks = await decode(await f.request('/api/fitness/streaks'), StreaksSchema);
   assert.equal(streaks.curStreakDistance, 3000);
   assert.equal(f.accounts.db.prepare('SELECT count(*) AS n FROM power_curve').get()?.n, 1);
@@ -150,15 +151,17 @@ await test('reopened delivery queues mark interrupted sends ambiguous and honor 
   f.accounts.close();
   const reopened = new AccountsService(f.accounts.storage);
   const context = { ...f, accounts: reopened, settings: reopened.repositories.settingsRepository };
+  const effects = makeAppRuntime(context);
+  Object.assign(context, { effects, bridge: effects });
   const queue = new UploadsService(context);
-  const jobs = new JobsService(context);
+  const jobs = effects.runSync(JobsService);
   queue.registerJobs(jobs);
 
   // Windows cannot remove the fixture directory while the reopened SQLite handle is live.
   // Scoped cleanup runs before runtimeFixture's after hook, including on assertion failure.
   try {
     queue.start();
-    await jobs.drain();
+    await effects.runPromise(jobs.drain());
     assert.equal(queue.status(f.rider.player_id)[0]?.state, 'ambiguous');
     await queue.retry(f.rider.player_id);
     assert.equal(queue.status(f.rider.player_id)[0]?.state, 'ambiguous');
@@ -170,7 +173,8 @@ await test('reopened delivery queues mark interrupted sends ambiguous and honor 
     assert.equal(queue.status(f.rider.player_id)[0]?.state, 'cancelled');
   } finally {
     try {
-      await jobs.close();
+      await effects.runPromise(jobs.close());
+      await effects.dispose();
     } finally {
       reopened.close();
     }
@@ -253,7 +257,7 @@ await test('repeated finalization keeps one streak update and deliveries retry o
     assert.equal(saved.status, 200);
   }
 
-  await f.services.jobs.drain();
+  await f.effects.runPromise(JobsService.use((service) => service.drain()));
   assert.equal(delivered, 1);
   assert.equal(f.services.uploads.status(f.rider.player_id)[0]?.state, 'failed');
   const streaks = await decode(await f.request('/api/fitness/streaks'), StreaksSchema);
@@ -261,7 +265,7 @@ await test('repeated finalization keeps one streak update and deliveries retry o
   assert.equal(f.accounts.db.prepare('SELECT count(*) AS n FROM power_curve').get()?.n, 1);
   const retried = await mediumWeb(f, f.rider).request('/api/me/uploads/retry', 'POST', {});
   assert.equal(retried.status, 200);
-  await f.services.jobs.drain();
+  await f.effects.runPromise(JobsService.use((service) => service.drain()));
   assert.equal(delivered, 2);
   assert.equal(f.services.uploads.status(f.rider.player_id)[0]?.state, 'sent');
 
@@ -281,12 +285,12 @@ await test('import recovery discards preparation without a manifest but preserve
     resolve(folder, 'profile.bin'),
     toBinary(PlayerProfileSchema, create(PlayerProfileSchema, { id: 1n })),
   );
-  const imports = new ImportsService(f.accounts, f.world);
-  imports.recover();
+  const imports = f.effects.runSync(ImportsService);
+  f.effects.runSync(imports.recover());
   assert.equal(existsSync(folder), false);
   mkdirSync(folder);
   new AssetFiles().writeDurable(resolve(folder, 'manifest.json'), '{bad');
-  assert.throws(() => imports.recover());
+  assert.throws(() => f.effects.runSync(imports.recover()));
   assert.equal(existsSync(folder), true);
 });
 

@@ -9,7 +9,8 @@ import { immediate } from '#src/db/transaction';
 import { Metric, metrics } from '#src/repositories/metrics.repository';
 import { BaseService } from '#src/services/base.service';
 import type { RunningJob } from '#src/repositories/jobs.repository';
-import type { JobsService } from '#src/services/jobs.service';
+import type { JobHandler, JobsService } from '#src/services/jobs.service';
+import type { JobType } from '#src/enum';
 import { FitService } from '#src/services/fit.service';
 import { SettingsService } from '#src/services/settings.service';
 import { StreakService } from '#src/services/streak.service';
@@ -17,7 +18,7 @@ import { UploadsService } from '#src/services/uploads.service';
 import { course, worldTime } from '#src/world/state';
 import { clearField, clone, create, toBinary } from '@bufbuild/protobuf';
 import { dirname, resolve } from 'node:path';
-import { Option, Schema } from 'effect';
+import { Effect, Option, Schema } from 'effect';
 
 /** Comma-separated identifiers in a job payload. */
 function identifiers(job: RunningJob, key: string) {
@@ -638,8 +639,11 @@ export class ActivitiesService extends BaseService {
     if (published) await this.filesRepository.syncDirectoryAsync(dirname(path));
   }
 
-  registerJobs(jobs: JobsService) {
-    jobs.register('power_curve', {
+  registerJobs(jobs: JobsService['Service']) {
+    const register = (type: JobType, handler: Omit<JobHandler, 'run'> & { run: (job: RunningJob) => Promise<void> }) =>
+      Effect.runSync(jobs.register(type, { ...handler, run: (job) => Effect.promise(() => handler.run(job)) }));
+
+    register('power_curve', {
       concurrency: 2,
       attempts: 3,
       timeoutMs: 60_000,
@@ -659,7 +663,7 @@ export class ActivitiesService extends BaseService {
       },
     });
 
-    jobs.register('fit_export', {
+    register('fit_export', {
       concurrency: 2,
       attempts: 5,
       timeoutMs: 60_000,
@@ -679,7 +683,7 @@ export class ActivitiesService extends BaseService {
       },
     });
 
-    jobs.register('chart', {
+    register('chart', {
       concurrency: 2,
       attempts: 3,
       timeoutMs: 60_000,
@@ -700,7 +704,7 @@ export class ActivitiesService extends BaseService {
       },
     });
 
-    jobs.register('artifact_cleanup', {
+    register('artifact_cleanup', {
       concurrency: 1,
       attempts: 5,
       timeoutMs: 120_000,
@@ -728,7 +732,7 @@ export class ActivitiesService extends BaseService {
 
     // Legacy completions finished by the storage migration create their deliveries at
     // runtime, where the operator configuration is known.
-    jobs.register('completion_deliveries', {
+    register('completion_deliveries', {
       concurrency: 1,
       attempts: 3,
       timeoutMs: 30_000,

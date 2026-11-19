@@ -1,3 +1,4 @@
+import { ImportsService } from '#src/services/profile-import.service';
 import { ConnectionsService } from '#src/services/connections.service';
 import { IntegrationsService } from '#src/services/integrations.service';
 import { DocumentsService } from '#src/services/documents.service';
@@ -17,7 +18,8 @@ import type { WebEnv } from '#src/http/web-app';
 export function webProfileRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
   const appRoutes = effectRoutes(app, runtime);
 
-  const { management, accounts, imports } = runtime.services;
+  const { management, accounts } = runtime.services;
+  const imports = runtime.effects.runSync(ImportsService);
   const { sessions } = management;
 
   function context(c: Context<WebEnv>) {
@@ -33,7 +35,7 @@ export function webProfileRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
     const stage = session.pendingImport;
 
     if (!stage) return null;
-    const manifest = imports.inspect(user, stage);
+    const manifest = runtime.effects.runSync(imports.inspect(user, stage));
 
     const confirmSource =
       !manifest.sourceId ||
@@ -63,7 +65,7 @@ export function webProfileRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
     let stage: string;
 
     try {
-      stage = imports.prepare(user, files);
+      stage = runtime.effects.runSync(imports.prepare(user, files));
     } catch {
       throw new ApplicationError({
         status: 400,
@@ -71,7 +73,7 @@ export function webProfileRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
       });
     }
 
-    if (session.pendingImport) imports.cancel(user, session.pendingImport);
+    if (session.pendingImport) runtime.effects.runSync(imports.cancel(user, session.pendingImport));
     session.pendingImport = stage;
 
     return c.json({ review: review(c) });
@@ -156,14 +158,14 @@ export function webProfileRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
     if (!current || current.stage !== input.stage)
       throw new ApplicationError({ status: 409, message: 'The import changed. Reload and review it again.' });
 
-    if (input.cancel) imports.cancel(user, current.stage);
+    if (input.cancel) runtime.effects.runSync(imports.cancel(user, current.stage));
     else {
       if (current.confirmSource && !input.confirmSource)
         throw new ApplicationError({ status: 400, message: 'Confirm the import source first.' });
 
       if (runtime.world.active(user.player_id))
         throw new ApplicationError({ status: 409, message: 'Finish the active ride before importing.' });
-      imports.publish(user, current.stage, input.keepName);
+      runtime.effects.runSync(imports.publish(user, current.stage, input.keepName));
     }
 
     delete session.pendingImport;

@@ -1,3 +1,4 @@
+import { JobsService } from '#src/services/jobs.service';
 import { Effect } from 'effect';
 import { WorkoutsService } from '#src/services/workout.service';
 import { ConnectionsService } from '#src/services/connections.service';
@@ -240,7 +241,7 @@ async function seedActivities(f: Fixture, user: User, rider: Rider) {
     if (finished.status !== 200) throw new Error(`Activity save failed: ${finished.status}`);
   }
 
-  await f.services.jobs.drain();
+  await f.effects.runPromise(JobsService.use((service) => service.drain()));
 }
 
 // Abstract landscape avatars: friendly, and clearly not photographs of anyone.

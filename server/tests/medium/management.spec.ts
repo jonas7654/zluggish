@@ -1,3 +1,4 @@
+import { DurabilityService } from '#src/services/durability.service';
 import { EventsService } from '#src/services/events.service';
 import { responseStatus } from '#tests/support/html';
 import assert from 'node:assert/strict';
@@ -291,7 +292,7 @@ await test('disabled native ride only saves its captured activity and final retr
 
   assert.equal(finish.status, 200);
   assert.equal(f.services.rideCompletion.permission(rider.player_id), null);
-  const changes = f.services.durability.changes();
+  const changes = f.effects.runSync(DurabilityService.use((service) => service.changes()));
 
   const retry = await f.app.request(path + '?upload-to-strava=true', {
     method: 'PUT',
@@ -300,7 +301,7 @@ await test('disabled native ride only saves its captured activity and final retr
   });
 
   assert.equal(retry.status, 200);
-  assert.equal(f.services.durability.changes(), changes);
+  assert.equal(f.effects.runSync(DurabilityService.use((service) => service.changes())), changes);
   activity.name = 'different';
   assert.equal(
     await responseStatus(

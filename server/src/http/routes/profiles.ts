@@ -1,3 +1,4 @@
+import { ImportsService } from '#src/services/profile-import.service';
 import { FilesService } from '#src/services/files.service';
 import { effectRoutes } from '#src/http/effect';
 import { ProfilesService } from '#src/services/profile.service';
@@ -16,7 +17,7 @@ import { NumberFromInput } from '#src/schema';
 export function profileRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
   const appRoutes = effectRoutes(app, runtime);
 
-  runtime.services.imports.recover();
+  runtime.effects.runSync(ImportsService.use((service) => service.recover()));
 
   appRoutes.get('/download/:id/avatarLarge.jpg', (c) =>
     Effect.gen(function* () {

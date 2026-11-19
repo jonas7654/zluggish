@@ -21,11 +21,18 @@ import { MessageService } from '#src/services/message.service';
 import { EventCatalogService } from '#src/services/event-catalog.service';
 import { ProfileJsonService } from '#src/services/profile-json.service';
 import { WorkoutsService } from '#src/services/workout.service';
+import { JobsService } from '#src/services/jobs.service';
+import { ImportsService } from '#src/services/profile-import.service';
+import { DurabilityService } from '#src/services/durability.service';
+import { RetentionService } from '#src/services/retention.service';
 import { Layer, ManagedRuntime } from 'effect';
 
 /** Services that use only repositories. */
 const foundationLayer = Layer.mergeAll(
   StreakService.layer,
+  JobsService.layer,
+  ImportsService.layer,
+  DurabilityService.layer,
   FitService.layer,
   AchievementService.layer,
   MessageService.layer,
@@ -39,6 +46,7 @@ const foundationLayer = Layer.mergeAll(
 export const servicesLayer = Layer.mergeAll(
   WorkoutsService.layer,
   ProfilesService.layer,
+  RetentionService.layer,
   ConnectionsService.layer,
   IntegrationsService.layer,
   EventsService.layer,
@@ -57,6 +65,10 @@ refers to the runtime, so an inferred type would be circular.
 */
 export type AppServices =
   | RuntimeContext
+  | JobsService
+  | ImportsService
+  | DurabilityService
+  | RetentionService
   | StreakService
   | FitService
   | AchievementService

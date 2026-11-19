@@ -2,24 +2,28 @@
 // @generated from file udp-node-msgs.proto (syntax proto2)
 /* eslint-disable */
 
-import type { GenEnum, GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
-import { enumDesc, fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
-import type { Sport } from "./profile_pb.js";
-import { file_profile } from "./profile_pb.js";
-import type { TcpConfig } from "./per-session-info_pb.js";
-import { file_per_session_info } from "./per-session-info_pb.js";
-import type { Message } from "@bufbuild/protobuf";
+import type { GenEnum, GenFile, GenMessage } from '@bufbuild/protobuf/codegenv2';
+import { enumDesc, fileDesc, messageDesc } from '@bufbuild/protobuf/codegenv2';
+import type { Sport } from './profile_pb.js';
+import { file_profile } from './profile_pb.js';
+import type { TcpConfig } from './per-session-info_pb.js';
+import { file_per_session_info } from './per-session-info_pb.js';
+import type { Message } from '@bufbuild/protobuf';
 
 /**
  * Describes the file udp-node-msgs.proto.
  */
-export const file_udp_node_msgs: GenFile = /*@__PURE__*/
-  fileDesc("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ASgREhAKCHBsc3VzX2Y0GAQgASgREhAKCHBsc3VzX2Y1GAUgASgFEhAKCHBsc3VzX2Y2GAYgASgFEhAKCHBsc3VzX2Y3GAcgASgFEigKEHBsYXllcl9zdW1tYXJpZXMYCCADKAsyDi5QbGF5ZXJTdW1tYXJ5ImsKDFJlbGF5QWRkcmVzcxIQCghsYl9yZWFsbRgBIAEoBRIRCglsYl9jb3Vyc2UYAiABKAUSCgoCaXAYAyABKAkSDAoEcG9ydBgEIAEoBRINCgVyYV9mNRgFIAEoAhINCgVyYV9mNhgGIAEoAiJgCglVZHBDb25maWcSJgoPcmVsYXlfYWRkcmVzc2VzGAEgAygLMg0uUmVsYXlBZGRyZXNzEg0KBXVjX2YyGAIgASgFEg0KBXVjX2YzGAMgASgFEg0KBXVjX2Y0GAQgASgFInAKEVJlbGF5QWRkcmVzc2VzVk9EEhAKCGxiX3JlYWxtGAEgASgFEhEKCWxiX2NvdXJzZRgCIAEoBRImCg9yZWxheV9hZGRyZXNzZXMYAyADKAsyDS5SZWxheUFkZHJlc3MSDgoGcmF2X2Y0GAQgASgIIo0BCgxVZHBDb25maWdWT0QSLwoTcmVsYXlfYWRkcmVzc2VzX3ZvZBgBIAMoCzISLlJlbGF5QWRkcmVzc2VzVk9EEgwKBHBvcnQYAiABKAUSDgoGdWN2X2YzGAMgASgDEg4KBnVjdl9mNBgEIAEoAxIOCgZ1Y3ZfZjUYBSABKAISDgoGdWN2X2Y2GAYgASgCIl4KE1BsYXllclJvdXRlRGlzdGFuY2USEQoJcGxheWVyX2lkGAEgASgFEhgKEGRpc3RhbmNlX2NvdmVyZWQYAiABKAISGgoSbWlsbGlzZWNfdG9fbGVhZGVyGAMgASgFIrgCChdFdmVudFN1Ymdyb3VwUGxhY2VtZW50cxIQCghwb3NpdGlvbhgBIAEoBRIoCgpwbGF5ZXJfcmQxGAIgAygLMhQuUGxheWVyUm91dGVEaXN0YW5jZRIoCgpwbGF5ZXJfcmQyGAMgAygLMhQuUGxheWVyUm91dGVEaXN0YW5jZRIwChJldmVudFJpZGVyUG9zaXRpb24YBCADKAsyFC5QbGF5ZXJSb3V0ZURpc3RhbmNlEigKCnBsYXllcl9yZDQYBSADKAsyFC5QbGF5ZXJSb3V0ZURpc3RhbmNlEhgKEGV2ZW50VG90YWxSaWRlcnMYBiABKAUSFQoNYmlrZU5ldHdvcmtJZBgHIAEoBRIaChJtaWxsaXNlY190b19sZWFkZXIYCCABKAUSDgoGZXNwX2Y5GAkgASgCIoAGCg5TZXJ2ZXJUb0NsaWVudBIUCgxzZXJ2ZXJfcmVhbG0YASABKAMSEQoJcGxheWVyX2lkGAIgASgDEhIKCndvcmxkX3RpbWUYAyABKAMSDQoFc2Vxbm8YBCABKAUSDgoGc3RjX2Y1GAUgASgFEhwKBnN0YXRlcxgIIAMoCzIMLlBsYXllclN0YXRlEiAKB3VwZGF0ZXMYCSADKAsyDy5Xb3JsZEF0dHJpYnV0ZRIPCgdzdGNfZjEwGAogAygDEg8KB3N0Y19mMTEYCyABKAgSEwoLemNfbG9jYWxfaXAYDCABKAkSDwoHc3RjX2YxMxgNIAEoAxIQCgh6d2lmdGVycxgOIAEoBRIVCg16Y19sb2NhbF9wb3J0GA8gASgFEiAKC3pjX3Byb3RvY29sGBAgASgOMgsuSVBQcm90b2NvbBITCgtjdHNfbGF0ZW5jeRgRIAEoAxIQCghudW1fbXNncxgSIAEoBRIOCgZtc2dudW0YEyABKAUSFgoOaGFzU2ltdWx0TG9naW4YFCABKAgSKgoQcGxheWVyX3N1bW1hcmllcxgVIAEoCzIQLlBsYXllclN1bW1hcmllcxIwCg5ldl9zdWJncm91cF9wcxgXIAEoCzIYLkV2ZW50U3ViZ3JvdXBQbGFjZW1lbnRzEh4KCnVkcF9jb25maWcYGCABKAsyCi5VZHBDb25maWcSJwoQdWRwX2NvbmZpZ192b2RfMRgZIAEoCzINLlVkcENvbmZpZ1ZPRBIlCg1leHB1bmdlUmVhc29uGBogASgOMg4uRXhwdW5nZVJlYXNvbhInChB1ZHBfY29uZmlnX3ZvZF8yGBsgASgLMg0uVWRwQ29uZmlnVk9EEiMKDXBsYXllcl9zdGF0ZXMYHCADKAsyDC5QbGF5ZXJTdGF0ZRIeCgp0Y3BfY29uZmlnGB0gASgLMgouVGNwQ29uZmlnEhMKC2Fja1N1YnNTZWdtGB4gAygDEg8KB3N0Y19mMzEYHyABKA0SDgoGemNfa2V5GCAgASgMIjgKBUdob3N0EhEKCXBsYXllcl9pZBgBIAIoBRIcCgZzdGF0ZXMYAiADKAsyDC5QbGF5ZXJTdGF0ZSJrCgZSaWRlT24SEQoJcGxheWVyX2lkGAEgAigDEhQKDHRvX3BsYXllcl9pZBgCIAIoAxIRCglmaXJzdE5hbWUYAyACKAkSEAoIbGFzdE5hbWUYBCACKAkSEwoLY291bnRyeUNvZGUYBSACKAUqIAoRWm9mZmxpbmVDb25zdGFudHMSCwoHUmVhbG1JRBABKrYDCgdXQV9UWVBFEg0KCVdBVF9MRUFWRRACEg8KC1dBVF9SRUxPR0lOEAMSDwoLV0FUX1JJREVfT04QBBILCgdXQVRfU1BBEAUSDQoJV0FUX0VWRU5UEAYSDgoKV0FUX0pPSU5fRRAHEg4KCldBVF9MRUZUX0UQCBIPCgtXQVRfUlFfUFJPRhAJEg0KCVdBVF9JTlZfVxAKEg4KCldBVF9LSUNLRUQQCxIiCh5QTEFZRVJfRklUTkVTU19NRVRSSUNTX1VQREFURUQQEhINCglXQVRfV1RJTUUQZBINCglXQVRfUlRJTUUQZRINCglXQVRfQl9BQ1QQZhINCglXQVRfR1JQX00QZxINCglXQVRfUFJJX00QaBIKCgZXQVRfU1IQaRIMCghXQVRfRkxBRxBqEgwKCFdBVF9OT05FEGsSCwoHV0FUX1JMQRBsEgoKBldBVF9HRRBtEgoKBldBVF9OTRBuEgwKCFdBVF9MQVRFEG8SCgoGV0FUX1JIEHASDQoJV0FUX1NUQVRTEHESDQoJV0FUX0ZFTkNFEHISDQoJV0FUX0JOX0dFEHMSCwoHV0FUX1BQSRB0KqwBCg5Vc2VyQmlrZUFjdGlvbhINCglVQkFfRUxCT1cQABIMCghVQkFfV0FWRRABEgoKBlVCQV8wMhACEg4KClVCQV9SSURFT04QAxIOCgpVQkFfSEFNTUVSEAQSDAoIVUJBX05JQ0UQBRIQCgxVQkFfQlJJTkdfSVQQBhINCglVQkFfVE9BU1QQBxIMCghVQkFfQkVMTBAIEhQKEFVCQV9IT0xJREFZX1dBVkUQCSq0AQoMUE9XRVJVUF9UWVBFEg0KCUxJR0hUTkVTUxAAEg4KCkRSQUZUQk9PU1QQARISCg5CT05VU19YUF9MSUdIVBACEgwKCEJPTlVTX1hQEAMSDwoLVU5EUkFGVEFCTEUQBBIICgRBRVJPEAUSCQoFTklOSkEQBhIPCgtTVEVBTVJPTExFUhAHEgkKBUFOVklMEAgSDwoLUE9XRVJVUF9DTlQQCRIQCgxQT1dFUlVQX05PTkUQDyoeCgpJUFByb3RvY29sEgcKA1VEUBABEgcKA1RDUBACKkMKDUV4cHVuZ2VSZWFzb24SEAoMTk9UX0VYUFVOR0VEEAASDgoKV09STERfRlVMTBABEhAKDFJPQURTX0NMT1NFRBAC", [file_profile, file_per_session_info]);
+export const file_udp_node_msgs: GenFile =
+  /*@__PURE__*/
+  fileDesc(
+    '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ASgREhAKCHBsc3VzX2Y0GAQgASgREhAKCHBsc3VzX2Y1GAUgASgFEhAKCHBsc3VzX2Y2GAYgASgFEhAKCHBsc3VzX2Y3GAcgASgFEigKEHBsYXllcl9zdW1tYXJpZXMYCCADKAsyDi5QbGF5ZXJTdW1tYXJ5ImsKDFJlbGF5QWRkcmVzcxIQCghsYl9yZWFsbRgBIAEoBRIRCglsYl9jb3Vyc2UYAiABKAUSCgoCaXAYAyABKAkSDAoEcG9ydBgEIAEoBRINCgVyYV9mNRgFIAEoAhINCgVyYV9mNhgGIAEoAiJgCglVZHBDb25maWcSJgoPcmVsYXlfYWRkcmVzc2VzGAEgAygLMg0uUmVsYXlBZGRyZXNzEg0KBXVjX2YyGAIgASgFEg0KBXVjX2YzGAMgASgFEg0KBXVjX2Y0GAQgASgFInAKEVJlbGF5QWRkcmVzc2VzVk9EEhAKCGxiX3JlYWxtGAEgASgFEhEKCWxiX2NvdXJzZRgCIAEoBRImCg9yZWxheV9hZGRyZXNzZXMYAyADKAsyDS5SZWxheUFkZHJlc3MSDgoGcmF2X2Y0GAQgASgIIo0BCgxVZHBDb25maWdWT0QSLwoTcmVsYXlfYWRkcmVzc2VzX3ZvZBgBIAMoCzISLlJlbGF5QWRkcmVzc2VzVk9EEgwKBHBvcnQYAiABKAUSDgoGdWN2X2YzGAMgASgDEg4KBnVjdl9mNBgEIAEoAxIOCgZ1Y3ZfZjUYBSABKAISDgoGdWN2X2Y2GAYgASgCIl4KE1BsYXllclJvdXRlRGlzdGFuY2USEQoJcGxheWVyX2lkGAEgASgFEhgKEGRpc3RhbmNlX2NvdmVyZWQYAiABKAISGgoSbWlsbGlzZWNfdG9fbGVhZGVyGAMgASgFIrgCChdFdmVudFN1Ymdyb3VwUGxhY2VtZW50cxIQCghwb3NpdGlvbhgBIAEoBRIoCgpwbGF5ZXJfcmQxGAIgAygLMhQuUGxheWVyUm91dGVEaXN0YW5jZRIoCgpwbGF5ZXJfcmQyGAMgAygLMhQuUGxheWVyUm91dGVEaXN0YW5jZRIwChJldmVudFJpZGVyUG9zaXRpb24YBCADKAsyFC5QbGF5ZXJSb3V0ZURpc3RhbmNlEigKCnBsYXllcl9yZDQYBSADKAsyFC5QbGF5ZXJSb3V0ZURpc3RhbmNlEhgKEGV2ZW50VG90YWxSaWRlcnMYBiABKAUSFQoNYmlrZU5ldHdvcmtJZBgHIAEoBRIaChJtaWxsaXNlY190b19sZWFkZXIYCCABKAUSDgoGZXNwX2Y5GAkgASgCIoAGCg5TZXJ2ZXJUb0NsaWVudBIUCgxzZXJ2ZXJfcmVhbG0YASABKAMSEQoJcGxheWVyX2lkGAIgASgDEhIKCndvcmxkX3RpbWUYAyABKAMSDQoFc2Vxbm8YBCABKAUSDgoGc3RjX2Y1GAUgASgFEhwKBnN0YXRlcxgIIAMoCzIMLlBsYXllclN0YXRlEiAKB3VwZGF0ZXMYCSADKAsyDy5Xb3JsZEF0dHJpYnV0ZRIPCgdzdGNfZjEwGAogAygDEg8KB3N0Y19mMTEYCyABKAgSEwoLemNfbG9jYWxfaXAYDCABKAkSDwoHc3RjX2YxMxgNIAEoAxIQCgh6d2lmdGVycxgOIAEoBRIVCg16Y19sb2NhbF9wb3J0GA8gASgFEiAKC3pjX3Byb3RvY29sGBAgASgOMgsuSVBQcm90b2NvbBITCgtjdHNfbGF0ZW5jeRgRIAEoAxIQCghudW1fbXNncxgSIAEoBRIOCgZtc2dudW0YEyABKAUSFgoOaGFzU2ltdWx0TG9naW4YFCABKAgSKgoQcGxheWVyX3N1bW1hcmllcxgVIAEoCzIQLlBsYXllclN1bW1hcmllcxIwCg5ldl9zdWJncm91cF9wcxgXIAEoCzIYLkV2ZW50U3ViZ3JvdXBQbGFjZW1lbnRzEh4KCnVkcF9jb25maWcYGCABKAsyCi5VZHBDb25maWcSJwoQdWRwX2NvbmZpZ192b2RfMRgZIAEoCzINLlVkcENvbmZpZ1ZPRBIlCg1leHB1bmdlUmVhc29uGBogASgOMg4uRXhwdW5nZVJlYXNvbhInChB1ZHBfY29uZmlnX3ZvZF8yGBsgASgLMg0uVWRwQ29uZmlnVk9EEiMKDXBsYXllcl9zdGF0ZXMYHCADKAsyDC5QbGF5ZXJTdGF0ZRIeCgp0Y3BfY29uZmlnGB0gASgLMgouVGNwQ29uZmlnEhMKC2Fja1N1YnNTZWdtGB4gAygDEg8KB3N0Y19mMzEYHyABKA0SDgoGemNfa2V5GCAgASgMIjgKBUdob3N0EhEKCXBsYXllcl9pZBgBIAIoBRIcCgZzdGF0ZXMYAiADKAsyDC5QbGF5ZXJTdGF0ZSJrCgZSaWRlT24SEQoJcGxheWVyX2lkGAEgAigDEhQKDHRvX3BsYXllcl9pZBgCIAIoAxIRCglmaXJzdE5hbWUYAyACKAkSEAoIbGFzdE5hbWUYBCACKAkSEwoLY291bnRyeUNvZGUYBSACKAUqIAoRWm9mZmxpbmVDb25zdGFudHMSCwoHUmVhbG1JRBABKrYDCgdXQV9UWVBFEg0KCVdBVF9MRUFWRRACEg8KC1dBVF9SRUxPR0lOEAMSDwoLV0FUX1JJREVfT04QBBILCgdXQVRfU1BBEAUSDQoJV0FUX0VWRU5UEAYSDgoKV0FUX0pPSU5fRRAHEg4KCldBVF9MRUZUX0UQCBIPCgtXQVRfUlFfUFJPRhAJEg0KCVdBVF9JTlZfVxAKEg4KCldBVF9LSUNLRUQQCxIiCh5QTEFZRVJfRklUTkVTU19NRVRSSUNTX1VQREFURUQQEhINCglXQVRfV1RJTUUQZBINCglXQVRfUlRJTUUQZRINCglXQVRfQl9BQ1QQZhINCglXQVRfR1JQX00QZxINCglXQVRfUFJJX00QaBIKCgZXQVRfU1IQaRIMCghXQVRfRkxBRxBqEgwKCFdBVF9OT05FEGsSCwoHV0FUX1JMQRBsEgoKBldBVF9HRRBtEgoKBldBVF9OTRBuEgwKCFdBVF9MQVRFEG8SCgoGV0FUX1JIEHASDQoJV0FUX1NUQVRTEHESDQoJV0FUX0ZFTkNFEHISDQoJV0FUX0JOX0dFEHMSCwoHV0FUX1BQSRB0KqwBCg5Vc2VyQmlrZUFjdGlvbhINCglVQkFfRUxCT1cQABIMCghVQkFfV0FWRRABEgoKBlVCQV8wMhACEg4KClVCQV9SSURFT04QAxIOCgpVQkFfSEFNTUVSEAQSDAoIVUJBX05JQ0UQBRIQCgxVQkFfQlJJTkdfSVQQBhINCglVQkFfVE9BU1QQBxIMCghVQkFfQkVMTBAIEhQKEFVCQV9IT0xJREFZX1dBVkUQCSq0AQoMUE9XRVJVUF9UWVBFEg0KCUxJR0hUTkVTUxAAEg4KCkRSQUZUQk9PU1QQARISCg5CT05VU19YUF9MSUdIVBACEgwKCEJPTlVTX1hQEAMSDwoLVU5EUkFGVEFCTEUQBBIICgRBRVJPEAUSCQoFTklOSkEQBhIPCgtTVEVBTVJPTExFUhAHEgkKBUFOVklMEAgSDwoLUE9XRVJVUF9DTlQQCRIQCgxQT1dFUlVQX05PTkUQDyoeCgpJUFByb3RvY29sEgcKA1VEUBABEgcKA1RDUBACKkMKDUV4cHVuZ2VSZWFzb24SEAoMTk9UX0VYUFVOR0VEEAASDgoKV09STERfRlVMTBABEhAKDFJPQURTX0NMT1NFRBAC',
+    [file_profile, file_per_session_info],
+  );
 
 /**
  * @generated from message WorldAttribute
  */
-export type WorldAttribute = Message<"WorldAttribute"> & {
+export type WorldAttribute = Message<'WorldAttribute'> & {
   /**
    * not r/w by game? 587645624533328784, later 5876456 85771834256
    *
@@ -129,13 +133,12 @@ export type WorldAttribute = Message<"WorldAttribute"> & {
  * Describes the message WorldAttribute.
  * Use `create(WorldAttributeSchema)` to create a new message.
  */
-export const WorldAttributeSchema: GenMessage<WorldAttribute> = /*@__PURE__*/
-  messageDesc(file_udp_node_msgs, 0);
+export const WorldAttributeSchema: GenMessage<WorldAttribute> = /*@__PURE__*/ messageDesc(file_udp_node_msgs, 0);
 
 /**
  * @generated from message PlayerLeftWorld
  */
-export type PlayerLeftWorld = Message<"PlayerLeftWorld"> & {
+export type PlayerLeftWorld = Message<'PlayerLeftWorld'> & {
   /**
    * @generated from field: required int64 player_id = 1;
    */
@@ -174,13 +177,12 @@ export type PlayerLeftWorld = Message<"PlayerLeftWorld"> & {
  * Describes the message PlayerLeftWorld.
  * Use `create(PlayerLeftWorldSchema)` to create a new message.
  */
-export const PlayerLeftWorldSchema: GenMessage<PlayerLeftWorld> = /*@__PURE__*/
-  messageDesc(file_udp_node_msgs, 1);
+export const PlayerLeftWorldSchema: GenMessage<PlayerLeftWorld> = /*@__PURE__*/ messageDesc(file_udp_node_msgs, 1);
 
 /**
  * @generated from message PlayerState
  */
-export type PlayerState = Message<"PlayerState"> & {
+export type PlayerState = Message<'PlayerState'> & {
   /**
    * @generated from field: optional int64 id = 1;
    */
@@ -469,13 +471,12 @@ export type PlayerState = Message<"PlayerState"> & {
  * Describes the message PlayerState.
  * Use `create(PlayerStateSchema)` to create a new message.
  */
-export const PlayerStateSchema: GenMessage<PlayerState> = /*@__PURE__*/
-  messageDesc(file_udp_node_msgs, 2);
+export const PlayerStateSchema: GenMessage<PlayerState> = /*@__PURE__*/ messageDesc(file_udp_node_msgs, 2);
 
 /**
  * @generated from message ClientToServer
  */
-export type ClientToServer = Message<"ClientToServer"> & {
+export type ClientToServer = Message<'ClientToServer'> & {
   /**
    * UdpClient::sendDisconnectedClientToServer: -1. Otherwise g_CurrentServerRealmID (RealmID or 0 if not connected yet)
    *
@@ -569,13 +570,12 @@ export type ClientToServer = Message<"ClientToServer"> & {
  * Describes the message ClientToServer.
  * Use `create(ClientToServerSchema)` to create a new message.
  */
-export const ClientToServerSchema: GenMessage<ClientToServer> = /*@__PURE__*/
-  messageDesc(file_udp_node_msgs, 3);
+export const ClientToServerSchema: GenMessage<ClientToServer> = /*@__PURE__*/ messageDesc(file_udp_node_msgs, 3);
 
 /**
  * @generated from message PlayerSummary
  */
-export type PlayerSummary = Message<"PlayerSummary"> & {
+export type PlayerSummary = Message<'PlayerSummary'> & {
   /**
    * @generated from field: optional int32 plsu_f1 = 1;
    */
@@ -601,13 +601,12 @@ export type PlayerSummary = Message<"PlayerSummary"> & {
  * Describes the message PlayerSummary.
  * Use `create(PlayerSummarySchema)` to create a new message.
  */
-export const PlayerSummarySchema: GenMessage<PlayerSummary> = /*@__PURE__*/
-  messageDesc(file_udp_node_msgs, 4);
+export const PlayerSummarySchema: GenMessage<PlayerSummary> = /*@__PURE__*/ messageDesc(file_udp_node_msgs, 4);
 
 /**
  * @generated from message PlayerSummaries
  */
-export type PlayerSummaries = Message<"PlayerSummaries"> & {
+export type PlayerSummaries = Message<'PlayerSummaries'> & {
   /**
    * stored as int32
    *
@@ -657,13 +656,12 @@ export type PlayerSummaries = Message<"PlayerSummaries"> & {
  * Describes the message PlayerSummaries.
  * Use `create(PlayerSummariesSchema)` to create a new message.
  */
-export const PlayerSummariesSchema: GenMessage<PlayerSummaries> = /*@__PURE__*/
-  messageDesc(file_udp_node_msgs, 5);
+export const PlayerSummariesSchema: GenMessage<PlayerSummaries> = /*@__PURE__*/ messageDesc(file_udp_node_msgs, 5);
 
 /**
  * @generated from message RelayAddress
  */
-export type RelayAddress = Message<"RelayAddress"> & {
+export type RelayAddress = Message<'RelayAddress'> & {
   /**
    * load balancing cluster: server realm or 0 (generic)
    *
@@ -707,13 +705,12 @@ export type RelayAddress = Message<"RelayAddress"> & {
  * Describes the message RelayAddress.
  * Use `create(RelayAddressSchema)` to create a new message.
  */
-export const RelayAddressSchema: GenMessage<RelayAddress> = /*@__PURE__*/
-  messageDesc(file_udp_node_msgs, 6);
+export const RelayAddressSchema: GenMessage<RelayAddress> = /*@__PURE__*/ messageDesc(file_udp_node_msgs, 6);
 
 /**
  * @generated from message UdpConfig
  */
-export type UdpConfig = Message<"UdpConfig"> & {
+export type UdpConfig = Message<'UdpConfig'> & {
   /**
    * @generated from field: repeated RelayAddress relay_addresses = 1;
    */
@@ -745,13 +742,12 @@ export type UdpConfig = Message<"UdpConfig"> & {
  * Describes the message UdpConfig.
  * Use `create(UdpConfigSchema)` to create a new message.
  */
-export const UdpConfigSchema: GenMessage<UdpConfig> = /*@__PURE__*/
-  messageDesc(file_udp_node_msgs, 7);
+export const UdpConfigSchema: GenMessage<UdpConfig> = /*@__PURE__*/ messageDesc(file_udp_node_msgs, 7);
 
 /**
  * @generated from message RelayAddressesVOD
  */
-export type RelayAddressesVOD = Message<"RelayAddressesVOD"> & {
+export type RelayAddressesVOD = Message<'RelayAddressesVOD'> & {
   /**
    * load balancing cluster: server realm or 0 (generic)
    *
@@ -783,13 +779,12 @@ export type RelayAddressesVOD = Message<"RelayAddressesVOD"> & {
  * Describes the message RelayAddressesVOD.
  * Use `create(RelayAddressesVODSchema)` to create a new message.
  */
-export const RelayAddressesVODSchema: GenMessage<RelayAddressesVOD> = /*@__PURE__*/
-  messageDesc(file_udp_node_msgs, 8);
+export const RelayAddressesVODSchema: GenMessage<RelayAddressesVOD> = /*@__PURE__*/ messageDesc(file_udp_node_msgs, 8);
 
 /**
  * @generated from message UdpConfigVOD
  */
-export type UdpConfigVOD = Message<"UdpConfigVOD"> & {
+export type UdpConfigVOD = Message<'UdpConfigVOD'> & {
   /**
    * @generated from field: repeated RelayAddressesVOD relay_addresses_vod = 1;
    */
@@ -825,13 +820,12 @@ export type UdpConfigVOD = Message<"UdpConfigVOD"> & {
  * Describes the message UdpConfigVOD.
  * Use `create(UdpConfigVODSchema)` to create a new message.
  */
-export const UdpConfigVODSchema: GenMessage<UdpConfigVOD> = /*@__PURE__*/
-  messageDesc(file_udp_node_msgs, 9);
+export const UdpConfigVODSchema: GenMessage<UdpConfigVOD> = /*@__PURE__*/ messageDesc(file_udp_node_msgs, 9);
 
 /**
  * @generated from message PlayerRouteDistance
  */
-export type PlayerRouteDistance = Message<"PlayerRouteDistance"> & {
+export type PlayerRouteDistance = Message<'PlayerRouteDistance'> & {
   /**
    * BikeManager::FindBikeWithNetworkID
    *
@@ -858,13 +852,14 @@ export type PlayerRouteDistance = Message<"PlayerRouteDistance"> & {
  * Describes the message PlayerRouteDistance.
  * Use `create(PlayerRouteDistanceSchema)` to create a new message.
  */
-export const PlayerRouteDistanceSchema: GenMessage<PlayerRouteDistance> = /*@__PURE__*/
+export const PlayerRouteDistanceSchema: GenMessage<PlayerRouteDistance> =
+  /*@__PURE__*/
   messageDesc(file_udp_node_msgs, 10);
 
 /**
  * @generated from message EventSubgroupPlacements
  */
-export type EventSubgroupPlacements = Message<"EventSubgroupPlacements"> & {
+export type EventSubgroupPlacements = Message<'EventSubgroupPlacements'> & {
   /**
    * UdpStatistics::registerFanViewLatestPlayerStateInfo
    *
@@ -921,13 +916,14 @@ export type EventSubgroupPlacements = Message<"EventSubgroupPlacements"> & {
  * Describes the message EventSubgroupPlacements.
  * Use `create(EventSubgroupPlacementsSchema)` to create a new message.
  */
-export const EventSubgroupPlacementsSchema: GenMessage<EventSubgroupPlacements> = /*@__PURE__*/
+export const EventSubgroupPlacementsSchema: GenMessage<EventSubgroupPlacements> =
+  /*@__PURE__*/
   messageDesc(file_udp_node_msgs, 11);
 
 /**
  * @generated from message ServerToClient
  */
-export type ServerToClient = Message<"ServerToClient"> & {
+export type ServerToClient = Message<'ServerToClient'> & {
   /**
    * @generated from field: optional int64 server_realm = 1;
    */
@@ -1112,15 +1108,14 @@ export type ServerToClient = Message<"ServerToClient"> & {
  * Describes the message ServerToClient.
  * Use `create(ServerToClientSchema)` to create a new message.
  */
-export const ServerToClientSchema: GenMessage<ServerToClient> = /*@__PURE__*/
-  messageDesc(file_udp_node_msgs, 12);
+export const ServerToClientSchema: GenMessage<ServerToClient> = /*@__PURE__*/ messageDesc(file_udp_node_msgs, 12);
 
 /**
  * not from the Zwift game, zoffline-specific!
  *
  * @generated from message Ghost
  */
-export type Ghost = Message<"Ghost"> & {
+export type Ghost = Message<'Ghost'> & {
   /**
    * @generated from field: required int32 player_id = 1;
    */
@@ -1136,13 +1131,12 @@ export type Ghost = Message<"Ghost"> & {
  * Describes the message Ghost.
  * Use `create(GhostSchema)` to create a new message.
  */
-export const GhostSchema: GenMessage<Ghost> = /*@__PURE__*/
-  messageDesc(file_udp_node_msgs, 13);
+export const GhostSchema: GenMessage<Ghost> = /*@__PURE__*/ messageDesc(file_udp_node_msgs, 13);
 
 /**
  * @generated from message RideOn
  */
-export type RideOn = Message<"RideOn"> & {
+export type RideOn = Message<'RideOn'> & {
   /**
    * @generated from field: required int64 player_id = 1;
    */
@@ -1173,8 +1167,7 @@ export type RideOn = Message<"RideOn"> & {
  * Describes the message RideOn.
  * Use `create(RideOnSchema)` to create a new message.
  */
-export const RideOnSchema: GenMessage<RideOn> = /*@__PURE__*/
-  messageDesc(file_udp_node_msgs, 14);
+export const RideOnSchema: GenMessage<RideOn> = /*@__PURE__*/ messageDesc(file_udp_node_msgs, 14);
 
 /**
  * @generated from enum ZofflineConstants
@@ -1191,8 +1184,7 @@ export enum ZofflineConstants {
 /**
  * Describes the enum ZofflineConstants.
  */
-export const ZofflineConstantsSchema: GenEnum<ZofflineConstants> = /*@__PURE__*/
-  enumDesc(file_udp_node_msgs, 0);
+export const ZofflineConstantsSchema: GenEnum<ZofflineConstants> = /*@__PURE__*/ enumDesc(file_udp_node_msgs, 0);
 
 /**
  * @generated from enum WA_TYPE
@@ -1398,8 +1390,7 @@ export enum WA_TYPE {
 /**
  * Describes the enum WA_TYPE.
  */
-export const WA_TYPESchema: GenEnum<WA_TYPE> = /*@__PURE__*/
-  enumDesc(file_udp_node_msgs, 1);
+export const WA_TYPESchema: GenEnum<WA_TYPE> = /*@__PURE__*/ enumDesc(file_udp_node_msgs, 1);
 
 /**
  * @generated from enum UserBikeAction
@@ -1463,8 +1454,7 @@ export enum UserBikeAction {
 /**
  * Describes the enum UserBikeAction.
  */
-export const UserBikeActionSchema: GenEnum<UserBikeAction> = /*@__PURE__*/
-  enumDesc(file_udp_node_msgs, 2);
+export const UserBikeActionSchema: GenEnum<UserBikeAction> = /*@__PURE__*/ enumDesc(file_udp_node_msgs, 2);
 
 /**
  * message WorldAttributes {
@@ -1550,8 +1540,7 @@ export enum POWERUP_TYPE {
 /**
  * Describes the enum POWERUP_TYPE.
  */
-export const POWERUP_TYPESchema: GenEnum<POWERUP_TYPE> = /*@__PURE__*/
-  enumDesc(file_udp_node_msgs, 3);
+export const POWERUP_TYPESchema: GenEnum<POWERUP_TYPE> = /*@__PURE__*/ enumDesc(file_udp_node_msgs, 3);
 
 /**
  * @generated from enum IPProtocol
@@ -1571,8 +1560,7 @@ export enum IPProtocol {
 /**
  * Describes the enum IPProtocol.
  */
-export const IPProtocolSchema: GenEnum<IPProtocol> = /*@__PURE__*/
-  enumDesc(file_udp_node_msgs, 4);
+export const IPProtocolSchema: GenEnum<IPProtocol> = /*@__PURE__*/ enumDesc(file_udp_node_msgs, 4);
 
 /**
  * @generated from enum ExpungeReason
@@ -1597,5 +1585,4 @@ export enum ExpungeReason {
 /**
  * Describes the enum ExpungeReason.
  */
-export const ExpungeReasonSchema: GenEnum<ExpungeReason> = /*@__PURE__*/
-  enumDesc(file_udp_node_msgs, 5);
+export const ExpungeReasonSchema: GenEnum<ExpungeReason> = /*@__PURE__*/ enumDesc(file_udp_node_msgs, 5);

@@ -1,3 +1,4 @@
+import { JobsService } from '#src/services/jobs.service';
 import { ConnectionsService } from '#src/services/connections.service';
 import { DocumentsService } from '#src/services/documents.service';
 import { ActivitySchema } from '#src/protocol/generated/activity_pb';
@@ -56,9 +57,9 @@ for (const [outcome, response, state] of [
     f.effects.runSync(DocumentsService.use((service) => service.put(f.rider.player_id, 'runalyze_token.txt', 'token')));
     await completed(f);
     const sends = t.mock.method(globalThis, 'fetch', response);
-    await f.services.jobs.drain();
+    await f.effects.runPromise(JobsService.use((service) => service.drain()));
     assert.equal(f.services.uploads.status(f.rider.player_id)[0]?.state, state);
-    await f.services.jobs.drain();
+    await f.effects.runPromise(JobsService.use((service) => service.drain()));
     assert.equal(sends.mock.callCount(), 1);
   });
 
@@ -71,7 +72,7 @@ await test('a stop during each delivery state never sends a delivery twice', asy
   // Stopped while sending: the restart records an unknown result and does not send.
   f.accounts.db.prepare("UPDATE activity_upload SET state='sending', attempt='lost' WHERE activity_id=?").run(id);
   f.services.uploads.start();
-  await f.services.jobs.drain();
+  await f.effects.runPromise(JobsService.use((service) => service.drain()));
   assert.equal(f.services.uploads.status(f.rider.player_id)[0]?.state, 'ambiguous');
   assert.equal(sends.mock.callCount(), 0);
 
@@ -79,7 +80,7 @@ await test('a stop during each delivery state never sends a delivery twice', asy
   f.accounts.db.prepare("UPDATE activity_upload SET state='pending' WHERE activity_id=?").run(id);
   f.accounts.repositories.jobsRepository.enqueue('delivery', { activityId: id, provider: 'runalyze' });
   f.services.uploads.start();
-  await f.services.jobs.drain();
+  await f.effects.runPromise(JobsService.use((service) => service.drain()));
   assert.equal(sends.mock.callCount(), 1);
 
   // Stopped after a result: neither sent nor failed deliveries run again.
@@ -87,7 +88,7 @@ await test('a stop during each delivery state never sends a delivery twice', asy
     f.accounts.db.prepare('UPDATE activity_upload SET state=? WHERE activity_id=?').run(final, id);
     f.accounts.repositories.jobsRepository.enqueue('delivery', { activityId: id, provider: 'runalyze' });
     f.services.uploads.start();
-    await f.services.jobs.drain();
+    await f.effects.runPromise(JobsService.use((service) => service.drain()));
   }
 
   assert.equal(sends.mock.callCount(), 1);
@@ -160,7 +161,7 @@ await test('a partial Zwift delivery keeps its remote activity and a retry uploa
     return Promise.resolve(new Response(null, { status: ++uploads === 1 ? 503 : 200 }));
   });
 
-  await f.services.jobs.drain();
+  await f.effects.runPromise(JobsService.use((service) => service.drain()));
   const record = f.accounts.db.prepare('SELECT state, remote_id, step FROM activity_upload').get();
   assert.deepEqual({ ...record }, { state: 'ambiguous', remote_id: '77', step: 'created' });
 
@@ -184,7 +185,7 @@ await test('deleting every FIT export breaks neither details, charts nor deliver
   });
   const id = await completed(f);
   const folder = resolve(f.profiles.folder(f.rider.player_id), 'fit');
-  await f.services.jobs.drain();
+  await f.effects.runPromise(JobsService.use((service) => service.drain()));
   assert.deepEqual(readdirSync(folder), [`${id} - ride.fit`]);
   rmSync(folder, { recursive: true });
   rmSync(resolve(f.config.storageDir, 'activities'), { recursive: true });
@@ -196,7 +197,7 @@ await test('deleting every FIT export breaks neither details, charts nor deliver
 
   const details = await f.request(`/api/activities/${id}`);
   assert.equal(details.status, 200);
-  await f.services.jobs.drain();
+  await f.effects.runPromise(JobsService.use((service) => service.drain()));
 
   const detail = await f.request(`/api/activities/${id}`);
 
@@ -208,7 +209,7 @@ await test('deleting every FIT export breaks neither details, charts nor deliver
   assert.equal(chart.status, 200);
 
   f.accounts.repositories.jobsRepository.enqueue('fit_export', { activityId: id });
-  await f.services.jobs.drain();
+  await f.effects.runPromise(JobsService.use((service) => service.drain()));
   assert.deepEqual(readFileSync(resolve(folder, `${id} - ride.fit`)), fit);
 });
 

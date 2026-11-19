@@ -1,3 +1,4 @@
+import { DurabilityService } from '#src/services/durability.service';
 import { FilesService } from '#src/services/files.service';
 import { effectRoutes } from '#src/http/effect';
 import { RecordsService } from '#src/services/records.service';
@@ -35,7 +36,8 @@ function sameOrigin(origin: string | undefined, url: string, publicUrl: string |
 export function createWebApp(runtime: HttpRuntime) {
   const app = new Hono<WebEnv>();
   const appRoutes = effectRoutes(app, runtime);
-  const { management, accounts, durability, activities } = runtime.services;
+  const { management, accounts, activities } = runtime.services;
+  const durability = runtime.effects.runSync(DurabilityService);
   const { sessions } = management;
   const attempts = new Map<string, { count: number; until: number }>();
   const cookie = 'zluggish_web_session';
@@ -74,10 +76,10 @@ export function createWebApp(runtime: HttpRuntime) {
       'Content-Security-Policy',
       "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'",
     );
-    const before = durability.changes();
+    const before = runtime.effects.runSync(durability.changes());
     await next();
 
-    if (durability.changes() !== before) await durability.flush();
+    if (runtime.effects.runSync(durability.changes()) !== before) await runtime.effects.runPromise(durability.flush());
   });
   app.get('/health', (c) => c.json({ name: 'zluggish', version: packageVersion(), status: 'ok' }));
 
@@ -435,13 +437,19 @@ export function createWebApp(runtime: HttpRuntime) {
   for (const action of ['reload-bots', 'bots'])
     app.post(`/api/manage/server/${action}`, async (c) =>
       c.json(
-        await management.serverOperation(c.get('sessionId'), action, await c.req.json(), () => durability.flush(), {
-          reload: async () => {
-            await runtime.world.simulation?.reload();
+        await management.serverOperation(
+          c.get('sessionId'),
+          action,
+          await c.req.json(),
+          () => runtime.effects.runPromise(durability.flush()),
+          {
+            reload: async () => {
+              await runtime.world.simulation?.reload();
+            },
+            bots: (user, command) =>
+              runtime.world.simulation?.command(BigInt(user), command, true) ?? 'Bots are not running.',
           },
-          bots: (user, command) =>
-            runtime.world.simulation?.command(BigInt(user), command, true) ?? 'Bots are not running.',
-        }),
+        ),
       ),
     );
 

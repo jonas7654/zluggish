@@ -1,3 +1,4 @@
+import { JobsService } from '#src/services/jobs.service';
 import { DocumentsService } from '#src/services/documents.service';
 import { validateConfig } from '#src/config/index';
 import { decodePacket, encodePacket, FrameDecoder } from '#src/node/network/packet';
@@ -400,7 +401,7 @@ await test('activity create, save and restart preserve ownership, FIT bytes and 
     'fitnessData' in Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))(await pending.json()),
     false,
   );
-  await f.services.jobs.drain();
+  await f.effects.runPromise(JobsService.use((service) => service.drain()));
   assert.deepEqual(
     readFileSync(resolve(f.profiles.folder(user.player_id), 'fit', `${id} - synthetic.fit`)),
     Buffer.from(activity.fit),

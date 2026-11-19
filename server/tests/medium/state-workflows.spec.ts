@@ -1,3 +1,5 @@
+import { JobsService } from '#src/services/jobs.service';
+import { Effect } from 'effect';
 import { ConnectionsService } from '#src/services/connections.service';
 import { IntegrationsService } from '#src/services/integrations.service';
 import { DocumentsService } from '#src/services/documents.service';
@@ -74,27 +76,30 @@ await test('delivery records send once, retry failures manually and never recrea
 
 await test('the job runner finishes admitted work at close and admits nothing after', async (t) => {
   const f = await mediumFixture(t);
-  const jobs = f.services.jobs;
+  const jobs = f.effects.runSync(JobsService);
   const gate = Promise.withResolvers<void>();
   let runs = 0;
-  jobs.register('retention', {
-    concurrency: 1,
-    attempts: 1,
-    timeoutMs: 60_000,
-    run: async () => {
-      runs++;
-      await gate.promise;
-    },
-  });
-  jobs.enqueue('retention', {});
-  jobs.start();
+  f.effects.runSync(
+    jobs.register('retention', {
+      concurrency: 1,
+      attempts: 1,
+      timeoutMs: 60_000,
+      run: () =>
+        Effect.promise(async () => {
+          runs++;
+          await gate.promise;
+        }),
+    }),
+  );
+  f.effects.runSync(jobs.enqueue('retention', {}));
+  f.effects.runSync(jobs.start());
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(runs, 1);
-  const closing = jobs.close();
-  jobs.enqueue('retention', {});
+  const closing = f.effects.runPromise(jobs.close());
+  f.effects.runSync(jobs.enqueue('retention', {}));
   gate.resolve();
   await closing;
-  jobs.start();
+  f.effects.runSync(jobs.start());
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(runs, 1);
   assert.deepEqual(
@@ -365,11 +370,9 @@ await test('partially opened runtimes release storage ownership and close is ide
 await test('runtime cleanup releases the storage lock even when an earlier service close fails', async (t) => {
   const f = await mediumFixture(t);
   const owner = await openRuntime(f.config, f.assets);
-  const close = owner.runtime.services.jobs.close.bind(owner.runtime.services.jobs);
-  t.mock.method(owner.runtime.services.jobs, 'close', async () => {
-    await close();
-    throw new Error('close failed');
-  });
+  const jobs = owner.runtime.effects.runSync(JobsService);
+  const close = jobs.close;
+  t.mock.method(jobs, 'close', () => close().pipe(Effect.andThen(Effect.die(new Error('close failed')))));
   await assert.rejects(owner.close(), AggregateError);
   const reopened = await openRuntime(f.config, f.assets);
   await reopened.close();

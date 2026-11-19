@@ -1,3 +1,4 @@
+import { DurabilityService } from '#src/services/durability.service';
 import { FilesService } from '#src/services/files.service';
 import { ProfilesService } from '#src/services/profile.service';
 import { packageVersion } from '#src/config/load';
@@ -69,12 +70,13 @@ export function createGameApp(metadata: PublicMetadata, runtime?: Runtime) {
 
   if (runtime)
     app.use('*', async (_c, next) => {
-      const durability = runtime.services.durability;
-      const before = durability.changes();
+      const durability = runtime.effects.runSync(DurabilityService);
+      const before = runtime.effects.runSync(durability.changes());
       await next();
 
       // A save is acknowledged by its response: the WAL is flushed before it leaves.
-      if (durability.changes() !== before) await durability.flush();
+      if (runtime.effects.runSync(durability.changes()) !== before)
+        await runtime.effects.runPromise(durability.flush());
     });
 
   if (runtime) {

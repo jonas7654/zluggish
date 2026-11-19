@@ -1,3 +1,6 @@
+import { RetentionService } from '#src/services/retention.service';
+import { JobsService } from '#src/services/jobs.service';
+import { DurabilityService } from '#src/services/durability.service';
 import { MetricsService } from '#src/services/metrics.service';
 import { Resources } from '#src/node/lifecycle/resources';
 import { createServices } from '#src/composition';
@@ -54,16 +57,16 @@ export async function openRuntime(config: ResolvedConfig, assets: string) {
     resources.defer(() => effects.dispose());
     const runtime: Runtime = Object.assign(context, { services: createServices(context), effects });
 
-    new ImportsService(accounts, world).recover();
+    effects.runSync(ImportsService.use((imports) => imports.recover()));
     const simulation = new Simulation(runtime);
     const checkpoints = new CheckpointRepository(accounts.db, resolve(config.storageDir, 'zluggish.db'));
     resources.defer(() => checkpoints.close());
     // Stops after the job runner and the simulation: the last flush covers their commits.
-    resources.defer(() => runtime.services.durability.close());
+    resources.defer(() => runtime.effects.runPromise(DurabilityService.use((service) => service.close())));
     resources.defer(async () => {
       await Promise.all((runtime.bridges ?? []).map((bridge) => bridge.close()));
     });
-    resources.defer(() => runtime.services.jobs.close());
+    resources.defer(() => runtime.effects.runPromise(JobsService.use((service) => service.close())));
     resources.defer(() => simulation.close());
     resources.defer(() => runtime.services.recovery.close());
     resources.defer(() => world.lifecycle.close());
@@ -75,11 +78,11 @@ export async function openRuntime(config: ResolvedConfig, assets: string) {
     const completionTimer = setInterval(() => runtime.services.rideCompletion.sweep(), 1000);
     completionTimer.unref();
     resources.defer(() => clearInterval(completionTimer));
-    runtime.services.durability.start();
+    runtime.effects.runSync(DurabilityService.use((service) => service.start()));
     runtime.services.recovery.start();
     runtime.services.uploads.start();
-    runtime.services.retention.schedule();
-    runtime.services.jobs.start();
+    runtime.effects.runSync(RetentionService.use((service) => service.schedule()));
+    runtime.effects.runSync(JobsService.use((service) => service.start()));
     checkpoints.start();
 
     const bridges: NonNullable<Runtime['bridges']> = [];

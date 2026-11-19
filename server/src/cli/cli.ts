@@ -20,7 +20,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { PositiveIntFromString } from '#src/schema';
-import { Schema } from 'effect';
+import { Schema, Effect } from 'effect';
 
 const decodeId = Schema.decodeUnknownSync(PositiveIntFromString);
 
@@ -377,15 +377,15 @@ async function storageCommand(
     const accounts = new AccountsService(storage);
 
     try {
-      const service = new RetentionService(accounts.repositories, retention, storage);
+      const service = RetentionService.forScope({ repositories: accounts.repositories, retention, storage });
 
       if (action === 'usage') {
-        output(JSON.stringify(await service.usage(), null, 2));
+        output(JSON.stringify(await Effect.runPromise(service.usage()), null, 2));
 
         return 0;
       }
 
-      const plan = await service.plan();
+      const plan = await Effect.runPromise(service.plan());
       const bytes = plan.files.reduce((total, file) => total + file.bytes, 0);
 
       for (const file of plan.files) output(`${file.reason}: ${file.path} (${file.bytes} bytes)`);
@@ -394,7 +394,7 @@ async function storageCommand(
       );
 
       if (values['dry-run']) return 0;
-      await service.apply(plan);
+      await Effect.runPromise(service.apply(plan));
       output('Cleanup complete');
 
       return 0;

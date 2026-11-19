@@ -2,22 +2,26 @@
 // @generated from file world.proto (syntax proto2)
 /* eslint-disable */
 
-import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
-import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
-import type { PlayerType, Sport } from "./profile_pb.js";
-import { file_profile } from "./profile_pb.js";
-import type { Message } from "@bufbuild/protobuf";
+import type { GenFile, GenMessage } from '@bufbuild/protobuf/codegenv2';
+import { fileDesc, messageDesc } from '@bufbuild/protobuf/codegenv2';
+import type { PlayerType, Sport } from './profile_pb.js';
+import { file_profile } from './profile_pb.js';
+import type { Message } from '@bufbuild/protobuf';
 
 /**
  * Describes the file world.proto.
  */
-export const file_world: GenFile = /*@__PURE__*/
-  fileDesc("Cgt3b3JsZC5wcm90byKdAgoLRHJvcEluV29ybGQSCgoCaWQYASACKAQSDAoEbmFtZRgCIAEoCRIRCgljb3Vyc2VfaWQYAyABKAQSCgoCZjQYBCABKAgSEAoIendpZnRlcnMYBSABKAQSEgoKd29ybGRfdGltZRgGIAEoBBIRCglyZWFsX3RpbWUYByABKAQSIgoLcHJvX3BsYXllcnMYCCADKAsyDS5Ecm9wSW5QbGF5ZXISIAoJZm9sbG93ZWVzGAkgAygLMg0uRHJvcEluUGxheWVyEh0KBm90aGVycxgKIAMoCzINLkRyb3BJblBsYXllchIUCgxtYXhfendpZnRlcnMYCyABKAQSIQoKcGFjZXJfYm90cxgMIAMoCzINLkRyb3BJblBsYXllciIvCg9Ecm9wSW5Xb3JsZExpc3QSHAoGd29ybGRzGAEgAygLMgwuRHJvcEluV29ybGQizAIKDERyb3BJblBsYXllchIKCgJpZBgBIAIoBBIRCglmaXJzdE5hbWUYAiACKAkSEAoIbGFzdE5hbWUYAyACKAkSEAoIZGlzdGFuY2UYBCABKAQSDAoEdGltZRgFIAEoBBIUCgxjb3VudHJ5X2NvZGUYBiABKAQSIAoLcGxheWVyX3R5cGUYByABKA4yCy5QbGF5ZXJUeXBlEhUKBXNwb3J0GAggASgOMgYuU3BvcnQSCgoCZjkYCSABKAgSCwoDZjEwGAogASgIEgsKA2YxMRgLIAEoBBINCgVwb3dlchgMIAEoBBILCgNmMTMYDSABKAQSCQoBeBgOIAEoAhISCgp5X2FsdGl0dWRlGA8gASgCEgkKAXoYECABKAISDQoFcm91dGUYESABKAUSEgoKcmlkZV9wb3dlchgSIAEoDRINCgVzcGVlZBgTIAEoDSJWCg9UZWxlcG9ydFRhcmdldHMSIwoMcGFjZXJfZ3JvdXBzGAEgAygLMg0uRHJvcEluUGxheWVyEh4KB2ZyaWVuZHMYAiADKAsyDS5Ecm9wSW5QbGF5ZXI", [file_profile]);
+export const file_world: GenFile =
+  /*@__PURE__*/
+  fileDesc(
+    'Cgt3b3JsZC5wcm90byKdAgoLRHJvcEluV29ybGQSCgoCaWQYASACKAQSDAoEbmFtZRgCIAEoCRIRCgljb3Vyc2VfaWQYAyABKAQSCgoCZjQYBCABKAgSEAoIendpZnRlcnMYBSABKAQSEgoKd29ybGRfdGltZRgGIAEoBBIRCglyZWFsX3RpbWUYByABKAQSIgoLcHJvX3BsYXllcnMYCCADKAsyDS5Ecm9wSW5QbGF5ZXISIAoJZm9sbG93ZWVzGAkgAygLMg0uRHJvcEluUGxheWVyEh0KBm90aGVycxgKIAMoCzINLkRyb3BJblBsYXllchIUCgxtYXhfendpZnRlcnMYCyABKAQSIQoKcGFjZXJfYm90cxgMIAMoCzINLkRyb3BJblBsYXllciIvCg9Ecm9wSW5Xb3JsZExpc3QSHAoGd29ybGRzGAEgAygLMgwuRHJvcEluV29ybGQizAIKDERyb3BJblBsYXllchIKCgJpZBgBIAIoBBIRCglmaXJzdE5hbWUYAiACKAkSEAoIbGFzdE5hbWUYAyACKAkSEAoIZGlzdGFuY2UYBCABKAQSDAoEdGltZRgFIAEoBBIUCgxjb3VudHJ5X2NvZGUYBiABKAQSIAoLcGxheWVyX3R5cGUYByABKA4yCy5QbGF5ZXJUeXBlEhUKBXNwb3J0GAggASgOMgYuU3BvcnQSCgoCZjkYCSABKAgSCwoDZjEwGAogASgIEgsKA2YxMRgLIAEoBBINCgVwb3dlchgMIAEoBBILCgNmMTMYDSABKAQSCQoBeBgOIAEoAhISCgp5X2FsdGl0dWRlGA8gASgCEgkKAXoYECABKAISDQoFcm91dGUYESABKAUSEgoKcmlkZV9wb3dlchgSIAEoDRINCgVzcGVlZBgTIAEoDSJWCg9UZWxlcG9ydFRhcmdldHMSIwoMcGFjZXJfZ3JvdXBzGAEgAygLMg0uRHJvcEluUGxheWVyEh4KB2ZyaWVuZHMYAiADKAsyDS5Ecm9wSW5QbGF5ZXI',
+    [file_profile],
+  );
 
 /**
  * @generated from message DropInWorld
  */
-export type DropInWorld = Message<"DropInWorld"> & {
+export type DropInWorld = Message<'DropInWorld'> & {
   /**
    * @generated from field: required uint64 id = 1;
    */
@@ -85,13 +89,12 @@ export type DropInWorld = Message<"DropInWorld"> & {
  * Describes the message DropInWorld.
  * Use `create(DropInWorldSchema)` to create a new message.
  */
-export const DropInWorldSchema: GenMessage<DropInWorld> = /*@__PURE__*/
-  messageDesc(file_world, 0);
+export const DropInWorldSchema: GenMessage<DropInWorld> = /*@__PURE__*/ messageDesc(file_world, 0);
 
 /**
  * @generated from message DropInWorldList
  */
-export type DropInWorldList = Message<"DropInWorldList"> & {
+export type DropInWorldList = Message<'DropInWorldList'> & {
   /**
    * @generated from field: repeated DropInWorld worlds = 1;
    */
@@ -102,13 +105,12 @@ export type DropInWorldList = Message<"DropInWorldList"> & {
  * Describes the message DropInWorldList.
  * Use `create(DropInWorldListSchema)` to create a new message.
  */
-export const DropInWorldListSchema: GenMessage<DropInWorldList> = /*@__PURE__*/
-  messageDesc(file_world, 1);
+export const DropInWorldListSchema: GenMessage<DropInWorldList> = /*@__PURE__*/ messageDesc(file_world, 1);
 
 /**
  * @generated from message DropInPlayer
  */
-export type DropInPlayer = Message<"DropInPlayer"> & {
+export type DropInPlayer = Message<'DropInPlayer'> & {
   /**
    * @generated from field: required uint64 id = 1;
    */
@@ -209,13 +211,12 @@ export type DropInPlayer = Message<"DropInPlayer"> & {
  * Describes the message DropInPlayer.
  * Use `create(DropInPlayerSchema)` to create a new message.
  */
-export const DropInPlayerSchema: GenMessage<DropInPlayer> = /*@__PURE__*/
-  messageDesc(file_world, 2);
+export const DropInPlayerSchema: GenMessage<DropInPlayer> = /*@__PURE__*/ messageDesc(file_world, 2);
 
 /**
  * @generated from message TeleportTargets
  */
-export type TeleportTargets = Message<"TeleportTargets"> & {
+export type TeleportTargets = Message<'TeleportTargets'> & {
   /**
    * @generated from field: repeated DropInPlayer pacer_groups = 1;
    */
@@ -231,5 +232,4 @@ export type TeleportTargets = Message<"TeleportTargets"> & {
  * Describes the message TeleportTargets.
  * Use `create(TeleportTargetsSchema)` to create a new message.
  */
-export const TeleportTargetsSchema: GenMessage<TeleportTargets> = /*@__PURE__*/
-  messageDesc(file_world, 3);
+export const TeleportTargetsSchema: GenMessage<TeleportTargets> = /*@__PURE__*/ messageDesc(file_world, 3);

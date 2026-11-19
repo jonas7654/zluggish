@@ -1,3 +1,5 @@
+import { JobsService } from '#src/services/jobs.service';
+import { DurabilityService } from '#src/services/durability.service';
 import { ConnectionsService } from '#src/services/connections.service';
 import { SettingsService } from '#src/services/settings.service';
 // Repeatable persistence and riding-latency load test. Run with `pnpm test:load`.
@@ -233,13 +235,13 @@ const checkpoints = new CheckpointRepository(accounts.db, resolve(storage, 'zlug
 
 checkpoints.start();
 
-runtime.services.durability.start();
+runtime.effects.runSync(DurabilityService.use((service) => service.start()));
 
 runtime.services.recovery.start();
 
 runtime.services.uploads.start();
 
-runtime.services.jobs.start(250);
+runtime.effects.runSync(JobsService.use((service) => service.start(250)));
 
 metrics.monitorEventLoop();
 
@@ -336,18 +338,18 @@ await phase('completion', async () => {
 
 // Post-commit work (power curves, exports, charts, deliveries) runs while riders ride.
 await phase('jobs', async () => {
-  while (runtime.services.jobs.busy) await sleep(100);
+  while (runtime.effects.runSync(JobsService.use((jobs) => jobs.busy()))) await sleep(100);
 });
 
 clearInterval(driver);
 
 await simulation.close();
 
-await runtime.services.jobs.close();
+await runtime.effects.runPromise(JobsService.use((service) => service.close()));
 
 await runtime.services.recovery.close();
 
-await runtime.services.durability.close();
+await runtime.effects.runPromise(DurabilityService.use((service) => service.close()));
 
 await checkpoints.close();
 

@@ -1,5 +1,5 @@
 import { UploadProvider, UploadState } from '#src/enum';
-import type { RemovableCredentialFile } from '#src/enum';
+import type { RemovableCredentialFile, JobType } from '#src/enum';
 import type { RepositoryContext as Runtime } from '#src/context';
 import { atomic, immediate } from '#src/db/transaction';
 import { ApplicationError, DeliveryRefusedError, refused, UnreadableCredentialsError } from '#src/errors';
@@ -11,13 +11,13 @@ import type { Delivery } from '#src/repositories/uploads.repository';
 import { officialRelay } from '#src/repositories/zwift.repository';
 import { BaseService } from '#src/services/base.service';
 import type { RunningJob } from '#src/repositories/jobs.repository';
-import type { JobsService } from '#src/services/jobs.service';
+import type { JobHandler, JobsService } from '#src/services/jobs.service';
 import { SettingsService } from '#src/services/settings.service';
 import type { StoredEntry } from '#src/dtos/workout.dto';
 import { WorkoutsService } from '#src/services/workout.service';
 import { clearField, clone, fromBinary, toBinary } from '@bufbuild/protobuf';
 import { resolve } from 'node:path';
-import { Schema } from 'effect';
+import { Effect, Schema } from 'effect';
 
 const isoDate = (value: string | null | undefined) =>
   value && /^\d{4}-\d{2}-\d{2}(?:[T ].*)?$/.test(value) && !Number.isNaN(Date.parse(value.slice(0, 10)))
@@ -55,7 +55,7 @@ async function checked(response: Response, code: string) {
 /** Only one planned workout for the activity's day, or an exact unique title, pairs. */
 
 export class UploadsService extends BaseService {
-  private jobs: JobsService | null = null;
+  private jobs: JobsService['Service'] | null = null;
 
   constructor(
     readonly runtime: Runtime,
@@ -213,12 +213,15 @@ export class UploadsService extends BaseService {
 
   /** Run ready delivery jobs now. */
   async drain() {
-    await this.jobs?.drain();
+    if (this.jobs) await Effect.runPromise(this.jobs.drain());
   }
 
-  registerJobs(jobs: JobsService) {
+  registerJobs(jobs: JobsService['Service']) {
+    const register = (type: JobType, handler: Omit<JobHandler, 'run'> & { run: (job: RunningJob) => Promise<void> }) =>
+      Effect.runSync(jobs.register(type, { ...handler, run: (job) => Effect.promise(() => handler.run(job)) }));
+
     this.jobs = jobs;
-    jobs.register('delivery', {
+    register('delivery', {
       concurrency: 2,
       attempts: 3,
       timeoutMs: 300_000,

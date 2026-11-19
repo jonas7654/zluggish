@@ -1,3 +1,4 @@
+import { RuntimeContext } from '#src/context';
 import { DocumentsService } from '#src/services/documents.service';
 import { immediate } from '#src/db/transaction';
 import { JobError } from '#src/errors';
@@ -11,7 +12,16 @@ import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
-import { Schema } from 'effect';
+import { Effect, Layer, Schema } from 'effect';
+
+/** A job runner of its own for the fixture, with no handlers registered. */
+function jobRunner(f: Awaited<ReturnType<typeof mediumFixture>>) {
+  return Effect.runSync(
+    Effect.gen(function* () {
+      return yield* JobsService;
+    }).pipe(Effect.provide(JobsService.layer), Effect.provide(Layer.succeed(RuntimeContext, f))),
+  );
+}
 
 const fit = readFileSync(new URL('../fixtures/ride.fit', import.meta.url));
 
@@ -95,7 +105,7 @@ await test('an old handler after lease expiry and a new claim cannot commit or p
   // File results: an old claim's attempt-specific file is never published.
   const id = await completed(f);
   const export_ = resolve(f.profiles.folder(f.rider.player_id), 'fit', `${id} - ride.fit`);
-  await f.services.jobs.drain();
+  await f.effects.runPromise(JobsService.use((service) => service.drain()));
   rmSync(export_);
   const repository = f.accounts.repositories.jobsRepository;
   repository.enqueue('fit_export', { activityId: id });
@@ -126,12 +136,12 @@ await test('a delivery lease expiry does not authorize a second send', async (t)
     return gate.promise;
   });
 
-  const jobs = new JobsService(f);
+  const jobs = jobRunner(f);
   new UploadsService(f).registerJobs(jobs);
 
   const first = repository.claim('delivery', 50);
   assert.ok(first);
-  const sending = jobs.run(first);
+  const sending = Effect.runPromise(jobs.run(first));
 
   // The send follows a durable flush, which can take more than one tick on slow file systems.
   await sent.promise;
@@ -142,7 +152,7 @@ await test('a delivery lease expiry does not authorize a second send', async (t)
   await new Promise((resolve) => setTimeout(resolve, 60));
   const second = repository.claim('delivery', 30_000);
   assert.ok(second);
-  await jobs.run(second);
+  await Effect.runPromise(jobs.run(second));
   assert.equal(sends.mock.callCount(), 1);
   assert.equal(f.services.uploads.status(f.rider.player_id)[0]?.state, 'ambiguous');
 
@@ -156,29 +166,34 @@ await test('a delivery lease expiry does not authorize a second send', async (t)
 
 await test('a job that exceeds its time limit is stopped, retried, then failed after its attempts', async (t) => {
   const f = await mediumFixture(t);
-  const jobs = new JobsService(f);
+  const jobs = jobRunner(f);
   const repository = f.accounts.repositories.jobsRepository;
   let runs = 0;
 
-  jobs.register('retention', {
-    concurrency: 1,
-    attempts: 2,
-    timeoutMs: 20,
-    run: (job) => {
-      runs++;
+  Effect.runSync(
+    jobs.register('retention', {
+      concurrency: 1,
+      attempts: 2,
+      timeoutMs: 20,
+      run: (job) => {
+        runs++;
 
-      return new Promise((_resolve, reject) => {
-        job.signal.addEventListener('abort', () =>
-          reject(Schema.decodeUnknownSync(Schema.instanceOf(Error))(job.signal.reason)),
+        return Effect.promise(
+          () =>
+            new Promise((_resolve, reject) => {
+              job.signal.addEventListener('abort', () =>
+                reject(Schema.decodeUnknownSync(Schema.instanceOf(Error))(job.signal.reason)),
+              );
+            }),
         );
-      });
-    },
-  });
+      },
+    }),
+  );
   repository.enqueue('retention', {});
 
   const first = repository.claim('retention', 30_000);
   assert.ok(first);
-  await jobs.run(first);
+  await Effect.runPromise(jobs.run(first));
   assert.deepEqual(
     repository.list().map((job) => [job.state, job.last_error, job.attempts]),
     [['queued', 'timeout', 1]],
@@ -187,7 +202,7 @@ await test('a job that exceeds its time limit is stopped, retried, then failed a
   f.accounts.db.exec('UPDATE job SET next_run_at=0');
   const second = repository.claim('retention', 30_000);
   assert.ok(second);
-  await jobs.run(second);
+  await Effect.runPromise(jobs.run(second));
   assert.deepEqual(
     repository.list().map((job) => [job.state, job.last_error, job.attempts]),
     [['failed', 'timeout', 2]],
@@ -197,36 +212,41 @@ await test('a job that exceeds its time limit is stopped, retried, then failed a
 
 await test('a job that cannot succeed fails at once, and each type runs at most its concurrency', async (t) => {
   const f = await mediumFixture(t);
-  const jobs = new JobsService(f);
+  const jobs = jobRunner(f);
   const repository = f.accounts.repositories.jobsRepository;
   let running = 0;
   let peak = 0;
 
-  jobs.register('chart', {
-    concurrency: 2,
-    attempts: 5,
-    timeoutMs: 10_000,
-    run: async () => {
-      running++;
-      peak = Math.max(peak, running);
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      running--;
-    },
-  });
+  Effect.runSync(
+    jobs.register('chart', {
+      concurrency: 2,
+      attempts: 5,
+      timeoutMs: 10_000,
+      run: () =>
+        Effect.promise(async () => {
+          running++;
+          peak = Math.max(peak, running);
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          running--;
+        }),
+    }),
+  );
 
   for (let index = 0; index < 6; index++) repository.enqueue('chart', { index });
-  await jobs.drain();
+  await Effect.runPromise(jobs.drain());
   assert.equal(peak, 2);
   assert.ok(repository.list('chart').every((job) => job.state === 'done'));
 
-  jobs.register('power_curve', {
-    concurrency: 1,
-    attempts: 5,
-    timeoutMs: 10_000,
-    run: () => Promise.reject(new JobError({ code: 'invalid_payload', retry: false })),
-  });
+  Effect.runSync(
+    jobs.register('power_curve', {
+      concurrency: 1,
+      attempts: 5,
+      timeoutMs: 10_000,
+      run: () => Effect.fail(new JobError({ code: 'invalid_payload', retry: false })),
+    }),
+  );
   repository.enqueue('power_curve', {});
-  await jobs.drain();
+  await Effect.runPromise(jobs.drain());
   assert.deepEqual(
     repository.list('power_curve').map((job) => [job.state, job.attempts]),
     [['failed', 1]],

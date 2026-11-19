@@ -2,20 +2,23 @@
 // @generated from file tcp-node-msgs.proto (syntax proto2)
 /* eslint-disable */
 
-import type { GenEnum, GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
-import { enumDesc, fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
-import type { Message } from "@bufbuild/protobuf";
+import type { GenEnum, GenFile, GenMessage } from '@bufbuild/protobuf/codegenv2';
+import { enumDesc, fileDesc, messageDesc } from '@bufbuild/protobuf/codegenv2';
+import type { Message } from '@bufbuild/protobuf';
 
 /**
  * Describes the file tcp-node-msgs.proto.
  */
-export const file_tcp_node_msgs: GenFile = /*@__PURE__*/
-  fileDesc("ChN0Y3Atbm9kZS1tc2dzLnByb3RvIpoCChJTb2NpYWxQbGF5ZXJBY3Rpb24SEQoJcGxheWVyX2lkGAEgASgDEhQKDHRvX3BsYXllcl9pZBgCIAEoAxIpCghzcGFfdHlwZRgDIAEoDjIXLlNvY2lhbFBsYXllckFjdGlvblR5cGUSEQoJZmlyc3ROYW1lGAQgASgJEhAKCGxhc3ROYW1lGAUgASgJEg8KB21lc3NhZ2UYBiABKAkSDgoGYXZhdGFyGAcgASgJEhMKC2NvdW50cnlDb2RlGAggASgFEhsKCGZsYWdUeXBlGAkgASgOMgkuRmxhZ1R5cGUSIQoGbWdUeXBlGAogASgOMhEuTWVzc2FnZUdyb3VwVHlwZRIVCg1ldmVudFN1Ymdyb3VwGAsgASgDKnYKFlNvY2lhbFBsYXllckFjdGlvblR5cGUSHgoaU09DSUFMX0FDVElPTl9VTktOT1dOX1RZUEUQABIXChNTT0NJQUxfVEVYVF9NRVNTQUdFEAESEgoOU09DSUFMX1JJREVfT04QAhIPCgtTT0NJQUxfRkxBRxADKmwKCEZsYWdUeXBlEhUKEUZMQUdfVFlQRV9VTktOT1dOEAASGAoURkxBR19UWVBFX0hBUkFTU01FTlQQARITCg9GTEFHX1RZUEVfRkxJRVIQAhIaChZGTEFHX1RZUEVfQkFEX0xBTkdVQUdFEAMqYAoQTWVzc2FnZUdyb3VwVHlwZRIPCgtNR1RfVU5LTk9XThAAEg4KCk1HVF9HTE9CQUwQARIOCgpNR1RfRElSRUNUEAISDQoJTUdUX0VWRU5UEAMSDAoITUdUX0NMVUIQBA");
+export const file_tcp_node_msgs: GenFile =
+  /*@__PURE__*/
+  fileDesc(
+    'ChN0Y3Atbm9kZS1tc2dzLnByb3RvIpoCChJTb2NpYWxQbGF5ZXJBY3Rpb24SEQoJcGxheWVyX2lkGAEgASgDEhQKDHRvX3BsYXllcl9pZBgCIAEoAxIpCghzcGFfdHlwZRgDIAEoDjIXLlNvY2lhbFBsYXllckFjdGlvblR5cGUSEQoJZmlyc3ROYW1lGAQgASgJEhAKCGxhc3ROYW1lGAUgASgJEg8KB21lc3NhZ2UYBiABKAkSDgoGYXZhdGFyGAcgASgJEhMKC2NvdW50cnlDb2RlGAggASgFEhsKCGZsYWdUeXBlGAkgASgOMgkuRmxhZ1R5cGUSIQoGbWdUeXBlGAogASgOMhEuTWVzc2FnZUdyb3VwVHlwZRIVCg1ldmVudFN1Ymdyb3VwGAsgASgDKnYKFlNvY2lhbFBsYXllckFjdGlvblR5cGUSHgoaU09DSUFMX0FDVElPTl9VTktOT1dOX1RZUEUQABIXChNTT0NJQUxfVEVYVF9NRVNTQUdFEAESEgoOU09DSUFMX1JJREVfT04QAhIPCgtTT0NJQUxfRkxBRxADKmwKCEZsYWdUeXBlEhUKEUZMQUdfVFlQRV9VTktOT1dOEAASGAoURkxBR19UWVBFX0hBUkFTU01FTlQQARITCg9GTEFHX1RZUEVfRkxJRVIQAhIaChZGTEFHX1RZUEVfQkFEX0xBTkdVQUdFEAMqYAoQTWVzc2FnZUdyb3VwVHlwZRIPCgtNR1RfVU5LTk9XThAAEg4KCk1HVF9HTE9CQUwQARIOCgpNR1RfRElSRUNUEAISDQoJTUdUX0VWRU5UEAMSDAoITUdUX0NMVUIQBA',
+  );
 
 /**
  * @generated from message SocialPlayerAction
  */
-export type SocialPlayerAction = Message<"SocialPlayerAction"> & {
+export type SocialPlayerAction = Message<'SocialPlayerAction'> & {
   /**
    * @generated from field: optional int64 player_id = 1;
    */
@@ -78,7 +81,8 @@ export type SocialPlayerAction = Message<"SocialPlayerAction"> & {
  * Describes the message SocialPlayerAction.
  * Use `create(SocialPlayerActionSchema)` to create a new message.
  */
-export const SocialPlayerActionSchema: GenMessage<SocialPlayerAction> = /*@__PURE__*/
+export const SocialPlayerActionSchema: GenMessage<SocialPlayerAction> =
+  /*@__PURE__*/
   messageDesc(file_tcp_node_msgs, 0);
 
 /**
@@ -109,7 +113,8 @@ export enum SocialPlayerActionType {
 /**
  * Describes the enum SocialPlayerActionType.
  */
-export const SocialPlayerActionTypeSchema: GenEnum<SocialPlayerActionType> = /*@__PURE__*/
+export const SocialPlayerActionTypeSchema: GenEnum<SocialPlayerActionType> =
+  /*@__PURE__*/
   enumDesc(file_tcp_node_msgs, 0);
 
 /**
@@ -140,8 +145,7 @@ export enum FlagType {
 /**
  * Describes the enum FlagType.
  */
-export const FlagTypeSchema: GenEnum<FlagType> = /*@__PURE__*/
-  enumDesc(file_tcp_node_msgs, 1);
+export const FlagTypeSchema: GenEnum<FlagType> = /*@__PURE__*/ enumDesc(file_tcp_node_msgs, 1);
 
 /**
  * @generated from enum MessageGroupType
@@ -176,5 +180,4 @@ export enum MessageGroupType {
 /**
  * Describes the enum MessageGroupType.
  */
-export const MessageGroupTypeSchema: GenEnum<MessageGroupType> = /*@__PURE__*/
-  enumDesc(file_tcp_node_msgs, 2);
+export const MessageGroupTypeSchema: GenEnum<MessageGroupType> = /*@__PURE__*/ enumDesc(file_tcp_node_msgs, 2);

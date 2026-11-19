@@ -281,12 +281,14 @@ await test('active riders cannot launch twice or replace their profile', async (
   await client.form('/login/', { player_id: String(user.player_id), step: 'password', password: 'test-password' });
   const response7 = await client.request('/ride');
   assert.equal(response7.status, 409);
-  const imports = new ImportsService(f.accounts, f.world);
+  const imports = f.effects.runSync(ImportsService);
   assert.throws(
     () =>
-      imports.prepare(user, {
-        'profile.bin': toBinary(PlayerProfileSchema, create(PlayerProfileSchema, { id: 99n, firstName: 'Remote' })),
-      }),
+      f.effects.runSync(
+        imports.prepare(user, {
+          'profile.bin': toBinary(PlayerProfileSchema, create(PlayerProfileSchema, { id: 99n, firstName: 'Remote' })),
+        }),
+      ),
     /active ride/,
   );
 });
@@ -294,7 +296,7 @@ await test('active riders cannot launch twice or replace their profile', async (
 await test('profile imports stage, preserve unknown fields, normalize IDs and keep passwords', async (t) => {
   const f = runtimeFixture(t);
   const user = await f.accounts.create('Local Rider', 'secret');
-  const imports = new ImportsService(f.accounts, f.world);
+  const imports = f.effects.runSync(ImportsService);
 
   const bytes = Buffer.concat([
     toBinary(
@@ -308,9 +310,9 @@ await test('profile imports stage, preserve unknown fields, normalize IDs and ke
     Buffer.from('a01f07', 'hex'),
   ]);
 
-  const stage = imports.prepare(user, { 'profile.bin': bytes });
+  const stage = f.effects.runSync(imports.prepare(user, { 'profile.bin': bytes }));
   assert.equal(f.profiles.get(user.player_id).firstName, 'Local');
-  imports.publish(user, stage, false);
+  f.effects.runSync(imports.publish(user, stage, false));
   const saved = f.profiles.get(user.player_id);
   assert.equal(saved.id, BigInt(user.player_id));
   assert.equal(saved.firstName, 'Remote');

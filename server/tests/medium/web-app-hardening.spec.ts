@@ -1,3 +1,4 @@
+import { JobsService } from '#src/services/jobs.service';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -285,7 +286,7 @@ await test('imported activities without completion records rebuild missing chart
   // Repeated detail requests must share the same pending chart job.
   f.services.activities.ownDetail(f.rider.player_id, String(id));
   assert.equal(f.accounts.db.prepare("SELECT count(*) AS n FROM job WHERE type='chart'").get()?.n, 1);
-  await f.services.jobs.drain();
+  await f.effects.runPromise(JobsService.use((service) => service.drain()));
   const detail = f.services.activities.ownDetail(f.rider.player_id, String(id));
   assert.equal(detail.chartPending, false);
   assert.ok(detail.chart.timeInSec.length > 0);
@@ -377,7 +378,7 @@ await test('riders list, inspect and download only their own activities in the w
 
   const pending = await json(owner(`/api/me/activities/${id}`));
   assert.deepEqual([pending.imageIds, pending.chart, pending.chartPending], [[image], null, true]);
-  await f.services.jobs.drain();
+  await f.effects.runPromise(JobsService.use((service) => service.drain()));
   const detail = await json(owner(`/api/me/activities/${id}`));
   assert.equal(detail.chartPending, false);
   assert.ok(detail.chart.timeInSec.length > 0);

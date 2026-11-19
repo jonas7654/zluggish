@@ -16,7 +16,7 @@ import { test } from 'node:test';
 await test('all rider state files stage, cancel, publish and recover with durable backups', async (t) => {
   const f = runtimeFixture(t);
   const user = await f.accounts.create('Import Rider', 'test-password');
-  const imports = new ImportsService(f.accounts, f.world);
+  const imports = f.effects.runSync(ImportsService);
 
   const files = {
     'profile.bin': toBinary(PlayerProfileSchema, create(PlayerProfileSchema, { id: 99n, firstName: 'Imported' })),
@@ -36,12 +36,12 @@ await test('all rider state files stage, cancel, publish and recover with durabl
     );
 
   f.effects.runSync(DocumentsService.use((service) => service.put(user.player_id, 'streaks.bin', old)));
-  const canceled = imports.prepare(user, files);
-  imports.cancel(user, canceled);
+  const canceled = f.effects.runSync(imports.prepare(user, files));
+  f.effects.runSync(imports.cancel(user, canceled));
   assert.equal(streaks().curStreak, 1);
-  const stage = imports.prepare(user, files);
-  assert.equal(imports.inspect(user, stage).files.length, 5);
-  imports.publish(user, stage, false);
+  const stage = f.effects.runSync(imports.prepare(user, files));
+  assert.equal(f.effects.runSync(imports.inspect(user, stage)).files.length, 5);
+  f.effects.runSync(imports.publish(user, stage, false));
   assert.equal(f.profiles.get(user.player_id).id, BigInt(user.player_id));
   assert.equal(f.profiles.get(user.player_id).firstName, 'Imported');
   assert.equal(f.accounts.get(user.player_id)?.first_name, 'Imported');
@@ -56,10 +56,10 @@ await test('all rider state files stage, cancel, publish and recover with durabl
 
   // A crash after the publication commit leaves its stage behind: recovery removes it,
   // and the stage cannot apply a second time.
-  const repeated = imports.prepare(fresh, { 'streaks.bin': old });
-  const folder = imports.folder(fresh, repeated);
-  const manifest = imports.inspect(fresh, repeated);
-  imports.publish(fresh, repeated, false);
+  const repeated = f.effects.runSync(imports.prepare(fresh, { 'streaks.bin': old }));
+  const folder = f.effects.runSync(imports.folder(fresh, repeated));
+  const manifest = f.effects.runSync(imports.inspect(fresh, repeated));
+  f.effects.runSync(imports.publish(fresh, repeated, false));
   assert.equal(streaks().curStreak, 1);
   f.effects.runSync(
     DocumentsService.use((service) => service.put(user.player_id, 'streaks.bin', files['streaks.bin'])),
@@ -67,11 +67,13 @@ await test('all rider state files stage, cancel, publish and recover with durabl
   mkdirSync(folder);
   new AssetFiles().writeDurable(resolve(folder, 'streaks.bin'), old);
   new AssetFiles().writeDurable(resolve(folder, 'manifest.json'), JSON.stringify(manifest));
-  new ImportsService(f.accounts, f.world).recover();
+  f.effects.runSync(ImportsService.use((service) => service.recover()));
   assert.equal(existsSync(folder), false);
   assert.equal(streaks().curStreak, 3);
-  assert.throws(() => imports.prepare(fresh, { 'user_storage.bin': new Uint8Array([255]) }));
-  assert.throws(() => imports.prepare(fresh, { 'economy_config.txt': Buffer.from('{"cycling_levels":"invalid"}') }));
+  assert.throws(() => f.effects.runSync(imports.prepare(fresh, { 'user_storage.bin': new Uint8Array([255]) })));
+  assert.throws(() =>
+    f.effects.runSync(imports.prepare(fresh, { 'economy_config.txt': Buffer.from('{"cycling_levels":"invalid"}') })),
+  );
 });
 
 await test('web restore accepts empty protobuf state and waits for review before publishing', async (t) => {

@@ -2,20 +2,23 @@
 // @generated from file playback.proto (syntax proto2)
 /* eslint-disable */
 
-import type { GenEnum, GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
-import { enumDesc, fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
-import type { Message } from "@bufbuild/protobuf";
+import type { GenEnum, GenFile, GenMessage } from '@bufbuild/protobuf/codegenv2';
+import { enumDesc, fileDesc, messageDesc } from '@bufbuild/protobuf/codegenv2';
+import type { Message } from '@bufbuild/protobuf';
 
 /**
  * Describes the file playback.proto.
  */
-export const file_playback: GenFile = /*@__PURE__*/
-  fileDesc("Cg5wbGF5YmFjay5wcm90byJhCgxQbGF5YmFja0RhdGESEgoKc2VnbWVudF9pZBgBIAIoAxIMCgR0aW1lGAMgAigCEhIKCndvcmxkX3RpbWUYBCACKAQSGwoEdHlwZRgLIAEoDjINLlBsYXliYWNrVHlwZSKAAQoQUGxheWJhY2tNZXRhZGF0YRIMCgR1dWlkGAEgAigJEhIKCnNlZ21lbnRfaWQYAiACKAMSDAoEdGltZRgEIAIoAhISCgp3b3JsZF90aW1lGAUgAigEEgsKA3VybBgGIAIoCRIbCgR0eXBlGAggASgOMg0uUGxheWJhY2tUeXBlKiYKDFBsYXliYWNrVHlwZRILCgdTRUdNRU5UEAASCQoFUk9VVEUQAQ");
+export const file_playback: GenFile =
+  /*@__PURE__*/
+  fileDesc(
+    'Cg5wbGF5YmFjay5wcm90byJhCgxQbGF5YmFja0RhdGESEgoKc2VnbWVudF9pZBgBIAIoAxIMCgR0aW1lGAMgAigCEhIKCndvcmxkX3RpbWUYBCACKAQSGwoEdHlwZRgLIAEoDjINLlBsYXliYWNrVHlwZSKAAQoQUGxheWJhY2tNZXRhZGF0YRIMCgR1dWlkGAEgAigJEhIKCnNlZ21lbnRfaWQYAiACKAMSDAoEdGltZRgEIAIoAhISCgp3b3JsZF90aW1lGAUgAigEEgsKA3VybBgGIAIoCRIbCgR0eXBlGAggASgOMg0uUGxheWJhY2tUeXBlKiYKDFBsYXliYWNrVHlwZRILCgdTRUdNRU5UEAASCQoFUk9VVEUQAQ',
+  );
 
 /**
  * @generated from message PlaybackData
  */
-export type PlaybackData = Message<"PlaybackData"> & {
+export type PlaybackData = Message<'PlaybackData'> & {
   /**
    * @generated from field: required int64 segment_id = 1;
    */
@@ -41,13 +44,12 @@ export type PlaybackData = Message<"PlaybackData"> & {
  * Describes the message PlaybackData.
  * Use `create(PlaybackDataSchema)` to create a new message.
  */
-export const PlaybackDataSchema: GenMessage<PlaybackData> = /*@__PURE__*/
-  messageDesc(file_playback, 0);
+export const PlaybackDataSchema: GenMessage<PlaybackData> = /*@__PURE__*/ messageDesc(file_playback, 0);
 
 /**
  * @generated from message PlaybackMetadata
  */
-export type PlaybackMetadata = Message<"PlaybackMetadata"> & {
+export type PlaybackMetadata = Message<'PlaybackMetadata'> & {
   /**
    * @generated from field: required string uuid = 1;
    */
@@ -83,8 +85,7 @@ export type PlaybackMetadata = Message<"PlaybackMetadata"> & {
  * Describes the message PlaybackMetadata.
  * Use `create(PlaybackMetadataSchema)` to create a new message.
  */
-export const PlaybackMetadataSchema: GenMessage<PlaybackMetadata> = /*@__PURE__*/
-  messageDesc(file_playback, 1);
+export const PlaybackMetadataSchema: GenMessage<PlaybackMetadata> = /*@__PURE__*/ messageDesc(file_playback, 1);
 
 /**
  * @generated from enum PlaybackType
@@ -104,5 +105,4 @@ export enum PlaybackType {
 /**
  * Describes the enum PlaybackType.
  */
-export const PlaybackTypeSchema: GenEnum<PlaybackType> = /*@__PURE__*/
-  enumDesc(file_playback, 0);
+export const PlaybackTypeSchema: GenEnum<PlaybackType> = /*@__PURE__*/ enumDesc(file_playback, 0);

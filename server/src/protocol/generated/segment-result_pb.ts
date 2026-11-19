@@ -2,22 +2,26 @@
 // @generated from file segment-result.proto (syntax proto2)
 /* eslint-disable */
 
-import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
-import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
-import type { PlayerType, PowerType, Sport } from "./profile_pb.js";
-import { file_profile } from "./profile_pb.js";
-import type { Message } from "@bufbuild/protobuf";
+import type { GenFile, GenMessage } from '@bufbuild/protobuf/codegenv2';
+import { fileDesc, messageDesc } from '@bufbuild/protobuf/codegenv2';
+import type { PlayerType, PowerType, Sport } from './profile_pb.js';
+import { file_profile } from './profile_pb.js';
+import type { Message } from '@bufbuild/protobuf';
 
 /**
  * Describes the file segment-result.proto.
  */
-export const file_segment_result: GenFile = /*@__PURE__*/
-  fileDesc("ChRzZWdtZW50LXJlc3VsdC5wcm90byLmAwoNU2VnbWVudFJlc3VsdBIKCgJpZBgBIAEoBBIRCglwbGF5ZXJfaWQYAiACKAQSFAoMc2VydmVyX3JlYWxtGAMgASgEEhEKCWNvdXJzZV9pZBgEIAEoBBISCgpzZWdtZW50X2lkGAUgASgDEhkKEWV2ZW50X3N1Ymdyb3VwX2lkGAYgASgEEhIKCmZpcnN0X25hbWUYByACKAkSEQoJbGFzdF9uYW1lGAggAigJEhIKCndvcmxkX3RpbWUYCSABKAQSFwoPZmluaXNoX3RpbWVfc3RyGAogASgJEhIKCmVsYXBzZWRfbXMYCyACKAQSJgoScG93ZXJfc291cmNlX21vZGVsGAwgASgOMgouUG93ZXJUeXBlEhcKD3dlaWdodF9pbl9ncmFtcxgNIAEoDRILCgNmMTQYDiABKA0SEQoJYXZnX3Bvd2VyGA8gASgNEg8KB2lzX21hbGUYECABKAgSDAoEdGltZRgRIAEoCRIgCgtwbGF5ZXJfdHlwZRgSIAEoDjILLlBsYXllclR5cGUSDgoGYXZnX2hyGBMgASgNEhUKBXNwb3J0GBQgASgOMgYuU3BvcnQSEwoLYWN0aXZpdHlfaWQYFSABKAMSCwoDZjIyGBYgASgIEgsKA2YyMxgXIAEoCSJ+Cg5TZWdtZW50UmVzdWx0cxIUCgxzZXJ2ZXJfcmVhbG0YASACKAQSEgoKc2VnbWVudF9pZBgCIAIoAxIZChFldmVudF9zdWJncm91cF9pZBgDIAEoBBInCg9zZWdtZW50X3Jlc3VsdHMYBCADKAsyDi5TZWdtZW50UmVzdWx0IqkBChBTZWdtZW50UmlkZVN0YXRzEhIKCnNlZ21lbnRfaWQYASACKAMSCgoCZjIYAiABKA0SGQoRbnVtYmVyX29mX3Jlc3VsdHMYAyABKA0SEwoLbGF0ZXN0X3RpbWUYBCABKAQSGQoRbGF0ZXN0X3BlcmNlbnRpbGUYBSABKAISEQoJYmVzdF90aW1lGAYgASgEEhcKD2Jlc3RfcGVyY2VudGlsZRgHIAEoAg", [file_profile]);
+export const file_segment_result: GenFile =
+  /*@__PURE__*/
+  fileDesc(
+    'ChRzZWdtZW50LXJlc3VsdC5wcm90byLmAwoNU2VnbWVudFJlc3VsdBIKCgJpZBgBIAEoBBIRCglwbGF5ZXJfaWQYAiACKAQSFAoMc2VydmVyX3JlYWxtGAMgASgEEhEKCWNvdXJzZV9pZBgEIAEoBBISCgpzZWdtZW50X2lkGAUgASgDEhkKEWV2ZW50X3N1Ymdyb3VwX2lkGAYgASgEEhIKCmZpcnN0X25hbWUYByACKAkSEQoJbGFzdF9uYW1lGAggAigJEhIKCndvcmxkX3RpbWUYCSABKAQSFwoPZmluaXNoX3RpbWVfc3RyGAogASgJEhIKCmVsYXBzZWRfbXMYCyACKAQSJgoScG93ZXJfc291cmNlX21vZGVsGAwgASgOMgouUG93ZXJUeXBlEhcKD3dlaWdodF9pbl9ncmFtcxgNIAEoDRILCgNmMTQYDiABKA0SEQoJYXZnX3Bvd2VyGA8gASgNEg8KB2lzX21hbGUYECABKAgSDAoEdGltZRgRIAEoCRIgCgtwbGF5ZXJfdHlwZRgSIAEoDjILLlBsYXllclR5cGUSDgoGYXZnX2hyGBMgASgNEhUKBXNwb3J0GBQgASgOMgYuU3BvcnQSEwoLYWN0aXZpdHlfaWQYFSABKAMSCwoDZjIyGBYgASgIEgsKA2YyMxgXIAEoCSJ+Cg5TZWdtZW50UmVzdWx0cxIUCgxzZXJ2ZXJfcmVhbG0YASACKAQSEgoKc2VnbWVudF9pZBgCIAIoAxIZChFldmVudF9zdWJncm91cF9pZBgDIAEoBBInCg9zZWdtZW50X3Jlc3VsdHMYBCADKAsyDi5TZWdtZW50UmVzdWx0IqkBChBTZWdtZW50UmlkZVN0YXRzEhIKCnNlZ21lbnRfaWQYASACKAMSCgoCZjIYAiABKA0SGQoRbnVtYmVyX29mX3Jlc3VsdHMYAyABKA0SEwoLbGF0ZXN0X3RpbWUYBCABKAQSGQoRbGF0ZXN0X3BlcmNlbnRpbGUYBSABKAISEQoJYmVzdF90aW1lGAYgASgEEhcKD2Jlc3RfcGVyY2VudGlsZRgHIAEoAg',
+    [file_profile],
+  );
 
 /**
  * @generated from message SegmentResult
  */
-export type SegmentResult = Message<"SegmentResult"> & {
+export type SegmentResult = Message<'SegmentResult'> & {
   /**
    * @generated from field: optional uint64 id = 1;
    */
@@ -152,13 +156,12 @@ export type SegmentResult = Message<"SegmentResult"> & {
  * Describes the message SegmentResult.
  * Use `create(SegmentResultSchema)` to create a new message.
  */
-export const SegmentResultSchema: GenMessage<SegmentResult> = /*@__PURE__*/
-  messageDesc(file_segment_result, 0);
+export const SegmentResultSchema: GenMessage<SegmentResult> = /*@__PURE__*/ messageDesc(file_segment_result, 0);
 
 /**
  * @generated from message SegmentResults
  */
-export type SegmentResults = Message<"SegmentResults"> & {
+export type SegmentResults = Message<'SegmentResults'> & {
   /**
    * @generated from field: required uint64 server_realm = 1;
    */
@@ -184,13 +187,12 @@ export type SegmentResults = Message<"SegmentResults"> & {
  * Describes the message SegmentResults.
  * Use `create(SegmentResultsSchema)` to create a new message.
  */
-export const SegmentResultsSchema: GenMessage<SegmentResults> = /*@__PURE__*/
-  messageDesc(file_segment_result, 1);
+export const SegmentResultsSchema: GenMessage<SegmentResults> = /*@__PURE__*/ messageDesc(file_segment_result, 1);
 
 /**
  * @generated from message SegmentRideStats
  */
-export type SegmentRideStats = Message<"SegmentRideStats"> & {
+export type SegmentRideStats = Message<'SegmentRideStats'> & {
   /**
    * @generated from field: required int64 segment_id = 1;
    */
@@ -231,5 +233,4 @@ export type SegmentRideStats = Message<"SegmentRideStats"> & {
  * Describes the message SegmentRideStats.
  * Use `create(SegmentRideStatsSchema)` to create a new message.
  */
-export const SegmentRideStatsSchema: GenMessage<SegmentRideStats> = /*@__PURE__*/
-  messageDesc(file_segment_result, 2);
+export const SegmentRideStatsSchema: GenMessage<SegmentRideStats> = /*@__PURE__*/ messageDesc(file_segment_result, 2);
