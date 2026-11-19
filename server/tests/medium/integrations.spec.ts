@@ -127,61 +127,64 @@ function stubFetch(t: TestContext) {
   return calls;
 }
 
-await test('Intervals.icu upload pairs the planned workout and removes only that workout', async (t) => {
-  const f = runtimeFixture(t);
-  const user = await f.accounts.create('Interval Rider', 'test-password');
-  f.accounts.repositories.connectionsRepository.save(user.player_id, 'intervals', ['42', 'key']);
-  const folder = f.profiles.folder(user.player_id);
-  const cached = resolve(f.config.storageDir, 'tp-workouts/intervalsicu');
-  mkdirSync(cached, { recursive: true });
-  const first = '7c2b7f55-1f5e-4a3e-8a5e-0f1f4b7a1a11';
-  const second = '8d3c8f66-2a6f-4b4f-9b6f-1a2a5c8b2b22';
-  writeFileSync(resolve(cached, `${first}.zwo`), '<a/>');
-  writeFileSync(resolve(cached, `${second}.zwo`), '<a/>');
+for (const athlete of ['42', 'i42']) {
+  await test(`Intervals.icu upload for athlete ${athlete} pairs and removes only the planned workout`, async (t) => {
+    const f = runtimeFixture(t);
+    const user = await f.accounts.create('Interval Rider', 'test-password');
+    f.accounts.repositories.connectionsRepository.save(user.player_id, 'intervals', [athlete, 'key']);
+    const folder = f.profiles.folder(user.player_id);
+    const cached = resolve(f.config.storageDir, 'tp-workouts/intervalsicu');
+    mkdirSync(cached, { recursive: true });
+    const first = '7c2b7f55-1f5e-4a3e-8a5e-0f1f4b7a1a11';
+    const second = '8d3c8f66-2a6f-4b4f-9b6f-1a2a5c8b2b22';
+    writeFileSync(resolve(cached, `${first}.zwo`), '<a/>');
+    writeFileSync(resolve(cached, `${second}.zwo`), '<a/>');
 
-  writeFileSync(
-    resolve(folder, 'intervals_icu_workout.json'),
-    JSON.stringify({
-      provider: 'intervals-icu',
-      workouts: [
-        {
-          provider: 'intervals-icu',
-          event_id: 5,
-          workout_id: first,
-          name: 'Tempo',
-          start_date_local: '2026-05-01T07:00:00',
-          filename: `${first}.zwo`,
-        },
-        {
-          provider: 'intervals-icu',
-          event_id: 6,
-          workout_id: second,
-          name: 'Evening',
-          start_date_local: '2026-05-01T18:00:00',
-        },
-      ],
-    }),
-  );
+    writeFileSync(
+      resolve(folder, 'intervals_icu_workout.json'),
+      JSON.stringify({
+        provider: 'intervals-icu',
+        workouts: [
+          {
+            provider: 'intervals-icu',
+            event_id: 5,
+            workout_id: first,
+            name: 'Tempo',
+            start_date_local: '2026-05-01T07:00:00',
+            filename: `${first}.zwo`,
+          },
+          {
+            provider: 'intervals-icu',
+            event_id: 6,
+            workout_id: second,
+            name: 'Evening',
+            start_date_local: '2026-05-01T18:00:00',
+          },
+        ],
+      }),
+    );
 
-  const calls = stubFetch(t);
-  await f.effects.runPromise(UploadsService.use((service) => service.intervals(user.player_id, activityWithFit())));
+    const calls = stubFetch(t);
+    await f.effects.runPromise(UploadsService.use((service) => service.intervals(user.player_id, activityWithFit())));
 
-  const upload = calls.find((call) => call.url.includes('intervals.icu'));
-  assert.ok(upload);
-  assert.match(upload.url, /athlete\/42\/activities\?name=Tempo&paired_event_id=5$/);
-  assert.equal(upload.headers.get('Authorization'), `Basic ${Buffer.from('API_KEY:key').toString('base64')}`);
+    const upload = calls.find((call) => call.url.includes('intervals.icu'));
+    assert.ok(upload);
+    assert.equal(new URL(upload.url).pathname, `/api/v1/athlete/${athlete}/activities`);
+    assert.equal(new URL(upload.url).search, '?name=Tempo&paired_event_id=5');
+    assert.equal(upload.headers.get('Authorization'), `Basic ${Buffer.from('API_KEY:key').toString('base64')}`);
 
-  const remaining = Schema.decodeUnknownSync(
-    Schema.Struct({ workouts: Schema.Array(Schema.Struct({ event_id: Schema.Finite })) }),
-  )(JSON.parse(readFileSync(resolve(folder, 'intervals_icu_workout.json'), 'utf8')));
+    const remaining = Schema.decodeUnknownSync(
+      Schema.Struct({ workouts: Schema.Array(Schema.Struct({ event_id: Schema.Finite })) }),
+    )(JSON.parse(readFileSync(resolve(folder, 'intervals_icu_workout.json'), 'utf8')));
 
-  assert.deepEqual(
-    remaining.workouts.map((item) => item.event_id),
-    [6],
-  );
-  assert.equal(existsSync(resolve(cached, `${first}.zwo`)), false);
-  assert.equal(existsSync(resolve(cached, `${second}.zwo`)), true);
-});
+    assert.deepEqual(
+      remaining.workouts.map((item) => item.event_id),
+      [6],
+    );
+    assert.equal(existsSync(resolve(cached, `${first}.zwo`)), false);
+    assert.equal(existsSync(resolve(cached, `${second}.zwo`)), true);
+  });
+}
 
 await test('an expired Strava token is saved before an upload whose result is unknown', async (t) => {
   const f = runtimeFixture(t);
