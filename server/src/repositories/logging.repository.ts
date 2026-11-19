@@ -4,6 +4,9 @@ import type { LogLevel } from '#src/enum';
 import type { ResolvedConfig } from '#src/config/index';
 import { inspect } from 'node:util';
 
+const recentEntryLimit = 200;
+const recentEntrySize = 4096;
+
 const levels = { NOTSET: 0, VERBOSE: 10, DEBUG: 10, INFO: 20, WARNING: 30, WARN: 30, ERROR: 40, CRITICAL: 50 };
 
 type Level = LogLevel;
@@ -79,6 +82,7 @@ export class LoggingRepository {
   constructor(
     private readonly options: Options = {},
     private readonly context: Fields = {},
+    private readonly history: string[] = [],
   ) {}
 
   configure(options: Options) {
@@ -86,7 +90,11 @@ export class LoggingRepository {
   }
 
   child(fields: Fields) {
-    return new LoggingRepository(this.options, { ...this.context, ...fields });
+    return new LoggingRepository(this.options, { ...this.context, ...fields }, this.history);
+  }
+
+  recentEntries() {
+    return this.history.toReversed();
   }
 
   isLevelEnabled(level: Level) {
@@ -110,6 +118,16 @@ export class LoggingRepository {
     else console.log(line);
   }
 
+  private remember(line: string) {
+    // Copy truncated strings so retaining a slice cannot keep a large original entry alive.
+    const entry =
+      line.length > recentEntrySize ? `${Buffer.from(line.slice(0, recentEntrySize)).toString()}… [truncated]` : line;
+
+    this.history.push(entry);
+
+    if (this.history.length > recentEntryLimit) this.history.shift();
+  }
+
   private write(level: Level, event: string, message: string, fields: Fields = {}) {
     if (!this.isLevelEnabled(level)) return;
 
@@ -126,10 +144,16 @@ export class LoggingRepository {
       };
 
       if (this.options.format === 'json') {
-        this.sink(JSON.stringify(entry), level);
+        const line = JSON.stringify(entry);
+        this.remember(line);
+        this.sink(line, level);
 
         return;
       }
+
+      const prefix = `${entry.timestamp} ${level} ${entry.event} ${entry.message}`;
+      // Use redacted fields for the web view. Console traces inspect the original errors.
+      this.remember(`${prefix} ${JSON.stringify(data)}`);
 
       // Text logs print each error the way Node does, stack and causes on their own lines.
       const traces = Object.values(all)
@@ -138,7 +162,7 @@ export class LoggingRepository {
         .join('');
 
       this.sink(
-        `${entry.timestamp} ${level} ${entry.event} ${entry.message} ${JSON.stringify(data, (key, value: Serialized) => (key === 'stack' ? undefined : value))}${traces}`,
+        `${prefix} ${JSON.stringify(data, (key, value: Serialized) => (key === 'stack' ? undefined : value))}${traces}`,
         level,
       );
     } catch {

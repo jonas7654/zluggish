@@ -9,6 +9,7 @@
   import UserRow from '../components/UserRow.svelte';
   import Avatar from '../components/Avatar.svelte';
   import TextField from './TextField.svelte';
+  import ServerLogs from './ServerLogs.svelte';
 
   type ApiValue = string | number | boolean | null | undefined | ApiValue[] | { [key: string]: ApiValue };
 
@@ -1005,6 +1006,11 @@
               {/if}
             </form>
           </div>
+
+          <section class="panel">
+            <h2>Server logs</h2>
+            <ServerLogs load={() => api('/api/manage/server/logs')} />
+          </section>
 
           <section class="panel">
             <h2>World settings</h2>
