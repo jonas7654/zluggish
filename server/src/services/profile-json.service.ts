@@ -9,7 +9,7 @@ import {
 } from '#src/protocol/generated/profile_pb';
 import { BaseService } from '#src/services/base.service';
 import { isFieldSet, toJson } from '@bufbuild/protobuf';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 function attributes(items: Attribute[]) {
   const result: Record<string, string | number> = {};
@@ -95,7 +95,7 @@ export class ProfileJsonService extends BaseService {
       connectedToGarmin: profile.connectedToGarmin,
       totalExperiencePoints: isFieldSet(profile, PlayerProfileSchema.field.totalXp) ? profile.totalXp : 0,
       worldId: isFieldSet(profile, PlayerProfileSchema.field.serverRealm)
-        ? z.number().int().safe().parse(Number(profile.serverRealm))
+        ? Schema.decodeUnknownSync(Schema.Int)(Number(profile.serverRealm))
         : null,
       totalDistance: isFieldSet(profile, PlayerProfileSchema.field.totalDistanceInMeters)
         ? profile.totalDistanceInMeters
@@ -131,7 +131,7 @@ export class ProfileJsonService extends BaseService {
         ? profile.totalInOrangeJersey
         : 0,
       currentActivityId: isFieldSet(profile, PlayerProfileSchema.field.currentActivityId)
-        ? z.number().int().safe().parse(Number(profile.currentActivityId))
+        ? Schema.decodeUnknownSync(Schema.Int)(Number(profile.currentActivityId))
         : null,
       enrolledZwiftAcademy: profile.enrolledProgram === PlayerProfile_EnrolledProgram.ZWIFT_ACADEMY,
       runAchievementLevel: isFieldSet(profile, PlayerProfileSchema.field.runAchievementLevel)

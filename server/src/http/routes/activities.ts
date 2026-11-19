@@ -11,7 +11,8 @@ import {
 import { create, toBinary } from '@bufbuild/protobuf';
 import type { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
-import { z } from 'zod';
+import { Schema } from 'effect';
+import { NumberFromInput } from '#src/schema';
 
 export function activityRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
   const service = runtime.services.activities;
@@ -132,12 +133,9 @@ export function activityRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
       const type = c.req.param('feedType') ?? c.req.query('feedType')?.toLowerCase().replaceAll('_', '-');
 
-      const limit = z.coerce
-        .number()
-        .int()
-        .min(0)
-        .max(1000)
-        .parse(c.req.query('limit') ?? 50);
+      const limit = Schema.decodeUnknownSync(
+        NumberFromInput.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0), Schema.isLessThanOrEqualTo(1000)),
+      )(c.req.query('limit') ?? 50);
 
       const id =
         type === 'just-me' ? user.player_id : Number(c.req.param('profileId') ?? c.req.query('profile_id')) || null;
@@ -157,7 +155,10 @@ export function activityRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
     if (!activity || !service.fitnessVisible(records.decode(ActivitySchema, activity), user.player_id))
       throw new HTTPException(404);
-    const id = z.coerce.number().int().positive().safe().parse(c.req.param('fileId'));
+
+    const id = Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(
+      c.req.param('fileId'),
+    );
 
     if (!service.findOwnedActivityFile(id, c.req.param('activityId'))) throw new HTTPException(404);
     const file = service.chartPath(id);

@@ -54,8 +54,7 @@
     "ini": "^6.0.0",
     "jiti": "^2.0.0",
     "kysely": "^0.29.9",
-    "typescript": "^6.0.3",
-    "zod": "^4.0.0"
+    "typescript": "^6.0.3"
   },
   "devDependencies": {
     "@bufbuild/buf": "1.75.0",

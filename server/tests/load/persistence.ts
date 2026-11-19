@@ -27,7 +27,8 @@ import { resolve } from 'node:path';
 import { mock } from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 import { parseArgs } from 'node:util';
-import { z } from 'zod';
+import { Schema } from 'effect';
+import { NumberFromInput } from '#src/schema';
 
 const { values } = parseArgs({
   options: {
@@ -47,7 +48,9 @@ const { values } = parseArgs({
   },
 });
 
-const count = (name: keyof typeof values) => z.coerce.number().int().min(0).parse(values[name]);
+const count = (name: keyof typeof values) =>
+  Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)))(values[name]);
+
 const riders = count('riders');
 const finishers = Math.min(riders, count('finishers'));
 const ghostFiles = count('ghost-files');
@@ -88,7 +91,7 @@ if (slowDisk > 0) {
 
 function fitActivity(seconds: number) {
   const encoder = new Encoder();
-  const record = z.number().parse(Profile.MesgNum.RECORD);
+  const record = Schema.decodeUnknownSync(Schema.Finite)(Profile.MesgNum.RECORD);
 
   for (let index = 0; index < seconds; index++) {
     const mesg: RecordMesg = {
@@ -139,9 +142,9 @@ const config = validateConfig({
 
 const assets = resolve(packageRoot(), '../assets');
 
-const tokens = z
-  .object({ access: z.string(), refresh: z.string(), id: z.string() })
-  .parse(JSON.parse(readFileSync(resolve(assets, 'tokens.json'), 'utf8')));
+const tokens = Schema.decodeUnknownSync(
+  Schema.Struct({ access: Schema.String, refresh: Schema.String, id: Schema.String }),
+)(JSON.parse(readFileSync(resolve(assets, 'tokens.json'), 'utf8')));
 
 const world = new World();
 
@@ -208,7 +211,7 @@ for (let index = 0; index < riders; index++) {
     ),
   });
 
-  const activity = z.object({ id: z.number() }).parse(await created.json()).id;
+  const activity = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await created.json()).id;
   fleet.push({ id, activity, auth, tick: 0, riding: false });
 }
 

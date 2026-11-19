@@ -4,7 +4,7 @@ import { immediate } from '#src/db/transaction';
 import { BaseService } from '#src/services/base.service';
 import { create, fromBinary, toBinary } from '@bufbuild/protobuf';
 import { resolve } from 'node:path';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 /** Per rider, missing file bootstraps saved-game unlocks; membership only grows through
 threshold/report events. Import replaces this state externally; reads may backfill routes.
@@ -49,11 +49,9 @@ export class AchievementService extends BaseService {
   backfillRoutes(runtime: Runtime, id: number) {
     const achievements = this.loadAchievements(runtime, id);
 
-    const dictionary = z
-      .object({ achievements: z.record(z.string(), z.number().int()) })
-      .parse(
-        JSON.parse(this.filesRepository.readFileSync(resolve(runtime.assets, 'data/game_dictionary.txt'), 'utf8')),
-      );
+    const dictionary = Schema.decodeUnknownSync(
+      Schema.Struct({ achievements: Schema.Record(Schema.String, Schema.Int) }),
+    )(JSON.parse(this.filesRepository.readFileSync(resolve(runtime.assets, 'data/game_dictionary.txt'), 'utf8')));
 
     immediate(runtime.accounts.db, () => {
       for (const badge of achievements.achievements) {

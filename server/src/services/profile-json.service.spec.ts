@@ -1,9 +1,9 @@
 import { PlayerProfileSchema } from '#src/protocol/generated/profile_pb';
 import { ProfileJsonService } from '#src/services/profile-json.service';
 import { create } from '@bufbuild/protobuf';
+import { Schema } from 'effect';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { z } from 'zod';
 
 await test('Companion profiles retain DOB age, equipment, attributes and numeric IDs', (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.UTC(2026, 10, 13) });
@@ -33,5 +33,5 @@ await test('Companion profiles retain DOB age, equipment, attributes and numeric
   profile.dob = '02/30/2000';
   assert.equal(ProfileJsonService.companionProfile(profile, null, 'Ventum One').age, profile.age);
   profile.currentActivityId = 9_007_199_254_740_992n;
-  assert.throws(() => ProfileJsonService.companionProfile(profile, null, 'Ventum One'), z.ZodError);
+  assert.throws(() => ProfileJsonService.companionProfile(profile, null, 'Ventum One'), Schema.isSchemaError);
 });

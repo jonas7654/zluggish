@@ -2,7 +2,7 @@ import { runtimeFixture } from '#tests/support/runtime';
 import assert from 'node:assert/strict';
 import type { SQLInputValue, StatementSync } from 'node:sqlite';
 import { test } from 'node:test';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 const tables = new Set([
   'activity',
@@ -104,7 +104,7 @@ await test('the main queries use an index on several years of history', async (t
     const rows = prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...args);
     plans.set(
       sql,
-      rows.map((row) => z.string().parse(row.detail)),
+      rows.map((row) => Schema.decodeUnknownSync(Schema.String)(row.detail)),
     );
   }
 

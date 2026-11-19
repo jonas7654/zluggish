@@ -1,9 +1,11 @@
 import { existsSync, statSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { parentPort, workerData } from 'node:worker_threads';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
-const options = z.object({ path: z.string(), intervalMs: z.number(), thresholdBytes: z.number() }).parse(workerData);
+const options = Schema.decodeUnknownSync(
+  Schema.Struct({ path: Schema.String, intervalMs: Schema.Finite, thresholdBytes: Schema.Finite }),
+)(workerData);
 
 // A second connection checkpoints, so the main thread never copies WAL pages.
 // PASSIVE does not wait for readers or writers; a long reader only delays progress.

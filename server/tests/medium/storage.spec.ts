@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 for (const companion of [false, true])
   for (const json of [false, true]) {
@@ -52,7 +52,11 @@ for (const companion of [false, true])
       assert.equal(first.status, 200);
 
       const metadata = json
-        ? z.looseObject({ id: z.number(), lastModified: z.string() }).parse(await first.json())
+        ? Schema.decodeUnknownSync(
+            Schema.StructWithRest(Schema.Struct({ id: Schema.Finite, lastModified: Schema.String }), [
+              Schema.Record(Schema.String, Schema.Unknown),
+            ]),
+          )(await first.json())
         : await decode(first, ZFileProtoSchema);
 
       assert.ok(metadata.id);
@@ -334,9 +338,12 @@ await test('bike upgrade unlocks include extra frames, preserve settings and lea
   const start = BigInt(Date.now());
   const result = service.attributes(id, new Set([24, 22]));
 
-  const dictionary = z
-    .object({ bikeframes: z.record(z.string(), z.string()), bikeframesextra: z.record(z.string(), z.string()) })
-    .parse(JSON.parse(readFileSync(resolve(f.assets, 'data/game_dictionary.txt'), 'utf8')));
+  const dictionary = Schema.decodeUnknownSync(
+    Schema.Struct({
+      bikeframes: Schema.Record(Schema.String, Schema.String),
+      bikeframesextra: Schema.Record(Schema.String, Schema.String),
+    }),
+  )(JSON.parse(readFileSync(resolve(f.assets, 'data/game_dictionary.txt'), 'utf8')));
 
   const bikes = result.attributes.flatMap((a) => (a.bikeProgress ? [a.bikeProgress] : []));
   assert.equal(

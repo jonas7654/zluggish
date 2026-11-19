@@ -9,7 +9,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import type { TestContext } from 'node:test';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 export function runtimeFixture(t: TestContext) {
   const storage = mkdtempSync(resolve(tmpdir(), 'zluggish-accounts-'));
@@ -21,9 +21,9 @@ export function runtimeFixture(t: TestContext) {
   const config = validateConfig({ storageDir: storage });
   const assets = resolve(packageRoot(), '../assets');
 
-  const tokens = z
-    .object({ access: z.string(), refresh: z.string(), id: z.string() })
-    .parse(JSON.parse(readFileSync(resolve(packageRoot(), '../assets/tokens.json'), 'utf8')));
+  const tokens = Schema.decodeUnknownSync(
+    Schema.Struct({ access: Schema.String, refresh: Schema.String, id: Schema.String }),
+  )(JSON.parse(readFileSync(resolve(packageRoot(), '../assets/tokens.json'), 'utf8')));
 
   const context = {
     accounts,

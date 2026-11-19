@@ -17,14 +17,14 @@ import { UploadsService } from '#src/services/uploads.service';
 import { course, worldTime } from '#src/world/state';
 import { clearField, clone, create, toBinary } from '@bufbuild/protobuf';
 import { dirname, resolve } from 'node:path';
-import { z } from 'zod';
+import { Option, Schema } from 'effect';
 
 /** Comma-separated identifiers in a job payload. */
 function identifiers(job: RunningJob, key: string) {
   return job.text(key).split(',').filter(Boolean);
 }
 
-function ids(rows: { id: number }[]) {
+function ids(rows: readonly { id: number }[]) {
   return rows.map((row) => row.id).join(',');
 }
 
@@ -66,11 +66,11 @@ export class ActivitiesService extends BaseService {
       const bytes = new Uint8Array(await read());
 
       if (this.mediaTokens.get(id) !== entry || entry.expires < Date.now()) throw new ApplicationError({ status: 403 });
-      const row = activityMediaSchema.safeParse(this.activitiesRepository.findActivityMedia(id));
+      const row = Schema.decodeUnknownOption(activityMediaSchema)(this.activitiesRepository.findActivityMedia(id));
 
-      if (!row.success) throw new ApplicationError({ status: 404 });
-      const extension = row.data.content_type.includes('quicktime') ? 'mov' : 'mp4';
-      const path = resolve(this.context.profiles.folder(row.data.player_id), 'medias', `${id}.${extension}`);
+      if (Option.isNone(row)) throw new ApplicationError({ status: 404 });
+      const extension = row.value.content_type.includes('quicktime') ? 'mov' : 'mp4';
+      const path = resolve(this.context.profiles.folder(row.value.player_id), 'medias', `${id}.${extension}`);
       await this.filesRepository.writeDurableAsync(path, bytes, true);
 
       // The file is durable before the row is ready. The activity can be deleted while
@@ -297,12 +297,20 @@ export class ActivitiesService extends BaseService {
       const payload = {
         activityId: Number(id),
         playerId: player,
-        charts: ids(z.array(z.object({ id: z.number() })).parse(this.activitiesRepository.listActivityFile(id))),
+        charts: ids(
+          Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ id: Schema.Finite })))(
+            this.activitiesRepository.listActivityFile(id),
+          ),
+        ),
         images: ids(
-          z.array(z.object({ id: z.number() })).parse(this.activitiesRepository.listActivityImage(player, id)),
+          Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ id: Schema.Finite })))(
+            this.activitiesRepository.listActivityImage(player, id),
+          ),
         ),
         media: ids(
-          z.array(z.object({ id: z.number() })).parse(this.activitiesRepository.listActivityMedia(player, id)),
+          Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ id: Schema.Finite })))(
+            this.activitiesRepository.listActivityMedia(player, id),
+          ),
         ),
       };
 
@@ -393,14 +401,14 @@ export class ActivitiesService extends BaseService {
 
     const paths = [];
 
-    for (const row of z
-      .array(z.object({ id: z.number(), state: z.string() }))
-      .parse(this.activitiesRepository.listActivityImage(player, activity)))
+    for (const row of Schema.decodeUnknownSync(
+      Schema.Array(Schema.Struct({ id: Schema.Finite, state: Schema.String })),
+    )(this.activitiesRepository.listActivityImage(player, activity)))
       if (row.state === 'ready') paths.push(resolve(folder, 'images', `${row.id}.jpg`));
 
-    for (const row of z
-      .array(z.object({ id: z.number(), content_type: z.string(), state: z.string() }))
-      .parse(this.activitiesRepository.listActivityMedia(player, activity)))
+    for (const row of Schema.decodeUnknownSync(
+      Schema.Array(Schema.Struct({ id: Schema.Finite, content_type: Schema.String, state: Schema.String })),
+    )(this.activitiesRepository.listActivityMedia(player, activity)))
       if (row.state === 'ready')
         paths.push(resolve(folder, 'medias', `${row.id}.${row.content_type.includes('quicktime') ? 'mov' : 'mp4'}`));
 
@@ -495,9 +503,9 @@ export class ActivitiesService extends BaseService {
 
     if (!activity) throw new ApplicationError({ status: 404, message: 'Activity not found.' });
 
-    const images = z
-      .array(z.object({ id: z.number(), state: z.string() }))
-      .parse(this.activitiesRepository.listActivityImage(player, id))
+    const images = Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ id: Schema.Finite, state: Schema.String })))(
+      this.activitiesRepository.listActivityImage(player, id),
+    )
       .filter((row) => row.state === 'ready')
       .map((row) => row.id);
 
@@ -529,10 +537,9 @@ export class ActivitiesService extends BaseService {
 
   /** A ready image of an own activity. */
   ownImage(player: number, activity: string, image: number) {
-    const ready = z
-      .array(z.object({ id: z.number(), state: z.string() }))
-      .parse(this.activitiesRepository.listActivityImage(player, activity))
-      .some((row) => row.id === image && row.state === 'ready');
+    const ready = Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ id: Schema.Finite, state: Schema.String })))(
+      this.activitiesRepository.listActivityImage(player, activity),
+    ).some((row) => row.id === image && row.state === 'ready');
 
     const path = resolve(this.context.profiles.folder(player), 'images', `${image}.jpg`);
 
@@ -583,7 +590,7 @@ export class ActivitiesService extends BaseService {
   /** The chart of a completed activity, or null while its job runs. */
   chartFile(activity: bigint) {
     const row = this.activitiesRepository.findActivityFile(activity);
-    const fileId = row ? z.number().parse(row.id) : null;
+    const fileId = row ? Schema.decodeUnknownSync(Schema.Finite)(row.id) : null;
 
     if (fileId !== null && this.filesRepository.existsSync(this.chartPath(fileId))) return fileId;
 

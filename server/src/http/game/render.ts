@@ -3,7 +3,7 @@ import type { FormResult, GamePageModel, GameSaved } from '#src/dtos/game-app.dt
 import { browserJson } from '#src/http/game/results';
 import type { HttpRuntime, RuntimeEnv } from '#src/http/runtime';
 import type { Context } from 'hono';
-import { z } from 'zod';
+import { Schema } from 'effect';
 import { resolve } from 'node:path';
 
 function serialize(props: GamePageModel) {
@@ -15,9 +15,12 @@ function document(
   rendered: { head: string; body: string },
   files: HttpRuntime['services']['files'],
 ) {
-  const manifest = z
-    .record(z.string(), z.object({ file: z.string(), css: z.array(z.string()).optional() }))
-    .parse(JSON.parse(files.read(resolve(packageRoot(), '../web/dist/game/client/.vite/manifest.json'), 'utf8')));
+  const manifest = Schema.decodeUnknownSync(
+    Schema.Record(
+      Schema.String,
+      Schema.Struct({ file: Schema.String, css: Schema.optional(Schema.Array(Schema.String)) }),
+    ),
+  )(JSON.parse(files.read(resolve(packageRoot(), '../web/dist/game/client/.vite/manifest.json'), 'utf8')));
 
   const entry = manifest['src/game/client.ts'];
 

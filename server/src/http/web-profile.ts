@@ -1,4 +1,5 @@
-import { z } from 'zod';
+import { Schema } from 'effect';
+import { Strict, withDefault } from '#src/schema';
 import { DownloadFile } from '#src/enum';
 import type { Hono, Context } from 'hono';
 import { ApplicationError } from '#src/errors';
@@ -78,7 +79,7 @@ export function webProfileRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
   });
   app.get('/api/me/export/:filename', (c) => {
     const { user } = context(c);
-    const filename = z.enum(DownloadFile).parse(c.req.param('filename'));
+    const filename = Schema.decodeUnknownSync(Schema.Enum(DownloadFile))(c.req.param('filename'));
     const data = runtime.services.documents.get(user.player_id, filename);
 
     if (!data) throw new ApplicationError({ status: 404, message: 'File not found.' });
@@ -90,7 +91,10 @@ export function webProfileRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
   });
   app.post('/api/me/power-curves', async (c) => {
     const { user } = context(c);
-    const input = z.object({ confirm: z.literal(true), create: z.boolean() }).parse(await c.req.json());
+
+    const input = Schema.decodeUnknownSync(Schema.Struct({ confirm: Schema.Literal(true), create: Schema.Boolean }))(
+      await c.req.json(),
+    );
 
     if (input.create) runtime.services.activities.rebuildPowerCurves(user.player_id);
     else runtime.services.integrations.deletePowerCurve(user.player_id);
@@ -101,7 +105,7 @@ export function webProfileRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
   app.get('/api/me/import', (c) => {
     context(c);
 
-    return c.json({ filenames: importFilenameSchema.options, review: review(c) });
+    return c.json({ filenames: Object.values(importFilenameSchema.enums), review: review(c) });
   });
   app.post('/api/me/import', async (c) => {
     const { user } = context(c);
@@ -109,7 +113,7 @@ export function webProfileRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
     const form = await c.req.parseBody();
     const files: ImportFiles = {};
 
-    for (const name of importFilenameSchema.options) {
+    for (const name of Object.values(importFilenameSchema.enums)) {
       const upload = form[name];
 
       if (upload instanceof File && upload.name) files[name] = new Uint8Array(await upload.arrayBuffer());
@@ -118,14 +122,14 @@ export function webProfileRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
     return stageFiles(c, identity, files);
   });
   app.post('/api/me/import/confirm', async (c) => {
-    const input = z
-      .strictObject({
-        stage: z.string(),
-        cancel: z.boolean().default(false),
-        keepName: z.boolean().default(false),
-        confirmSource: z.boolean().default(false),
-      })
-      .parse(await c.req.json());
+    const input = Schema.decodeUnknownSync(
+      Strict({
+        stage: Schema.String,
+        cancel: Schema.Boolean.pipe(withDefault(false)),
+        keepName: Schema.Boolean.pipe(withDefault(false)),
+        confirmSource: Schema.Boolean.pipe(withDefault(false)),
+      }),
+    )(await c.req.json());
 
     const { user, session } = context(c);
     const current = review(c);
@@ -161,14 +165,14 @@ export function webProfileRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
 
   app.get('/api/me/zwift', connection);
   app.put('/api/me/zwift', async (c) => {
-    const input = z
-      .strictObject({
-        username: z.string().max(500),
-        password: z.string().max(1000),
-        upload: z.boolean(),
-        click: z.boolean(),
-      })
-      .parse(await c.req.json());
+    const input = Schema.decodeUnknownSync(
+      Strict({
+        username: Schema.String.check(Schema.isMaxLength(500)),
+        password: Schema.String.check(Schema.isMaxLength(1000)),
+        upload: Schema.Boolean,
+        click: Schema.Boolean,
+      }),
+    )(await c.req.json());
 
     const { user } = context(c);
     const username = input.username.trim();
@@ -195,7 +199,10 @@ export function webProfileRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
     return connection(c);
   });
   app.post('/api/me/zwift/import', async (c) => {
-    const input = z.strictObject({ profile: z.boolean(), achievements: z.boolean() }).parse(await c.req.json());
+    const input = Schema.decodeUnknownSync(Strict({ profile: Schema.Boolean, achievements: Schema.Boolean }))(
+      await c.req.json(),
+    );
+
     const { user } = context(c);
     const identity = accounts.identityOf(user);
     const credentials = connections.read(user.player_id, 'zwift');

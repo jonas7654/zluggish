@@ -1,7 +1,7 @@
 import { mediumBrowser, mediumFixture } from '#tests/medium/support';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 await test('Svelte SSR dashboard keeps identity, CSRF and static asset boundaries', async (t) => {
   const f = await mediumFixture(t);
@@ -15,9 +15,9 @@ await test('Svelte SSR dashboard keeps identity, CSRF and static asset boundarie
   assert.match(html, /Start Zwift/);
   assert.match(html, /name="csrf_token"/);
 
-  const props = z
-    .object({ csrf: z.string() })
-    .parse(JSON.parse(/id="launcher-props">([^<]+)<\/script>/.exec(html)![1]!));
+  const props = Schema.decodeUnknownSync(Schema.Struct({ csrf: Schema.String }))(
+    JSON.parse(/id="launcher-props">([^<]+)<\/script>/.exec(html)![1]!),
+  );
 
   assert.ok(props.csrf);
   const asset = /src="(\/static\/launcher-ui\/[^"]+\.js)"/.exec(html)![1]!;
@@ -99,9 +99,9 @@ await test('JSON form posts return redirects and reject expired tokens and stale
   const browser = await mediumBrowser(f);
   const page = await browser.request(`/user/${f.rider.username}/`);
 
-  const props = z
-    .object({ csrf: z.string() })
-    .parse(JSON.parse(/id="launcher-props">([^<]+)<\/script>/.exec(await page.text())![1]!));
+  const props = Schema.decodeUnknownSync(Schema.Struct({ csrf: Schema.String }))(
+    JSON.parse(/id="launcher-props">([^<]+)<\/script>/.exec(await page.text())![1]!),
+  );
 
   const post = (csrf: string, context = props.csrf) =>
     browser.request('/riders/switch/', {

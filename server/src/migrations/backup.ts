@@ -19,18 +19,18 @@ import {
 } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 const MANIFEST = 'backup-manifest.json';
 const CONFIG = 'config';
 const RESTORING = 'zluggish.db.restoring';
 
-const manifestSchema = z.object({
-  version: z.literal(2),
-  created: z.string(),
-  schemaVersion: z.number(),
-  config: z.string().nullable(),
-  checksums: z.record(z.string(), z.string()),
+const manifestSchema = Schema.Struct({
+  version: Schema.Literal(2),
+  created: Schema.String,
+  schemaVersion: Schema.Finite,
+  config: Schema.NullOr(Schema.String),
+  checksums: Schema.Record(Schema.String, Schema.String),
 });
 
 const crypto = new CryptoRepository();
@@ -100,7 +100,7 @@ export function backupStorage(storage: string, output: string, config: string | 
   let schemaVersion: number;
 
   try {
-    schemaVersion = z.number().parse(db.prepare('SELECT version FROM version').get()?.version);
+    schemaVersion = Schema.decodeUnknownSync(Schema.Finite)(db.prepare('SELECT version FROM version').get()?.version);
 
     if (schemaVersion !== SCHEMA_VERSION) throw new ConfigError('Start the server once to upgrade storage first');
     db.prepare('VACUUM INTO ?').run(resolve(output, StorageFile.Database));
@@ -153,7 +153,7 @@ function validateBackup(input: string) {
   const path = resolve(input, MANIFEST);
 
   if (!existsSync(path)) throw new ConfigError('The backup has no manifest');
-  const manifest = manifestSchema.parse(JSON.parse(readFileSync(path, 'utf8')));
+  const manifest = Schema.decodeUnknownSync(manifestSchema)(JSON.parse(readFileSync(path, 'utf8')));
 
   for (const [name, checksum] of Object.entries(manifest.checksums)) {
     const file = resolve(input, name);
@@ -191,7 +191,9 @@ function closeCurrent(storage: string) {
   const db = new DatabaseSync(path);
 
   try {
-    const result = z.object({ busy: z.number() }).parse(db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get());
+    const result = Schema.decodeUnknownSync(Schema.Struct({ busy: Schema.Finite }))(
+      db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get(),
+    );
 
     if (result.busy !== 0) throw new ConfigError('The database is busy; stop the server before a restore');
     db.exec('PRAGMA journal_mode=DELETE');

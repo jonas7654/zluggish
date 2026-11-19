@@ -1,5 +1,5 @@
 import { XMLParser } from 'fast-xml-parser';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 export const mapChoices = [
   { value: '7', key: 'LONDON', label: 'London / Yorkshire' },
@@ -10,15 +10,15 @@ export const mapChoices = [
   { value: '17', key: 'SCOTLAND', label: 'Scotland / Makuri Islands' },
 ];
 
-const appointment = z.object({
-  start: z.string(),
-  map: z.string().optional(),
-  road: z.string().optional(),
-  world: z.string().optional(),
-  portal: z.string().optional(),
+const appointment = Schema.Struct({
+  start: Schema.String,
+  map: Schema.optional(Schema.String),
+  road: Schema.optional(Schema.String),
+  world: Schema.optional(Schema.String),
+  portal: Schema.optional(Schema.String),
 });
 
-const appointments = z.object({ appointments: z.object({ appointment: z.array(appointment) }) });
+const appointments = Schema.Struct({ appointments: Schema.Struct({ appointment: Schema.Array(appointment) }) });
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -35,19 +35,21 @@ function startTime(start: string) {
 export function calendarLabels(
   mapXml: string,
   climbXml: string,
-  climbs: { road: string; name: string }[],
+  climbs: readonly { road: string; name: string }[],
   now = Date.now(),
 ) {
-  const maps = z.object({ MapSchedule: appointments }).parse(parser.parse(mapXml)).MapSchedule.appointments.appointment;
+  const maps = Schema.decodeUnknownSync(Schema.Struct({ MapSchedule: appointments }))(parser.parse(mapXml)).MapSchedule
+    .appointments.appointment;
 
-  const roads = z.object({ PortalRoads: z.object({ PortalRoadSchedule: appointments }) }).parse(parser.parse(climbXml))
-    .PortalRoads.PortalRoadSchedule.appointments.appointment;
+  const roads = Schema.decodeUnknownSync(
+    Schema.Struct({ PortalRoads: Schema.Struct({ PortalRoadSchedule: appointments }) }),
+  )(parser.parse(climbXml)).PortalRoads.PortalRoadSchedule.appointments.appointment;
 
   const activeMap = maps
     .filter((entry) => startTime(entry.start) <= now)
     .sort((a, b) => startTime(b.start) - startTime(a.start))[0];
 
-  const activeRoads = new Map<string, z.infer<typeof appointment>>();
+  const activeRoads = new Map<string, (typeof appointment)['Type']>();
 
   for (const entry of roads) {
     if (startTime(entry.start) > now || !Number.isFinite(startTime(entry.start))) continue;

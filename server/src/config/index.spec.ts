@@ -1,5 +1,4 @@
-import { envBoolean, envInteger, validateConfig } from '#src/config/index';
-import { configSchema } from '#src/config/schema';
+import { ConfigError, decodeConfigInput, envBoolean, envInteger, validateConfig } from '#src/config/index';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
@@ -13,7 +12,7 @@ await test('runtime validation rejects unknown, non-finite, invalid ranges and d
     { soloBlob: { rowGap: Infinity } },
     { pelotons: [{ id: 'x', pacer: 1, bots: 201 }] },
   ]) {
-    assert.equal(configSchema.safeParse(input).success, false);
+    assert.throws(() => decodeConfigInput(input), ConfigError);
   }
 
   assert.throws(

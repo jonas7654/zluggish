@@ -3,7 +3,7 @@ import { createWebApp } from '#src/http/web-app';
 import { serve } from '@hono/node-server';
 import { chromium } from 'playwright';
 import assert from 'node:assert/strict';
-import { z } from 'zod';
+import { Schema } from 'effect';
 import { once } from 'node:events';
 import { test } from 'node:test';
 
@@ -23,8 +23,8 @@ for (const existing of [false, true])
         game.close();
       });
       await Promise.all([web, game].flatMap((s) => (s.listening ? [] : [once(s, 'listening')])));
-      const address = z.object({ port: z.number() }).parse(web.address());
-      const gameAddress = z.object({ port: z.number() }).parse(game.address());
+      const address = Schema.decodeUnknownSync(Schema.Struct({ port: Schema.Finite }))(web.address());
+      const gameAddress = Schema.decodeUnknownSync(Schema.Struct({ port: Schema.Finite }))(game.address());
       const origin = `http://127.0.0.1:${address.port}`;
       const browser = await chromium.launch();
       t.after(() => browser.close());

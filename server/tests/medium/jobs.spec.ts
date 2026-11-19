@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 const fit = readFileSync(new URL('../fixtures/ride.fit', import.meta.url));
 
@@ -30,7 +30,7 @@ async function completed(f: Awaited<ReturnType<typeof mediumFixture>>) {
     ...binary(ActivitySchema, data),
   });
 
-  const { id } = z.object({ id: z.number() }).parse(await response.json());
+  const { id } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await response.json());
   f.services.activities.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }));
 
   return id;
@@ -167,7 +167,9 @@ await test('a job that exceeds its time limit is stopped, retried, then failed a
       runs++;
 
       return new Promise((_resolve, reject) => {
-        job.signal.addEventListener('abort', () => reject(z.instanceof(Error).parse(job.signal.reason)));
+        job.signal.addEventListener('abort', () =>
+          reject(Schema.decodeUnknownSync(Schema.instanceOf(Error))(job.signal.reason)),
+        );
       });
     },
   });

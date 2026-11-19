@@ -12,7 +12,7 @@ import { worldTime } from '#src/world/state';
 import { ActivitySchema } from '#src/protocol/generated/activity_pb';
 import { binary, mediumFixture } from '#tests/medium/support';
 import { runtimeFixture } from '#tests/support/runtime';
-import { z } from 'zod';
+import { Schema } from 'effect';
 import { responseStatus } from '#tests/support/html';
 
 const flush = () => Promise.resolve();
@@ -310,7 +310,7 @@ await test('web app lists an activity whose Strava ids exceed 32 bits', async (t
     ...binary(ActivitySchema, data),
   });
 
-  const { id } = z.object({ id: z.number() }).parse(await posted.json());
+  const { id } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await posted.json());
   f.services.activities.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }));
   const { id: session } = f.services.management.sessions.create(f.accounts.identityOf(f.rider));
 
@@ -347,7 +347,7 @@ await test('riders list, inspect and download only their own activities in the w
     ...binary(ActivitySchema, data),
   });
 
-  const { id } = z.object({ id: z.number() }).parse(await posted.json());
+  const { id } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await posted.json());
   f.services.activities.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }));
   const image = await f.services.activities.saveImage(f.rider.player_id, String(id), new Uint8Array([0xff, 0xd8, 1]));
 
@@ -442,13 +442,13 @@ await test('web app lists the climb portals a rider has ridden with the best tim
 });
 
 await test('every climb with Strava segments is a climb of the launcher, with no segment used twice', () => {
-  const climbs = z
-    .array(z.object({ name: z.string(), road: z.string() }))
-    .parse(JSON.parse(readFileSync(resolve(packageRoot(), '../assets/data/climbs.txt'), 'utf8')));
+  const climbs = Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ name: Schema.String, road: Schema.String })))(
+    JSON.parse(readFileSync(resolve(packageRoot(), '../assets/data/climbs.txt'), 'utf8')),
+  );
 
-  const segments = z
-    .record(z.string(), z.object({ watopia: z.number(), france: z.number() }))
-    .parse(JSON.parse(readFileSync(resolve(packageRoot(), '../assets/data/climb_segments.txt'), 'utf8')));
+  const segments = Schema.decodeUnknownSync(
+    Schema.Record(Schema.String, Schema.Struct({ watopia: Schema.Finite, france: Schema.Finite })),
+  )(JSON.parse(readFileSync(resolve(packageRoot(), '../assets/data/climb_segments.txt'), 'utf8')));
 
   const roads = new Set(climbs.map((climb) => climb.road));
   const ids = Object.values(segments).flatMap((segment) => [segment.watopia, segment.france]);

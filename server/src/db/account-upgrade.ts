@@ -1,6 +1,6 @@
 import { SettingsStore } from '#src/repositories/settings.repository';
 import type { DatabaseSync } from 'node:sqlite';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 export function removeLegacyAccountFields(db: DatabaseSync, storage: string) {
   const columns = new Set(
@@ -15,7 +15,10 @@ export function removeLegacyAccountFields(db: DatabaseSync, storage: string) {
 
     try {
       for (const row of db.prepare('SELECT player_id, enable_ghosts FROM user').all()) {
-        const rider = z.object({ player_id: z.number(), enable_ghosts: z.number() }).parse(row);
+        const rider = Schema.decodeUnknownSync(
+          Schema.Struct({ player_id: Schema.Finite, enable_ghosts: Schema.Finite }),
+        )(row);
+
         const overrides = settings.read(rider.player_id);
 
         if (overrides['ghosts.enabled'] === undefined)

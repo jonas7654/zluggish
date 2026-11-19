@@ -14,7 +14,7 @@ import { once } from 'node:events';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 const { values } = parseArgs({
   options: { config: { type: 'string' }, 'storage-dir': { type: 'string' } },
@@ -43,7 +43,9 @@ const assets = resolve(root, '../assets');
 
 const gameInfo = readFileSync(resolve(assets, 'data/game_info.txt'), 'utf8').replace(/^\u{FEFF}/u, '');
 
-const gameInfoHash = z.object({ gameInfoHash: z.string() }).parse(JSON.parse(gameInfo)).gameInfoHash;
+const gameInfoHash = Schema.decodeUnknownSync(Schema.Struct({ gameInfoHash: Schema.String }))(
+  JSON.parse(gameInfo),
+).gameInfoHash;
 
 const variants = readFileSync(resolve(assets, 'data/variants.txt'), 'utf8');
 

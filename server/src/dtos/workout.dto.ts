@@ -1,29 +1,32 @@
-import { z } from 'zod';
+import { Schema } from 'effect';
 
-export const uuid = z.uuidv4();
+export const uuid = Schema.String.check(Schema.isUUID());
 
-export const metadataSchema = z.object({
-  provider: z.string(),
-  event_id: z.union([z.string(), z.number()]).nullable().optional(),
-  workout_id: z.string().optional(),
-  name: z.string().nullable().optional(),
-  description: z.string().nullable().optional(),
-  start_date_local: z.string().nullable().optional(),
-  start_date: z.string().nullable().optional(),
-  icu_training_load: z.number().nullable().optional(),
+export const metadataSchema = Schema.Struct({
+  provider: Schema.String,
+  event_id: Schema.optional(Schema.NullOr(Schema.Union([Schema.String, Schema.Finite]))),
+  workout_id: Schema.optional(Schema.String),
+  name: Schema.optional(Schema.NullOr(Schema.String)),
+  description: Schema.optional(Schema.NullOr(Schema.String)),
+  start_date_local: Schema.optional(Schema.NullOr(Schema.String)),
+  start_date: Schema.optional(Schema.NullOr(Schema.String)),
+  icu_training_load: Schema.optional(Schema.NullOr(Schema.Finite)),
 });
 
-export const identifier = z.union([z.string(), z.number()]);
+export const identifier = Schema.Union([Schema.String, Schema.Finite]);
 
 /** Loose on purpose: unread provider fields must survive a rewrite. */
-export const storedEntrySchema = z.looseObject({
-  event_id: identifier.nullish(),
-  id: identifier.nullish(),
-  workout_id: z.string().nullish(),
-  name: z.string().nullish(),
-  start_date_local: z.string().nullish(),
-  start_date: z.string().nullish(),
-  synced_for_date: z.string().nullish(),
-});
+export const storedEntrySchema = Schema.StructWithRest(
+  Schema.Struct({
+    event_id: Schema.optional(Schema.NullOr(identifier)),
+    id: Schema.optional(Schema.NullOr(identifier)),
+    workout_id: Schema.optional(Schema.NullOr(Schema.String)),
+    name: Schema.optional(Schema.NullOr(Schema.String)),
+    start_date_local: Schema.optional(Schema.NullOr(Schema.String)),
+    start_date: Schema.optional(Schema.NullOr(Schema.String)),
+    synced_for_date: Schema.optional(Schema.NullOr(Schema.String)),
+  }),
+  [Schema.Record(Schema.String, Schema.Unknown)],
+);
 
-export type StoredEntry = z.infer<typeof storedEntrySchema>;
+export type StoredEntry = (typeof storedEntrySchema)['Type'];

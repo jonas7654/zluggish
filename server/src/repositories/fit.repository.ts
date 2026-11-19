@@ -1,36 +1,37 @@
+import { decodeOwned } from '#src/schema';
 import { FitQueueFullError } from '#src/errors';
 import type { ActivityChart, PowerBests } from '#src/repositories/fit-decoder.repository';
 import { Metric, metrics } from '#src/repositories/metrics.repository';
 import { Worker } from 'node:worker_threads';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 type Task = 'chart' | 'powerBests';
 
-type Json = z.infer<ReturnType<typeof z.json>>;
+type Json = typeof Schema.Json.Type;
 
 type Pending = { resolve: (value: Json) => void; reject: (error: Error) => void };
 
-const response = z.object({
-  id: z.number(),
-  duration: z.number(),
-  error: z.string().optional(),
-  result: z.json().optional(),
+const response = Schema.Struct({
+  id: Schema.Finite,
+  duration: Schema.Finite,
+  error: Schema.optional(Schema.String),
+  result: Schema.optional(Schema.Json),
 });
 
-const chartSchema = z.object({
-  powerInWatts: z.array(z.number()),
-  cadencePerMin: z.array(z.number()),
-  heartRate: z.array(z.number()),
-  distanceInCm: z.array(z.number()),
-  speedInCmPerSec: z.array(z.number()),
-  timeInSec: z.array(z.number()),
-  altitudeInCm: z.array(z.number()),
-  latlng: z.array(z.array(z.number())),
+const chartSchema = Schema.Struct({
+  powerInWatts: Schema.Array(Schema.Finite),
+  cadencePerMin: Schema.Array(Schema.Finite),
+  heartRate: Schema.Array(Schema.Finite),
+  distanceInCm: Schema.Array(Schema.Finite),
+  speedInCmPerSec: Schema.Array(Schema.Finite),
+  timeInSec: Schema.Array(Schema.Finite),
+  altitudeInCm: Schema.Array(Schema.Finite),
+  latlng: Schema.Array(Schema.Array(Schema.Finite)),
 });
 
-const bestsSchema = z.object({
-  timestamp: z.number(),
-  bests: z.array(z.object({ time: z.number(), power: z.number() })),
+const bestsSchema = Schema.Struct({
+  timestamp: Schema.Finite,
+  bests: Schema.Array(Schema.Struct({ time: Schema.Finite, power: Schema.Finite })),
 });
 
 /** One FIT worker thread with a bounded queue of pending tasks. The worker starts
@@ -50,11 +51,11 @@ export class FitRepository {
   }
 
   async chart(bytes: Uint8Array): Promise<ActivityChart> {
-    return chartSchema.parse(await this.run('chart', bytes));
+    return decodeOwned(chartSchema)(await this.run('chart', bytes));
   }
 
   async powerBests(bytes: Uint8Array): Promise<PowerBests> {
-    return bestsSchema.parse(await this.run('powerBests', bytes));
+    return decodeOwned(bestsSchema)(await this.run('powerBests', bytes));
   }
 
   private run(task: Task, bytes: Uint8Array): Promise<Json> {
@@ -86,7 +87,7 @@ export class FitRepository {
     worker.unref();
 
     worker.on('message', (message) => {
-      const parsed = response.parse(message);
+      const parsed = Schema.decodeUnknownSync(response)(message);
       const pending = this.pending.get(parsed.id);
       this.pending.delete(parsed.id);
       metrics.record(Metric.FitProcessing, parsed.duration);

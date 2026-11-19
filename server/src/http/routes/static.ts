@@ -11,17 +11,17 @@ import {
 import { create, toBinary } from '@bufbuild/protobuf';
 import type { Hono } from 'hono';
 import { resolve } from 'node:path';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
-const contracts = z.array(staticResponseSchema);
+const contracts = Schema.Array(staticResponseSchema);
 
 export function staticRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
-  const routes = contracts.parse(
+  const routes = Schema.decodeUnknownSync(contracts)(
     JSON.parse(runtime.services.files.read(resolve(packageRoot(), '../assets/static-responses.json'), 'utf8')),
   );
 
   for (const route of routes)
-    app.on(route.methods, route.path, (c) => {
+    app.on([...route.methods], route.path, (c) => {
       if (route.authenticated) authenticated(c);
 
       if (route.status === 204) return c.body(null, 204);

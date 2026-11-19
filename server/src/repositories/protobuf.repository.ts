@@ -3,7 +3,9 @@ import { query, SqliteExecutor } from '#src/db/query';
 import type { DescMessage } from '@bufbuild/protobuf';
 import { clearField, clone, fromJsonString, toJsonString } from '@bufbuild/protobuf';
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
-import { z } from 'zod';
+import { Schema } from 'effect';
+
+const isScalar = Schema.is(Schema.Union([Schema.String, Schema.Finite, Schema.Null]));
 
 export type ProtobufMessage<Schema extends DescMessage> = ReturnType<typeof fromJsonString<Schema>>;
 
@@ -28,7 +30,7 @@ export class ProtobufRows {
 
     for (const field of schema.fields) if (exclude.includes(field.name)) clearField(included, field);
 
-    const json = z.record(z.string(), z.json()).parse(
+    const json = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))(
       JSON.parse(
         toJsonString(schema, included, {
           useProtoFieldName: true,
@@ -53,14 +55,15 @@ export class ProtobufRows {
       if (value === undefined) continue;
 
       if (field.fieldKind === 'scalar' && [3, 4, 6, 16, 18].includes(field.scalar)) {
-        values.set(field.name, BigInt.asIntN(64, BigInt(z.union([z.string(), z.number()]).parse(value))));
+        values.set(
+          field.name,
+          BigInt.asIntN(64, BigInt(Schema.decodeUnknownSync(Schema.Union([Schema.String, Schema.Finite]))(value))),
+        );
       } else if (field.fieldKind === 'scalar' && field.scalar === 8) values.set(field.name, value ? 1 : 0);
       else if (field.fieldKind === 'scalar' && field.scalar === 12)
-        values.set(field.name, Buffer.from(z.string().parse(value), 'base64'));
+        values.set(field.name, Buffer.from(Schema.decodeUnknownSync(Schema.String)(value), 'base64'));
       else {
-        const scalar = z.union([z.string(), z.number(), z.null()]).safeParse(value);
-
-        values.set(field.name, scalar.success ? scalar.data : JSON.stringify(value));
+        values.set(field.name, isScalar(value) ? value : JSON.stringify(value));
       }
     }
 
@@ -104,7 +107,7 @@ export class ProtobufRows {
     schema: Schema,
     row: Record<string, string | number | bigint | Uint8Array | null>,
   ): ProtobufMessage<Schema> {
-    const json: Record<string, z.infer<ReturnType<typeof z.json>>> = {};
+    const json: Record<string, typeof Schema.Json.Type> = {};
 
     for (const field of schema.fields) {
       const value = row[field.name];
@@ -114,17 +117,21 @@ export class ProtobufRows {
       if (field.fieldKind === 'scalar' && [3, 4, 6, 16, 18].includes(field.scalar)) {
         json[field.name] = String(
           field.scalar === 4 || field.scalar === 6
-            ? BigInt.asUintN(64, BigInt(z.union([z.number(), z.bigint()]).parse(value)))
+            ? BigInt.asUintN(64, BigInt(Schema.decodeUnknownSync(Schema.Union([Schema.Finite, Schema.BigInt]))(value)))
             : value,
         );
       } else if (field.fieldKind === 'scalar' && field.scalar === 8) json[field.name] = value === 1n || value === 1;
       else if (field.fieldKind === 'scalar' && field.scalar === 12)
-        json[field.name] = Buffer.from(z.instanceof(Uint8Array).parse(value)).toString('base64');
+        json[field.name] = Buffer.from(Schema.decodeUnknownSync(Schema.instanceOf(Uint8Array))(value)).toString(
+          'base64',
+        );
       else if (field.fieldKind === 'message' || field.fieldKind === 'list' || field.fieldKind === 'map')
-        json[field.name] = z.json().parse(JSON.parse(z.string().parse(value)));
+        json[field.name] = Schema.decodeUnknownSync(Schema.Json)(
+          JSON.parse(Schema.decodeUnknownSync(Schema.String)(value)),
+        );
       else if (field.fieldKind === 'enum' || (field.fieldKind === 'scalar' && field.scalar !== 9))
         json[field.name] = Number(value);
-      else json[field.name] = z.string().parse(value);
+      else json[field.name] = Schema.decodeUnknownSync(Schema.String)(value);
     }
 
     return fromJsonString(schema, JSON.stringify(json));

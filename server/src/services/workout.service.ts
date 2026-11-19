@@ -5,9 +5,14 @@ import { BaseService } from '#src/services/base.service';
 import { SettingsService } from '#src/services/settings.service';
 import { XMLBuilder, XMLParser, XMLValidator } from 'fast-xml-parser';
 import { resolve } from 'node:path';
-import { z } from 'zod';
+import { Option, Schema } from 'effect';
+import { decodeOwned, withDefault } from '#src/schema';
 
-const number = (value: z.infer<ReturnType<typeof z.json>> | undefined, fallback = 0) => {
+const isCollection = Schema.is(Schema.Struct({ workouts: Schema.Array(Schema.Json) }));
+
+const decodeStoredEntry = Schema.decodeUnknownOption(storedEntrySchema);
+
+const number = (value: typeof Schema.Json.Type | undefined, fallback = 0) => {
   const result = Number(value);
 
   return value !== undefined && Number.isFinite(result) && result >= 0 ? result : fallback;
@@ -21,9 +26,9 @@ const parser = new XMLParser({
   processEntities: false,
 });
 
-const documentSchema = z.record(z.string(), z.json());
+const documentSchema = Schema.Record(Schema.String, Schema.Json);
 
-const stepSchema = z.record(z.string(), z.union([z.string(), z.number(), z.json()]));
+const stepSchema = Schema.Record(Schema.String, Schema.Union([Schema.String, Schema.Finite, Schema.Json]));
 
 const localDay = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -36,7 +41,7 @@ function parseXML(content: string) {
   )
     throw new Error('Invalid workout XML');
 
-  return documentSchema.parse(parser.parse(content));
+  return Schema.decodeUnknownSync(documentSchema)(parser.parse(content));
 }
 
 export class WorkoutsService extends BaseService {
@@ -103,9 +108,9 @@ export class WorkoutsService extends BaseService {
     const file = resolve(this.runtime.profiles.folder(id), 'intervals_icu_workout.json');
 
     if (!this.filesRepository.existsSync(file)) return [];
-    const raw = documentSchema.parse(JSON.parse(this.filesRepository.readFileSync(file, 'utf8')));
+    const raw = Schema.decodeUnknownSync(documentSchema)(JSON.parse(this.filesRepository.readFileSync(file, 'utf8')));
 
-    return z.array(metadataSchema).parse(Array.isArray(raw.workouts) ? raw.workouts : [raw]);
+    return Schema.decodeUnknownSync(Schema.Array(metadataSchema))(Array.isArray(raw.workouts) ? raw.workouts : [raw]);
   }
 
   metadataFile(id: number) {
@@ -119,19 +124,14 @@ export class WorkoutsService extends BaseService {
 
     if (!this.filesRepository.existsSync(file)) return { collection: false, entries: none };
 
-    const raw = JSON.parse(this.filesRepository.readFileSync(file, 'utf8'));
-    const collection = z.object({ workouts: z.array(z.json()) }).safeParse(raw);
+    const raw: unknown = JSON.parse(this.filesRepository.readFileSync(file, 'utf8'));
 
-    return collection.success
+    return isCollection(raw)
       ? {
           collection: true,
-          entries: collection.data.workouts.flatMap((entry) => {
-            const parsed = storedEntrySchema.safeParse(entry);
-
-            return parsed.success ? [parsed.data] : [];
-          }),
+          entries: raw.workouts.flatMap((entry) => Option.toArray(decodeStoredEntry(entry))),
         }
-      : { collection: false, entries: [storedEntrySchema.parse(raw)] };
+      : { collection: false, entries: [Schema.decodeUnknownSync(storedEntrySchema)(raw)] };
   }
 
   removeEvent(id: number, eventId: string | number) {
@@ -165,15 +165,15 @@ export class WorkoutsService extends BaseService {
     const seen = new Set<string>();
 
     return this.entries(id).flatMap((metadata) => {
-      const identity = uuid.safeParse(metadata.workout_id);
+      const identity = Schema.decodeUnknownOption(uuid)(metadata.workout_id);
 
-      if (!identity.success || seen.has(identity.data)) return [];
+      if (Option.isNone(identity) || seen.has(identity.value)) return [];
 
       const planned =
         metadata.start_date_local?.slice(0, 10) ?? (metadata.start_date ? localDay(new Date(metadata.start_date)) : '');
 
       if (planned !== day || metadata.provider !== 'intervals-icu') return [];
-      const file = this.file(identity.data);
+      const file = this.file(identity.value);
 
       if (
         !file ||
@@ -186,11 +186,11 @@ export class WorkoutsService extends BaseService {
       const details = WorkoutsService.workoutDetails(this.filesRepository.readFileSync(file, 'utf8'));
 
       if (!details) return [];
-      seen.add(identity.data);
+      seen.add(identity.value);
 
       const scheduleId = this.scheduleID(`zoffline:schedule:${id}:intervals-icu:${metadata.event_id}:${day}`);
 
-      const uri = `https://cdn.zwift.com/tp-workouts/intervalsicu/${identity.data}.zwo`;
+      const uri = `https://cdn.zwift.com/tp-workouts/intervalsicu/${identity.value}.zwo`;
       const midnight = new Date(now);
       midnight.setHours(0, 0, 0, 0);
       const tomorrow = new Date(midnight);
@@ -201,7 +201,7 @@ export class WorkoutsService extends BaseService {
         description: metadata.description || details.description,
         name: metadata.name || details.name,
         workoutAssetUrl: uri,
-        workoutId: identity.data,
+        workoutId: identity.value,
         legacyId: 0,
         sport: 'CYCLING',
         lastCompletion: null,
@@ -211,10 +211,10 @@ export class WorkoutsService extends BaseService {
       };
 
       return {
-        id: identity.data,
+        id: identity.value,
         schedule: {
           scheduleId,
-          workoutId: identity.data,
+          workoutId: identity.value,
           workoutUri: uri,
           trainingProviderId: 'intervalsicu',
           availableAfter: Math.floor(midnight.getTime() / 1000),
@@ -224,7 +224,7 @@ export class WorkoutsService extends BaseService {
         home: {
           nextUp: {
             selected: {
-              entityId: identity.data,
+              entityId: identity.value,
               entityType: 'WORKOUT',
               recommendedDurationMinutes: null,
               tags: [],
@@ -246,7 +246,7 @@ export class WorkoutsService extends BaseService {
   }
 
   file(id: string) {
-    return uuid.safeParse(id).success
+    return Schema.is(uuid)(id)
       ? resolve(this.runtime.config.storageDir, 'tp-workouts/intervalsicu', `${id}.zwo`)
       : null;
   }
@@ -293,19 +293,19 @@ export class WorkoutsService extends BaseService {
 
     if (!response.ok) throw new Error('Intervals.icu sync failed');
 
-    const events = z
-      .array(
-        z.object({
-          id: z.union([z.number().int().positive(), z.string().regex(/^\d+$/)]),
-          name: z.string().nullable().optional(),
-          start_date_local: z.string().optional(),
-          start_date: z.string().optional(),
-          category: z.string().default('WORKOUT'),
-          description: z.string().nullable().optional(),
-          icu_training_load: z.number().nullable().optional(),
+    const events = Schema.decodeUnknownSync(
+      Schema.Array(
+        Schema.Struct({
+          id: Schema.Union([Schema.Int.check(Schema.isGreaterThan(0)), Schema.String.check(Schema.isPattern(/^\d+$/))]),
+          name: Schema.optional(Schema.NullOr(Schema.String)),
+          start_date_local: Schema.optional(Schema.String),
+          start_date: Schema.optional(Schema.String),
+          category: Schema.String.pipe(withDefault('WORKOUT')),
+          description: Schema.optional(Schema.NullOr(Schema.String)),
+          icu_training_load: Schema.optional(Schema.NullOr(Schema.Finite)),
         }),
-      )
-      .parse(await response.json());
+      ),
+    )(await response.json());
 
     const selected = events.filter(
       (event) =>
@@ -335,12 +335,12 @@ export class WorkoutsService extends BaseService {
     const entries = downloads.map(({ event, text }) => {
       const old = previous.find((item) => String(item.event_id) === String(event.id));
 
-      const identity = uuid.safeParse(old?.workout_id).success
-        ? z.string().parse(old?.workout_id)
+      const identity = Schema.is(uuid)(old?.workout_id)
+        ? Schema.decodeUnknownSync(Schema.String)(old?.workout_id)
         : this.cryptoRepository.randomUUID();
 
       // Preserve interleaved exercise and text-event order while replacing only the root ID.
-      const ordered = z.array(documentSchema).parse(
+      const ordered = decodeOwned(Schema.Array(documentSchema))(
         new XMLParser({
           preserveOrder: true,
           ignoreAttributes: false,
@@ -353,14 +353,14 @@ export class WorkoutsService extends BaseService {
       const root = ordered.find((node) => 'workout_file' in node);
 
       if (!root) throw new Error('Missing workout root');
-      const children = z.array(documentSchema).parse(root.workout_file);
+      const children = Schema.decodeUnknownSync(Schema.Array(documentSchema))(root.workout_file);
       root.workout_file = [...children.filter((node) => !('uniqueId' in node)), { uniqueId: [{ '#text': identity }] }];
       const content = new XMLBuilder({ preserveOrder: true, ignoreAttributes: false }).build(ordered);
 
       const file = this.file(identity);
 
       if (!file) throw new Error('Invalid workout identity');
-      pendingFiles.set(file, z.string().parse(content));
+      pendingFiles.set(file, Schema.decodeUnknownSync(Schema.String)(content));
 
       return {
         ...event,
@@ -449,8 +449,8 @@ export class WorkoutsService extends BaseService {
 
   static workoutDetails(content: string) {
     const document = parseXML(content);
-    const root = documentSchema.parse(document.workout_file);
-    const workout = documentSchema.parse(root.workout);
+    const root = Schema.decodeUnknownSync(documentSchema)(document.workout_file);
+    const workout = Schema.decodeUnknownSync(documentSchema)(root.workout);
 
     if (!['bike', 'cycling'].includes(String(root.sportType ?? 'bike').toLowerCase())) return null;
     const zones = [0, 0, 0, 0, 0, 0];
@@ -488,10 +488,10 @@ export class WorkoutsService extends BaseService {
 
     for (const [tag, value] of Object.entries(workout))
       for (const entry of Array.isArray(value) ? value : [value]) {
-        const parsed = stepSchema.safeParse(entry);
+        const parsed = Schema.decodeUnknownOption(stepSchema)(entry);
 
-        if (!parsed.success) continue;
-        const step = parsed.data;
+        if (Option.isNone(parsed)) continue;
+        const step = parsed.value;
 
         if (tag === 'IntervalsT') {
           const repeat = number(step['@_Repeat']);

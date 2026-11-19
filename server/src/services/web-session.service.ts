@@ -1,7 +1,7 @@
 import { ApplicationError } from '#src/errors';
 import type { AccountsService } from '#src/services/auth.service';
 import { BaseService } from '#src/services/base.service';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 export interface WebSession {
   csrf: string;
@@ -32,14 +32,13 @@ export class WebSessionsService extends BaseService {
 
   /** A restart empties the map; a session found in the database is loaded back into it. */
   private restore(id: string) {
-    const row = z
-      .object({ csrf: z.string(), identity: z.string(), expires: z.number() })
-      .nullable()
-      .parse(
-        this.accounts.db
-          .prepare('SELECT csrf, identity, expires FROM web_session WHERE id_hash = ?')
-          .get(this.hash(id)) ?? null,
-      );
+    const row = Schema.decodeUnknownSync(
+      Schema.NullOr(Schema.Struct({ csrf: Schema.String, identity: Schema.String, expires: Schema.Finite })),
+    )(
+      this.accounts.db
+        .prepare('SELECT csrf, identity, expires FROM web_session WHERE id_hash = ?')
+        .get(this.hash(id)) ?? null,
+    );
 
     if (!row) return;
     const session: WebSession = { ...row, confirmedUntil: 0 };

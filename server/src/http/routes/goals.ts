@@ -1,4 +1,5 @@
 import { parseProtobuf } from '#src/http/protobuf';
+import { Schema } from 'effect';
 import { authenticated } from '#src/http/routes/accounts';
 import type { HttpRuntime as Runtime, RuntimeEnv } from '#src/http/runtime';
 import { GoalSchema, GoalsSchema } from '#src/protocol/generated/goal_pb';
@@ -19,7 +20,7 @@ export function goalRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     if (c.req.method === 'POST') {
       const goal = c.req.header('Content-Type')?.includes('application/x-protobuf-lite')
         ? parseProtobuf(GoalSchema, new Uint8Array(await c.req.arrayBuffer()))
-        : GoalService.parseGoal(goalInput.parse(await c.req.json()));
+        : GoalService.parseGoal(Schema.decodeUnknownSync(goalInput)(await c.req.json()));
 
       service.create(user.player_id, goal);
 
@@ -45,7 +46,7 @@ export function goalRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       return c.body(null, 200);
     }
 
-    const body = goalInput.parse(await c.req.json());
+    const body = Schema.decodeUnknownSync(goalInput)(await c.req.json());
     const goal = GoalService.parseGoal(body);
     service.update(user.player_id, id, goal);
 

@@ -1,7 +1,7 @@
 import { resolve } from 'node:path';
 import { configSchema } from '#src/config/schema';
 import { EventsService } from '#src/services/events.service';
-import { storedSchema, inputSchema as meetupInput } from '#src/dtos/meetup.dto';
+import { decodeMeetup, decodeMeetupInput } from '#src/dtos/meetup.dto';
 import {
   eventRequest,
   worldRequest,
@@ -15,7 +15,7 @@ import {
 } from '#src/dtos/management.dto';
 import { UploadsService } from '#src/services/uploads.service';
 import type { JsonValue } from '#src/dtos/management.dto';
-import { z } from 'zod';
+import { Schema } from 'effect';
 import type { RideCompletionService } from '#src/services/ride-completion.service';
 import type { RepositoryContext } from '#src/context';
 import type { User } from '#src/repositories/accounts.repository';
@@ -23,6 +23,18 @@ import { ManagementRepository } from '#src/repositories/management.repository';
 import { ApplicationError } from '#src/errors';
 import { BaseService } from '#src/services/base.service';
 import { WebSessionsService } from '#src/services/web-session.service';
+
+const isFailure = Schema.is(Schema.Struct({ error: Schema.String }));
+
+const isString = Schema.is(Schema.String);
+
+const isNumber = Schema.is(Schema.Finite);
+
+const isBoolean = Schema.is(Schema.Boolean);
+
+const isJsonObject = Schema.is(Schema.Record(Schema.String, Schema.Json));
+
+const isJsonArray = Schema.is(Schema.Array(Schema.Json));
 
 export class ManagementService extends BaseService {
   readonly store: ManagementRepository;
@@ -88,7 +100,7 @@ export class ManagementService extends BaseService {
     }
   }
 
-  private insert(input: z.infer<typeof newUser>, hash: string) {
+  private insert(input: (typeof newUser)['Type'], hash: string) {
     if (this.context.accounts.loginNameTaken(input.username))
       throw new ApplicationError({ status: 409, message: 'Login name already exists.' });
 
@@ -115,8 +127,8 @@ export class ManagementService extends BaseService {
     return this.context.accounts.get(id)!;
   }
 
-  async setup(raw: z.input<typeof setupRequest>, live: () => boolean = () => true) {
-    const input = setupRequest.parse(raw);
+  async setup(raw: (typeof setupRequest)['Encoded'], live: () => boolean = () => true) {
+    const input = Schema.decodeUnknownSync(setupRequest)(raw);
 
     if (this.store.complete() || !this.keyValid(input.key))
       throw new ApplicationError({ status: 403, message: 'Setup refused.' });
@@ -238,8 +250,8 @@ export class ManagementService extends BaseService {
     return signed.slice(signed.lastIndexOf('|') + 1);
   }
 
-  async create(id: string, raw: z.input<typeof newUser>, operation: string) {
-    const input = newUser.parse(raw);
+  async create(id: string, raw: (typeof newUser)['Encoded'], operation: string) {
+    const input = Schema.decodeUnknownSync(newUser)(raw);
     this.sessions.require(id, true);
     const hash = await this.passwordTask(() => this.cryptoRepository.hashPassword(input.password));
 
@@ -263,8 +275,8 @@ export class ManagementService extends BaseService {
     });
   }
 
-  async mutate(id: string, targetId: number, action: string, raw: z.input<typeof mutationRequest>) {
-    const input = mutationRequest.parse(raw);
+  async mutate(id: string, targetId: number, action: string, raw: (typeof mutationRequest)['Encoded']) {
+    const input = Schema.decodeUnknownSync(mutationRequest)(raw);
     this.sessions.require(id, true);
 
     const hash =
@@ -341,8 +353,8 @@ export class ManagementService extends BaseService {
     return result;
   }
 
-  edit(id: string, player: number, raw: z.input<typeof editUserRequest>) {
-    const input = editUserRequest.parse(raw);
+  edit(id: string, player: number, raw: (typeof editUserRequest)['Encoded']) {
+    const input = Schema.decodeUnknownSync(editUserRequest)(raw);
 
     return this.store.transaction(() => {
       const actor = this.sessions.require(id, true);
@@ -432,8 +444,8 @@ export class ManagementService extends BaseService {
     return { avatar: null };
   }
 
-  editOwnProfile(id: string, raw: z.input<typeof ownProfileRequest>, targetPlayer?: number) {
-    const input = ownProfileRequest.parse(raw);
+  editOwnProfile(id: string, raw: (typeof ownProfileRequest)['Encoded'], targetPlayer?: number) {
+    const input = Schema.decodeUnknownSync(ownProfileRequest)(raw);
 
     return this.store.transaction(() => {
       const actor = this.sessions.require(id, targetPlayer !== undefined);
@@ -482,8 +494,8 @@ export class ManagementService extends BaseService {
     };
   }
 
-  saveSettings(id: string, player: number, raw: z.input<typeof settingsRequest>, manage = false) {
-    const input = settingsRequest.parse(raw);
+  saveSettings(id: string, player: number, raw: (typeof settingsRequest)['Encoded'], manage = false) {
+    const input = Schema.decodeUnknownSync(settingsRequest)(raw);
 
     return this.store.transaction(() => {
       const actor = this.sessions.require(id, manage);
@@ -514,11 +526,11 @@ export class ManagementService extends BaseService {
   async serverOperation(
     id: string,
     action: string,
-    raw: z.input<typeof serverRequest>,
+    raw: (typeof serverRequest)['Encoded'],
     flush: () => Promise<void>,
     dispatch: { reload: () => Promise<void>; bots: (user: number, command: string) => string },
   ) {
-    const input = serverRequest.parse(raw);
+    const input = Schema.decodeUnknownSync(serverRequest)(raw);
 
     if (action === 'bots' && (!input.user || !input.command))
       throw new ApplicationError({ status: 400, message: 'Choose a user and a bot command.' });
@@ -588,34 +600,28 @@ export class ManagementService extends BaseService {
   private outcome(status: string, result: JsonValue) {
     if (status !== 'complete')
       return { status, ok: false, message: 'The result is unknown. Check the server log before you start it again.' };
-    const failure = z.object({ error: z.string() }).safeParse(result);
 
-    if (failure.success) return { status, ok: false, message: failure.data.error };
-    const reply = z.string().safeParse(result);
+    if (isFailure(result)) return { status, ok: false, message: result.error };
 
-    return { status, ok: true, message: reply.success ? reply.data : result === false ? 'Nothing to change.' : null };
+    return { status, ok: true, message: isString(result) ? result : result === false ? 'Nothing to change.' : null };
   }
 
   /** Operator configuration as read-only rows. The browser never receives secrets: paths only. */
   configuration(value: JsonValue, prefix = ''): [string, string][] {
-    const object = z.record(z.string(), z.json()).safeParse(value);
-
-    if (object.success && !Array.isArray(value))
-      return Object.entries(object.data).flatMap(([key, item]) =>
+    if (isJsonObject(value) && !Array.isArray(value))
+      return Object.entries(value).flatMap(([key, item]) =>
         this.configuration(item, prefix ? `${prefix}.${key}` : key),
       );
 
-    const list = z.array(z.json()).safeParse(value);
-
-    return [[prefix, list.success ? list.data.join(', ') : String(value ?? '')]];
+    return [[prefix, isJsonArray(value) ? value.join(', ') : String(value ?? '')]];
   }
 
   events() {
-    return this.eventsRepository.listPrivateEvent().map((row) => storedSchema.parse(JSON.parse(row.json)));
+    return this.eventsRepository.listPrivateEvent().map((row) => decodeMeetup(JSON.parse(row.json)));
   }
 
-  editEvent(session: string, eventId: number, action: string, raw: z.input<typeof eventRequest>) {
-    const input = eventRequest.parse(raw);
+  editEvent(session: string, eventId: number, action: string, raw: (typeof eventRequest)['Encoded']) {
+    const input = Schema.decodeUnknownSync(eventRequest)(raw);
     const actor = this.sessions.require(session, true);
     const fingerprint = this.fingerprint({ eventId, action, input });
     const prior = this.store.operation(actor.player_id, input.operation);
@@ -640,7 +646,7 @@ export class ManagementService extends BaseService {
     };
 
     if (action === 'delete-event') events.deleteMeetup(event, commit);
-    else events.updateMeetup(event, meetupInput.parse({ ...event, ...input.changes }), commit);
+    else events.updateMeetup(event, decodeMeetupInput({ ...event, ...input.changes }), commit);
 
     return result;
   }
@@ -663,21 +669,17 @@ export class ManagementService extends BaseService {
       const fields: WorldField[] = [];
 
       for (const [name, value] of Object.entries(effective)) {
-        const boolean = z.boolean().safeParse(value);
-        const number = z.number().safeParse(value);
-        const text = z.string().safeParse(value);
-
-        if (boolean.success) fields.push({ name, kind: 'boolean', value: boolean.data });
-        else if (number.success) fields.push({ name, kind: 'number', value: number.data });
-        else if (text.success) fields.push({ name, kind: 'string', value: text.data });
+        if (isBoolean(value)) fields.push({ name, kind: 'boolean', value });
+        else if (isNumber(value)) fields.push({ name, kind: 'number', value });
+        else if (isString(value)) fields.push({ name, kind: 'string', value });
       }
 
       return { id, revision: this.context.settings.worldRevision(id), overrides, fields };
     });
   }
 
-  saveWorld(session: string, raw: z.input<typeof worldRequest>) {
-    const input = worldRequest.parse(raw);
+  saveWorld(session: string, raw: (typeof worldRequest)['Encoded']) {
+    const input = Schema.decodeUnknownSync(worldRequest)(raw);
 
     return this.store.transaction(() => {
       const actor = this.sessions.require(session, true);
@@ -696,9 +698,9 @@ export class ManagementService extends BaseService {
         const base = this.context.config.pelotons.find((value) => value.id === id);
 
         if (!base) throw new ApplicationError({ status: 404, message: 'Unknown peloton.' });
-        configSchema.parse({ pelotons: [{ ...base, ...input.values, id }] });
+        Schema.decodeUnknownSync(configSchema)({ pelotons: [{ ...base, ...input.values, id }] });
       } else if (input.id.startsWith('blob:') && this.context.accounts.get(Number(input.id.slice(5)))) {
-        configSchema.parse({ soloBlob: { ...this.context.config.soloBlob, ...input.values } });
+        Schema.decodeUnknownSync(configSchema)({ soloBlob: { ...this.context.config.soloBlob, ...input.values } });
       } else throw new ApplicationError({ status: 400, message: 'Unknown world settings.' });
       this.context.settings.saveWorld(input.id, input.values, input.revision);
 

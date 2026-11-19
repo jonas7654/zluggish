@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 export const officialRelay = 'https://us-or-rly101.zwift.com';
 
@@ -21,7 +21,9 @@ export class ZwiftRepository {
 
     if (!response.ok) throw new Error('Zwift login was rejected');
 
-    return z.object({ access_token: z.string(), refresh_token: z.string().optional() }).parse(await response.json());
+    return Schema.decodeUnknownSync(
+      Schema.Struct({ access_token: Schema.String, refresh_token: Schema.optional(Schema.String) }),
+    )(await response.json());
   }
 
   async officialLogin(username: string, password: string) {

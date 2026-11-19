@@ -7,22 +7,22 @@ import type { Database } from '#src/db/schema';
 import { sql } from 'kysely';
 import type { Insertable } from 'kysely';
 import type { DatabaseSync } from 'node:sqlite';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
-export const riderSchema = z.object({
-  player_id: z.number().int().positive().safe(),
-  username: z.string(),
-  first_name: z.string(),
-  last_name: z.string(),
-  pass_hash: z.string().nullable(),
-  auth_version: z.number().int(),
-  official_player_id: z.string().nullable(),
-  role: z.enum(['rider', 'administrator']),
-  enabled: z.number().int().min(0).max(1),
-  revision: z.number().int().positive(),
+export const riderSchema = Schema.Struct({
+  player_id: Schema.Int.check(Schema.isGreaterThan(0)),
+  username: Schema.String,
+  first_name: Schema.String,
+  last_name: Schema.String,
+  pass_hash: Schema.NullOr(Schema.String),
+  auth_version: Schema.Int,
+  official_player_id: Schema.NullOr(Schema.String),
+  role: Schema.Literals(['rider', 'administrator']),
+  enabled: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0), Schema.isLessThanOrEqualTo(1)),
+  revision: Schema.Int.check(Schema.isGreaterThan(0)),
 });
 
-export type User = z.infer<typeof riderSchema>;
+export type User = (typeof riderSchema)['Type'];
 
 export class AccountsRepository {
   private readonly executor: SqliteExecutor;
@@ -56,13 +56,13 @@ export class AccountsRepository {
           .orderBy(sql`lower(last_name)`)
           .orderBy('player_id'),
       )
-      .map((row) => riderSchema.parse(row));
+      .map((row) => Schema.decodeUnknownSync(riderSchema)(row));
   }
 
   get(id: number): User | null {
     const row = this.executor.get(this.selection().where('player_id', '=', id));
 
-    return row ? riderSchema.parse(row) : null;
+    return row ? Schema.decodeUnknownSync(riderSchema)(row) : null;
   }
 
   /** SQLite lower() folds only ASCII, so imported names compare in JavaScript after
@@ -71,7 +71,7 @@ export class AccountsRepository {
   byUsername(username: string): User | null {
     const exact = this.executor.get(this.selection().where('username', '=', username));
 
-    if (exact) return riderSchema.parse(exact);
+    if (exact) return Schema.decodeUnknownSync(riderSchema)(exact);
     const matches = this.sameLoginName(username);
 
     return matches.length === 1 ? matches[0]! : null;

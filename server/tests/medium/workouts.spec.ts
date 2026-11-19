@@ -7,13 +7,16 @@ import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 const xml =
   '<workout_file><name>Medium Tempo</name><sportType>bike</sportType><workout><SteadyState Duration="600" Power="0.8"/></workout></workout_file>';
 
 const day = '2026-11-13';
-const schedules = z.array(z.object({ workoutId: z.string(), workoutUri: z.string(), scheduleId: z.string() }));
+
+const schedules = Schema.Array(
+  Schema.Struct({ workoutId: Schema.String, workoutUri: Schema.String, scheduleId: Schema.String }),
+);
 
 await test('F07 browser home and Android login share one refresh; saved-token logins refresh again with stable workout IDs', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.UTC(2026, 10, 13, 12) });
@@ -56,7 +59,7 @@ await test('F07 browser home and Android login share one refresh; saved-token lo
   assert.ok(calls[0]?.signal);
   assert.equal(calls[0]?.signal, calls[1]?.signal);
   const listed = await f.request('/api/workout/schedule/list');
-  const [first] = schedules.parse(await listed.json());
+  const [first] = Schema.decodeUnknownSync(schedules)(await listed.json());
   assert.ok(first);
   const asset = await createCdn(f).request(new URL(first.workoutUri).pathname);
   assert.equal(asset.status, 200);
@@ -73,7 +76,7 @@ await test('F07 browser home and Android login share one refresh; saved-token lo
   await decode(savedToken, LoginResponseSchema);
   assert.equal(calls.length, 4);
   const refreshed = await f.request('/api/workout/schedule/list');
-  assert.deepEqual(schedules.parse(await refreshed.json()), [first]);
+  assert.deepEqual(Schema.decodeUnknownSync(schedules)(await refreshed.json()), [first]);
   const other = await f.request('/api/workout/schedule/list', {}, f.other);
   assert.deepEqual(await other.json(), []);
 });
@@ -125,7 +128,7 @@ for (const failure of ['provider unavailable', 'invalid second download']) {
       before,
     );
     const retained = await f.request('/api/workout/schedule/list');
-    assert.equal(schedules.parse(await retained.json()).length, 1);
+    assert.equal(Schema.decodeUnknownSync(schedules)(await retained.json()).length, 1);
   });
 }
 
@@ -238,7 +241,7 @@ for (const sport of [undefined, 'CYCLING', 'cycling', 'RUNNING', 'running', 'ROW
     assert.equal(synced.status, 200);
     assert.deepEqual(await synced.json(), { message: 'Synced 1 Intervals.icu workouts.' });
     const baseline = await f.request('/api/workout/schedule/list');
-    const [workout] = schedules.parse(await baseline.json());
+    const [workout] = Schema.decodeUnknownSync(schedules)(await baseline.json());
     assert.ok(workout);
     const query = sport === undefined ? '' : `?sport=${sport}`;
     const cycling = sport === undefined || sport.toUpperCase() === 'CYCLING';
@@ -286,7 +289,7 @@ await test('Intervals sync preserves interleaved exercise blocks and text events
   );
   await web.request('/api/me/workouts/sync', 'POST', { provider: 'intervals' });
   const response = await f.request('/api/workout/schedule/list');
-  const [entry] = schedules.parse(await response.json());
+  const [entry] = Schema.decodeUnknownSync(schedules)(await response.json());
   assert.ok(entry);
   const asset = await createCdn(f).request(new URL(entry.workoutUri).pathname);
   const contents = await asset.text();

@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 const fit = readFileSync(new URL('../fixtures/ride.fit', import.meta.url));
 
@@ -32,7 +32,7 @@ async function completed(f: Awaited<ReturnType<typeof mediumFixture>>) {
     ...binary(ActivitySchema, data),
   });
 
-  const { id } = z.object({ id: z.number() }).parse(await response.json());
+  const { id } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await response.json());
   f.services.activities.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }));
 
   return id;
@@ -175,8 +175,8 @@ await test('deleting every FIT export breaks neither details, charts nor deliver
   f.services.documents.put(f.rider.player_id, 'runalyze_token.txt', 'token');
   const delivered: Uint8Array[] = [];
   t.mock.method(globalThis, 'fetch', async (_input: string | URL, init?: RequestInit) => {
-    const file = z.instanceof(FormData).parse(init?.body).get('file');
-    delivered.push(new Uint8Array(await z.instanceof(Blob).parse(file).arrayBuffer()));
+    const file = Schema.decodeUnknownSync(Schema.instanceOf(FormData))(init?.body).get('file');
+    delivered.push(new Uint8Array(await Schema.decodeUnknownSync(Schema.instanceOf(Blob))(file).arrayBuffer()));
 
     return new Response(null, { status: 200 });
   });
@@ -197,7 +197,11 @@ await test('deleting every FIT export breaks neither details, charts nor deliver
   await f.services.jobs.drain();
 
   const detail = await f.request(`/api/activities/${id}`);
-  const ready = z.object({ fitnessData: z.object({ fullDataUrl: z.string() }) }).parse(await detail.json());
+
+  const ready = Schema.decodeUnknownSync(Schema.Struct({ fitnessData: Schema.Struct({ fullDataUrl: Schema.String }) }))(
+    await detail.json(),
+  );
+
   const chart = await f.request(new URL(ready.fitnessData.fullDataUrl).pathname);
   assert.equal(chart.status, 200);
 

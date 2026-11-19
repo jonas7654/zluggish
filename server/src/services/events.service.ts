@@ -1,7 +1,7 @@
 import { notificationPayloadSchema, notificationEventSchema, notificationUpdateSchema } from '#src/dtos/events.dto';
 import { type RepositoryContext } from '#src/context';
 import type { Meetup, MeetupInput } from '#src/dtos/meetup.dto';
-import { storedSchema } from '#src/dtos/meetup.dto';
+import { decodeMeetup } from '#src/dtos/meetup.dto';
 import { ApplicationError } from '#src/errors';
 import { EventSchema, PlayerJoinedEventSchema, PlayerLeftEventSchema } from '#src/protocol/generated/events_pb';
 import { WA_TYPE, WorldAttributeSchema } from '#src/protocol/generated/udp-node-msgs_pb';
@@ -11,7 +11,7 @@ import { BaseService } from '#src/services/base.service';
 import { EventCatalogService } from '#src/services/event-catalog.service';
 import { worldTime } from '#src/world/state';
 import { create, toBinary } from '@bufbuild/protobuf';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 export class EventsService extends BaseService {
   constructor(private readonly context: RepositoryContext) {
@@ -39,20 +39,26 @@ export class EventsService extends BaseService {
   */
   notifications(player: number, now = Date.now()) {
     return this.notificationsForPlayer(player).flatMap((row) => {
-      const text = z.string().parse(row.json);
-      const notification = notificationPayloadSchema.parse(JSON.parse(text));
+      const text = Schema.decodeUnknownSync(Schema.String)(row.json);
+      const notification = Schema.decodeUnknownSync(notificationPayloadSchema)(JSON.parse(text));
 
-      return notificationEventSchema.parse(JSON.parse(notification.argString0)).eventStartDate * 1000 > now - 1_800_000
+      return Schema.decodeUnknownSync(notificationEventSchema)(JSON.parse(notification.argString0)).eventStartDate *
+        1000 >
+        now - 1_800_000
         ? text
         : [];
     });
   }
 
-  markNotification(player: number, id: string, update: z.infer<typeof notificationUpdateSchema>) {
+  markNotification(player: number, id: string, update: (typeof notificationUpdateSchema)['Type']) {
     const row = this.findNotification(id, player);
 
     if (!row) throw new ApplicationError({ status: 404 });
-    const notification = z.record(z.string(), z.json()).parse(JSON.parse(z.string().parse(row.json)));
+
+    const notification = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))(
+      JSON.parse(Schema.decodeUnknownSync(Schema.String)(row.json)),
+    );
+
     Object.assign(notification, update, { lastModified: update.readDate });
     this.updateNotification(JSON.stringify(notification), id);
   }
@@ -76,13 +82,13 @@ export class EventsService extends BaseService {
 
     if (!row) throw new ApplicationError({ status: 404 });
 
-    return storedSchema.parse(JSON.parse(z.string().parse(row.json)));
+    return decodeMeetup(JSON.parse(Schema.decodeUnknownSync(Schema.String)(row.json)));
   }
 
   all() {
     return this.eventsRepository
       .listPrivateEvent()
-      .map((row) => storedSchema.parse(JSON.parse(z.string().parse(row.json))));
+      .map((row) => decodeMeetup(JSON.parse(Schema.decodeUnknownSync(Schema.String)(row.json))));
   }
 
   save(event: Meetup) {
@@ -254,7 +260,7 @@ export class EventsService extends BaseService {
           { invitedProfile: organizer, status: 'ACCEPTED' },
           ...input.invitedProfileIds.map((id) => ({
             invitedProfile: this.profile(id),
-            status: z.literal('PENDING').parse('PENDING'),
+            status: Schema.decodeUnknownSync(Schema.Literal('PENDING'))('PENDING'),
           })),
         ],
       };
@@ -301,7 +307,7 @@ export class EventsService extends BaseService {
           (id) =>
             event.eventInvites.find((invite) => invite.invitedProfile.id === id) ?? {
               invitedProfile: this.profile(id),
-              status: z.literal('PENDING').parse('PENDING'),
+              status: Schema.decodeUnknownSync(Schema.Literal('PENDING'))('PENDING'),
             },
         ),
     ];
@@ -311,12 +317,18 @@ export class EventsService extends BaseService {
       this.save(next);
 
       for (const row of this.eventsRepository.listNotification(event.id)) {
-        if (!update.invitedProfileIds.includes(z.number().parse(row.player_id))) {
-          this.eventsRepository.deletePlayerNotification(event.id, z.number().parse(row.player_id));
+        if (!update.invitedProfileIds.includes(Schema.decodeUnknownSync(Schema.Finite)(row.player_id))) {
+          this.eventsRepository.deletePlayerNotification(
+            event.id,
+            Schema.decodeUnknownSync(Schema.Finite)(row.player_id),
+          );
           continue;
         }
 
-        const notification = z.record(z.string(), z.json()).parse(JSON.parse(z.string().parse(row.json)));
+        const notification = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))(
+          JSON.parse(Schema.decodeUnknownSync(Schema.String)(row.json)),
+        );
+
         Object.assign(notification, {
           read: false,
           readDate: null,
@@ -327,7 +339,7 @@ export class EventsService extends BaseService {
             otherInviteeCount: next.invitedProfileIds.length,
           }),
         });
-        this.updateNotification(JSON.stringify(notification), z.number().parse(row.id));
+        this.updateNotification(JSON.stringify(notification), Schema.decodeUnknownSync(Schema.Finite)(row.id));
       }
 
       for (const id of update.invitedProfileIds) if (!event.invitedProfileIds.includes(id)) this.notify(next, id);

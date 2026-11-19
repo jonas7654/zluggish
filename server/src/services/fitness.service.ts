@@ -6,7 +6,7 @@ import type { FitnessRepository } from '#src/repositories/fitness.repository';
 import { BaseService } from '#src/services/base.service';
 import { StreakService } from '#src/services/streak.service';
 import { create } from '@bufbuild/protobuf';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 export class FitnessService extends BaseService {
   constructor(context: RepositoryContext) {
@@ -18,16 +18,16 @@ export class FitnessService extends BaseService {
   }
 
   private totals(id: number, start: number, end: number) {
-    const row = z
-      .object({
-        distance: z.number().nullable(),
-        elevation: z.number().nullable(),
-        moving: z.number().nullable(),
-        work: z.number().nullable(),
-        calories: z.number().nullable(),
-        tss: z.number().nullable(),
-      })
-      .parse(this.fitnessRepository.findActivity(id, new Date(start).toISOString(), new Date(end).toISOString()));
+    const row = Schema.decodeUnknownSync(
+      Schema.Struct({
+        distance: Schema.NullOr(Schema.Finite),
+        elevation: Schema.NullOr(Schema.Finite),
+        moving: Schema.NullOr(Schema.Finite),
+        work: Schema.NullOr(Schema.Finite),
+        calories: Schema.NullOr(Schema.Finite),
+        tss: Schema.NullOr(Schema.Finite),
+      }),
+    )(this.fitnessRepository.findActivity(id, new Date(start).toISOString(), new Date(end).toISOString()));
 
     return {
       distance: row.distance ?? 0,
@@ -88,7 +88,9 @@ export class FitnessService extends BaseService {
       )) {
         if (!row.power_zones) continue;
 
-        const incoming = z.array(z.number()).parse(JSON.parse(z.string().parse(row.power_zones)));
+        const incoming = Schema.decodeUnknownSync(Schema.Array(Schema.Finite))(
+          JSON.parse(Schema.decodeUnknownSync(Schema.String)(row.power_zones)),
+        );
 
         for (let zone = 0; zone < 7; zone++) zones[zone] = (zones[zone] ?? 0) + (incoming[zone] ?? 0);
       }
@@ -127,14 +129,13 @@ export class FitnessService extends BaseService {
       new Date(historical ? StreakService.weekRange(date).end : Date.now()).toISOString(),
     );
 
-    const goals = goalSchema.parse(row ?? {});
+    const goals = Schema.decodeUnknownSync(goalSchema)(row ?? {});
 
     return { weeks, goals, streak: this.streaks(id).curStreak, useMetric: this.profileRepository.get(id).useMetric };
   }
 
-  saveGoals(id: number, input: z.infer<typeof goalSchema>) {
-    const goals = goalSchema.parse(input);
-    goals.lastUpdated = new Date().toISOString();
+  saveGoals(id: number, input: (typeof goalSchema)['Type']) {
+    const goals = { ...Schema.decodeUnknownSync(goalSchema)(input), lastUpdated: new Date().toISOString() };
     this.fitnessRepository.insertGoalMetrics(
       id,
       goals.weekGoalTSS,
@@ -156,7 +157,10 @@ export class FitnessService extends BaseService {
     for (const time of ['5', '60', '300', '1200']) {
       const row = this.fitnessRepository.findPowerCurve(id, time, cutoff);
 
-      if (row) response.watts[time] = create(BestEffortPointMsgSchema, { power: z.number().parse(row.power) });
+      if (row)
+        response.watts[time] = create(BestEffortPointMsgSchema, {
+          power: Schema.decodeUnknownSync(Schema.Finite)(row.power),
+        });
     }
 
     return response;

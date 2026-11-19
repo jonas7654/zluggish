@@ -16,7 +16,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, renameSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 function browser(app: ReturnType<typeof createGameApp>) {
   // A small cookie jar: the session cookie and per-rider remember cookies live side by side.
@@ -229,7 +229,9 @@ await test('distinct riders launch and refresh independently; password change re
       body: new URLSearchParams({ code }),
     });
 
-    const tokens = z.object({ access_token: z.string(), refresh_token: z.string() }).parse(await exchange.json());
+    const tokens = Schema.decodeUnknownSync(
+      Schema.Struct({ access_token: Schema.String, refresh_token: Schema.String }),
+    )(await exchange.json());
 
     assert.equal(f.sessions.bearer(tokens.access_token)?.player_id, user.player_id);
 
@@ -331,7 +333,9 @@ await test('native login and HTTP login share one relay owner with protobuf econ
     }),
   });
 
-  const token = z.object({ access_token: z.string() }).parse(await tokenResponse.json()).access_token;
+  const token = Schema.decodeUnknownSync(Schema.Struct({ access_token: Schema.String }))(
+    await tokenResponse.json(),
+  ).access_token;
 
   const key = new Uint8Array(16).fill(7);
 

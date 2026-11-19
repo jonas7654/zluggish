@@ -9,7 +9,7 @@ import { existsSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from '
 import { resolve } from 'node:path';
 import type { TestContext } from 'node:test';
 import { test } from 'node:test';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 const fit = readFileSync(new URL('../fixtures/ride.fit', import.meta.url));
 const day = 86_400_000;
@@ -42,7 +42,7 @@ async function storage(t: TestContext) {
     ...binary(ActivitySchema, data),
   });
 
-  const { id } = z.object({ id: z.number() }).parse(await response.json());
+  const { id } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await response.json());
   f.services.activities.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }));
   await f.services.jobs.drain();
 
@@ -152,7 +152,11 @@ await test('a cleanup keeps unfinished work, owned artifacts and the canonical F
   assert.equal(db.prepare("SELECT count(*) AS n FROM job WHERE state='queued'").get()?.n, 1);
   assert.equal(db.prepare("SELECT count(*) AS n FROM job WHERE state='done'").get()?.n, 0);
   assert.deepEqual(
-    Buffer.from(z.instanceof(Uint8Array).parse(db.prepare('SELECT fit FROM activity WHERE id=?').get(id)?.fit)),
+    Buffer.from(
+      Schema.decodeUnknownSync(Schema.instanceOf(Uint8Array))(
+        db.prepare('SELECT fit FROM activity WHERE id=?').get(id)?.fit,
+      ),
+    ),
     fit,
   );
   assert.ok(existsSync(resolve(folder, 'fit', `${id} - ride.fit`)));
@@ -210,7 +214,7 @@ await test('a media row is ready only after its file is durable', async (t) => {
     }),
   });
 
-  const { id } = z.object({ id: z.number() }).parse(await response.json());
+  const { id } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await response.json());
 
   const failing = t.mock.method(AssetFiles.prototype, 'writeDurableAsync', () =>
     Promise.reject(new Error('disk full')),

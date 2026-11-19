@@ -1,4 +1,5 @@
 import { fileUploadSchema } from '#src/dtos/storage.dto';
+import { Schema } from 'effect';
 import { parseProtobuf } from '#src/http/protobuf';
 import { authenticated } from '#src/http/routes/accounts';
 import type { HttpRuntime as Runtime, RuntimeEnv } from '#src/http/runtime';
@@ -46,7 +47,7 @@ export function storageRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     let upload;
 
     if (c.req.header('Source') === 'zwift-companion') {
-      const input = fileUploadSchema.parse(
+      const input = Schema.decodeUnknownSync(fileUploadSchema)(
         await c.req.json().catch(() => {
           throw new HTTPException(400);
         }),

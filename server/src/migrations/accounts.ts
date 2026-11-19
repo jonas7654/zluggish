@@ -1,3 +1,4 @@
+import { Schema } from 'effect';
 import { removeLegacyAccountFields } from '#src/db/account-upgrade';
 import { ConfigError } from '#src/config/index';
 import { createSchemaSQL } from '#src/db/ddl';
@@ -8,7 +9,6 @@ import { fromBinary } from '@bufbuild/protobuf';
 import { existsSync, readdirSync, readFileSync, renameSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { backup, DatabaseSync } from 'node:sqlite';
-import { z } from 'zod';
 
 /** Explicit legacy upgrade: backup -> transactional identity/schema conversion ->
 commit -> publish current filename. Rollback preserves the old DB; reruns retain
@@ -28,9 +28,9 @@ export async function migrateAccounts(storage: string, soloPlayer?: number) {
     let version = 5;
 
     if (versionTable) {
-      const found = z
-        .object({ version: z.number() })
-        .parse(db.prepare('SELECT version FROM version LIMIT 1').get()).version;
+      const found = Schema.decodeUnknownSync(Schema.Struct({ version: Schema.Finite }))(
+        db.prepare('SELECT version FROM version LIMIT 1').get(),
+      ).version;
 
       if (found > SCHEMA_VERSION || found < 3)
         throw new ConfigError('Unsupported activity database version; migrate with the original release first');
@@ -56,17 +56,15 @@ export async function migrateAccounts(storage: string, soloPlayer?: number) {
 
     db.exec('BEGIN IMMEDIATE');
 
-    const userTable = z
-      .object({ sql: z.string() })
-      .safeParse(db.prepare("SELECT sql FROM sqlite_master WHERE name='user'").get());
+    const userTable = db.prepare("SELECT sql FROM sqlite_master WHERE name='user'").get();
 
-    if (userTable.success) {
+    if (Schema.is(Schema.Struct({ sql: Schema.String }))(userTable)) {
       const columns = db.prepare('PRAGMA table_info(user)').all();
-      const names = new Set(columns.map((row) => z.string().parse(row.name)));
+      const names = new Set(columns.map((row) => Schema.decodeUnknownSync(Schema.String)(row.name)));
       const password = columns.find((row) => row.name === 'pass_hash');
 
       if (password?.notnull) {
-        const definition = userTable.data.sql
+        const definition = userTable.sql
           .replace(/CREATE TABLE\s+(?:"user"|user)/i, 'CREATE TABLE user_accounts_new')
           .replace(/(pass_hash\s+\w+)\s+NOT NULL/i, '$1');
 
@@ -81,7 +79,7 @@ export async function migrateAccounts(storage: string, soloPlayer?: number) {
           `INSERT INTO user_accounts_new SELECT * FROM user; DROP TABLE user; ALTER TABLE user_accounts_new RENAME TO user;`,
         );
 
-        for (const index of indexes) db.exec(z.string().parse(index.sql));
+        for (const index of indexes) db.exec(Schema.decodeUnknownSync(Schema.String)(index.sql));
       }
 
       for (const [name, sql] of Object.entries({

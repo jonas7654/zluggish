@@ -1,4 +1,5 @@
 import { AccountsService } from '#src/services/auth.service';
+import { Schema } from 'effect';
 import { riderSchema } from '#src/repositories/accounts.repository';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -16,7 +17,7 @@ await test('malformed account identities are rejected before any repository acce
 });
 
 await test('account identities require an existing rider with the current auth version', (t) => {
-  const rider = riderSchema.parse({
+  const rider = Schema.decodeUnknownSync(riderSchema)({
     player_id: 7,
     username: 'rider@example.test',
     first_name: 'Test',

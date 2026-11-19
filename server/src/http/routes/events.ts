@@ -1,5 +1,5 @@
 import { notificationUpdateSchema } from '#src/dtos/events.dto';
-import { inputSchema, type Meetup } from '#src/dtos/meetup.dto';
+import { decodeMeetupInput, type Meetup } from '#src/dtos/meetup.dto';
 import { authenticated } from '#src/http/routes/accounts';
 import type { HttpRuntime as Runtime, RuntimeEnv } from '#src/http/runtime';
 import {
@@ -13,7 +13,8 @@ import { forward, road } from '#src/world/state';
 import { create, toBinary } from '@bufbuild/protobuf';
 import type { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
-import { z } from 'zod';
+import { Schema } from 'effect';
+import { NumberFromInput } from '#src/schema';
 
 function social(event: Meetup, id: number) {
   return {
@@ -37,12 +38,9 @@ function visible(event: Meetup, id: number) {
 }
 
 const limit = (value: string | undefined) =>
-  z.coerce
-    .number()
-    .int()
-    .min(0)
-    .max(1000)
-    .parse(value ?? 100);
+  Schema.decodeUnknownSync(
+    NumberFromInput.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0), Schema.isLessThanOrEqualTo(1000)),
+  )(value ?? 100);
 
 export function eventRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
   const service = runtime.services.events;
@@ -130,7 +128,7 @@ export function eventRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
   });
   app.post('/api/private_event', async (c) => {
     const user = authenticated(c);
-    const input = inputSchema.parse(await c.req.json());
+    const input = decodeMeetupInput(await c.req.json());
     const id = service.createMeetup(user, input);
 
     return c.json({ id }, 201);
@@ -187,7 +185,7 @@ export function eventRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       return c.body(null, 200);
     }
 
-    const update = inputSchema.parse(await c.req.json());
+    const update = decodeMeetupInput(await c.req.json());
 
     service.updateMeetup(event, update);
 
@@ -208,7 +206,7 @@ export function eventRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
   });
   app.put('/api/notifications/:id', async (c) => {
     const user = authenticated(c);
-    const update = notificationUpdateSchema.parse(await c.req.json());
+    const update = Schema.decodeUnknownSync(notificationUpdateSchema)(await c.req.json());
     service.markNotification(user.player_id, c.req.param('id'), update);
 
     return c.body(null, 204);

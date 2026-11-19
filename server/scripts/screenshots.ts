@@ -23,7 +23,7 @@ import { test } from 'node:test';
 import type { TestContext } from 'node:test';
 import { chromium } from 'playwright';
 import type { Browser, Page } from 'playwright';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 const out = path.resolve(import.meta.dirname, '../../media/screenshots');
 const password = 'screenshot-password';
@@ -89,9 +89,9 @@ const rides: Ride[] = [
   ride('Watopia Flat Route Reverse', worlds.watopia, 43.4, 98, 36, 7, 0.68),
 ];
 
-const messages = z
-  .object({ FILE_ID: z.number(), RECORD: z.number(), SESSION: z.number(), ACTIVITY: z.number() })
-  .parse(Profile.MesgNum);
+const messages = Schema.decodeUnknownSync(
+  Schema.Struct({ FILE_ID: Schema.Finite, RECORD: Schema.Finite, SESSION: Schema.Finite, ACTIVITY: Schema.Finite }),
+)(Profile.MesgNum);
 
 // A wobbly closed loop with a few hills, so each ride reads as a real course on the map.
 function course(km: number, climb: number, samples: number) {
@@ -224,7 +224,7 @@ async function seedActivities(f: Fixture, user: User, rider: Rider) {
 
     const draft = toBinary(ActivitySchema, create(ActivitySchema, activity));
     const created = await f.app.request(base, { method: 'POST', headers, body: draft });
-    const { id } = z.object({ id: z.number() }).parse(await created.json());
+    const { id } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await created.json());
     const complete = toBinary(ActivitySchema, create(ActivitySchema, { ...activity, id: BigInt(id), fit }));
 
     const finished = await f.app.request(`${base}/${id}?upload-to-strava=true`, {
@@ -280,7 +280,7 @@ async function listen(t: TestContext, fetch: (request: Request) => Response | Pr
   if (!server.listening) await once(server, 'listening');
   t.after(() => server.close());
 
-  return `http://127.0.0.1:${z.object({ port: z.number() }).parse(server.address()).port}`;
+  return `http://127.0.0.1:${Schema.decodeUnknownSync(Schema.Struct({ port: Schema.Finite }))(server.address()).port}`;
 }
 
 async function shot(page: Page, name: string) {

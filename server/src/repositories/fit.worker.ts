@@ -1,13 +1,17 @@
 import { FitDecoder } from '#src/repositories/fit-decoder.repository';
 import { parentPort } from 'node:worker_threads';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
-const request = z.object({ id: z.number(), task: z.enum(['chart', 'powerBests']), bytes: z.instanceof(Uint8Array) });
+const request = Schema.Struct({
+  id: Schema.Finite,
+  task: Schema.Literals(['chart', 'powerBests']),
+  bytes: Schema.instanceOf(Uint8Array),
+});
 
 const decoder = new FitDecoder();
 
 parentPort?.on('message', (message) => {
-  const { id, task, bytes } = request.parse(message);
+  const { id, task, bytes } = Schema.decodeUnknownSync(request)(message);
   const start = performance.now();
 
   try {

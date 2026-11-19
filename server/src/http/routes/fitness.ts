@@ -12,7 +12,8 @@ import { goalSchema } from '#src/dtos/fitness.dto';
 import { create, toBinary } from '@bufbuild/protobuf';
 import type { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
-import { z } from 'zod';
+import { Schema } from 'effect';
+import { NumberFromInput } from '#src/schema';
 
 export function fitnessRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
   const service = runtime.services.fitness;
@@ -136,19 +137,16 @@ export function fitnessRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
   });
   app.put('/api/fitness/fitness-goals/history', async (c) => {
     const user = authenticated(c);
-    service.saveGoals(user.player_id, goalSchema.parse(await c.req.json()));
+    service.saveGoals(user.player_id, Schema.decodeUnknownSync(goalSchema)(await c.req.json()));
 
     return c.body(null, 204);
   });
   app.get('/api/power-curve/best/:option', (c) => {
     const user = authenticated(c);
 
-    const days = z.coerce
-      .number()
-      .int()
-      .min(0)
-      .max(100_000)
-      .parse(c.req.query('days') ?? 30);
+    const days = Schema.decodeUnknownSync(
+      NumberFromInput.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0), Schema.isLessThanOrEqualTo(100_000)),
+    )(c.req.query('days') ?? 30);
 
     const response = service.powerCurve(user.player_id, c.req.param('option'), days);
 

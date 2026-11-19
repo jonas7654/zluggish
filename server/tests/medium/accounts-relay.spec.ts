@@ -16,7 +16,7 @@ import { binary, decode, mediumBrowser, mediumFixture } from '#tests/medium/supp
 import { create, fromBinary, toBinary } from '@bufbuild/protobuf';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 await test('Calendar clears pending map and climb selections for the launching client', async (t) => {
   const f = await mediumFixture(t);
@@ -149,7 +149,10 @@ await test('Calendar clears pending map and climb selections for the launching c
         body: '{"query":"Medium"}',
       });
 
-      assert.equal(z.array(z.object({ id: z.number() })).parse(await response.json())[0]?.id, f.rider.player_id);
+      assert.equal(
+        Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ id: Schema.Finite })))(await response.json())[0]?.id,
+        f.rider.player_id,
+      );
     }
 
     const response11 = await f.request('/relay/profiles/me/phone', {

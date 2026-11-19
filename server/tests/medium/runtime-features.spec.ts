@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 await test('meetup invitations persist, protect ownership and return both protocol formats', async (t) => {
   const f = runtimeFixture(t);
@@ -43,7 +43,7 @@ await test('meetup invitations persist, protect ownership and return both protoc
   });
 
   assert.equal(created.status, 201);
-  const id = z.object({ id: z.number() }).parse(await created.json()).id;
+  const id = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await created.json()).id;
 
   const detail = await f.app.request(`/api/private_event/${id}`, {
     headers: headersFor(invited),
@@ -71,7 +71,11 @@ await test('meetup invitations persist, protect ownership and return both protoc
     headers: { ...headersFor(invited), Accept: 'application/json' },
   });
 
-  assert.equal(z.array(z.object({ inviteStatus: z.string() })).parse(await feed.json())[0]?.inviteStatus, 'ACCEPTED');
+  assert.equal(
+    Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ inviteStatus: Schema.String })))(await feed.json())[0]
+      ?.inviteStatus,
+    'ACCEPTED',
+  );
 });
 
 await test('workout ramps split at power boundaries and cached schedules retain stable UUIDs', async (t) => {

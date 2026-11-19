@@ -25,7 +25,8 @@ import { create, fromJsonString, toBinary, toJsonString } from '@bufbuild/protob
 import type { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { resolve } from 'node:path';
-import { z } from 'zod';
+import { Schema } from 'effect';
+import { NumberFromInput } from '#src/schema';
 
 export function relayRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
   app.post('/api/users/login', async (c) => {
@@ -169,37 +170,42 @@ export function relayRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     const user = authenticated(c);
 
     const count = (name: string) =>
-      z.coerce
-        .number()
-        .int()
-        .min(0)
-        .max(1000)
-        .parse(c.req.query(name) ?? 0);
+      Schema.decodeUnknownSync(
+        NumberFromInput.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0), Schema.isLessThanOrEqualTo(1000)),
+      )(c.req.query(name) ?? 0);
 
     const headers = new Headers(c.req.raw.headers);
     headers.set('Accept', 'application/json');
 
-    const read = async <T extends z.ZodType>(path: string, schema: T) => {
+    const read = async <T extends Schema.ConstraintDecoder<unknown>>(path: string, schema: T) => {
       const response = await app.request(path, { headers });
 
       if (!response.ok) throw new HTTPException(502);
 
-      return schema.parse(await response.json());
+      return Schema.decodeUnknownSync(schema)(await response.json());
     };
 
     const invites = (status: string, limit: number) =>
       limit > 0
         ? read(
             '/api/private_event/feed?start_date=-1800000',
-            z.array(
-              z.looseObject({
-                inviteStatus: z.string(),
-                eventInvites: z.array(
-                  z.looseObject({
-                    invitedProfile: z.looseObject({ id: z.number() }),
-                  }),
-                ),
-              }),
+            Schema.Array(
+              Schema.StructWithRest(
+                Schema.Struct({
+                  inviteStatus: Schema.String,
+                  eventInvites: Schema.Array(
+                    Schema.StructWithRest(
+                      Schema.Struct({
+                        invitedProfile: Schema.StructWithRest(Schema.Struct({ id: Schema.Finite }), [
+                          Schema.Record(Schema.String, Schema.Unknown),
+                        ]),
+                      }),
+                      [Schema.Record(Schema.String, Schema.Unknown)],
+                    ),
+                  ),
+                }),
+                [Schema.Record(Schema.String, Schema.Unknown)],
+              ),
             ),
           ).then((events) =>
             events
@@ -222,12 +228,14 @@ export function relayRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
     const [goals, activities, events, pending, accepted] = await Promise.all([
       goalCount
-        ? read(`/api/profiles/${user.player_id}/goals`, z.array(z.json())).then((all) => all.slice(0, goalCount))
+        ? read(`/api/profiles/${user.player_id}/goals`, Schema.Array(Schema.Json)).then((all) =>
+            all.slice(0, goalCount),
+          )
         : Promise.resolve([]),
       activityCount
         ? read(
             `/api/activity-feed/feed/?${new URLSearchParams({ feedType: 'preview', limit: String(activityCount) })}`,
-            z.array(z.json()),
+            Schema.Array(Schema.Json),
           )
         : Promise.resolve([]),
       eventCount
@@ -251,7 +259,9 @@ export function relayRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     });
   });
   app.on('GET', ['/relay/worlds/:realm', '/relay/worlds/:realm/'], (c) => {
-    const realm = z.coerce.number().int().positive().parse(c.req.param('realm'));
+    const realm = Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(
+      c.req.param('realm'),
+    );
 
     if (c.req.header('Accept')?.includes('application/json')) return c.json(worldJSON(realm));
     const world = worlds(new Map()).worlds.at(-1);

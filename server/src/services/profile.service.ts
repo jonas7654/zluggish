@@ -10,7 +10,7 @@ import { BaseService } from '#src/services/base.service';
 import { ProfileJsonService } from '#src/services/profile-json.service';
 import { create } from '@bufbuild/protobuf';
 import { resolve } from 'node:path';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 export class ProfilesService extends BaseService {
   constructor(private readonly context: RepositoryContext) {
@@ -99,11 +99,9 @@ export class ProfilesService extends BaseService {
     );
 
     if (this.context.config.equipment.unlockAll || this.context.config.equipment.unlockEntitlements) {
-      const range = z
-        .object({ first: z.number().int(), last: z.number().int() })
-        .parse(
-          JSON.parse(this.filesRepository.readFileSync(resolve(this.context.assets, 'data/entitlements.txt'), 'utf8')),
-        );
+      const range = Schema.decodeUnknownSync(Schema.Struct({ first: Schema.Int, last: Schema.Int }))(
+        JSON.parse(this.filesRepository.readFileSync(resolve(this.context.assets, 'data/entitlements.txt'), 'utf8')),
+      );
 
       const owned = new Set(profile.entitlements.map((item) => item.id));
 

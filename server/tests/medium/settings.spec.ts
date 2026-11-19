@@ -3,12 +3,12 @@ import { mediumFixture, mediumWeb } from '#tests/medium/support';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { test } from 'node:test';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
-const settings = z.object({
-  revision: z.number(),
-  overrides: z.record(z.string(), z.json()),
-  defaults: z.object({ uploads: z.object({ strava: z.object({ method: z.enum(StravaMethod) }) }) }),
+const settings = Schema.Struct({
+  revision: Schema.Finite,
+  overrides: Schema.Record(Schema.String, Schema.Json),
+  defaults: Schema.Struct({ uploads: Schema.Struct({ strava: Schema.Struct({ method: Schema.Enum(StravaMethod) }) }) }),
 });
 
 await test('web settings resolve the Strava method and preserve it on save', async (t) => {
@@ -20,7 +20,7 @@ await test('web settings resolve the Strava method and preserve it on save', asy
     f.settings.save(f.rider.player_id, override ? { 'uploads.strava.method': override } : {});
     const response = await web.request('/api/me/settings');
     assert.equal(response.status, 200);
-    const current = settings.parse(await response.json());
+    const current = Schema.decodeUnknownSync(settings)(await response.json());
     const resolved = current.overrides['uploads.strava.method'] ?? current.defaults.uploads.strava.method;
     const expected = override ?? defaultMethod;
     assert.equal(resolved, expected);

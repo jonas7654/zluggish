@@ -12,7 +12,7 @@ import { BaseService } from '#src/services/base.service';
 import type { World } from '#src/world/state';
 import { clearField, fromBinary, fromJsonString, toBinary } from '@bufbuild/protobuf';
 import { resolve } from 'node:path';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 export class ImportsService extends BaseService {
   constructor(
@@ -35,8 +35,8 @@ export class ImportsService extends BaseService {
     let profile = null;
     const names: ImportFile[] = [];
 
-    for (const name of filenameSchema.options) {
-      const key = filenameSchema.parse(name);
+    for (const name of Object.values(filenameSchema.enums)) {
+      const key = Schema.decodeUnknownSync(filenameSchema)(name);
       const bytes = files[key];
 
       if (!bytes) continue;
@@ -72,7 +72,11 @@ export class ImportsService extends BaseService {
 
         default: {
           if (
-            Object.keys(z.record(z.string(), z.json()).parse(JSON.parse(Buffer.from(bytes).toString()))).length === 0
+            Object.keys(
+              Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))(
+                JSON.parse(Buffer.from(bytes).toString()),
+              ),
+            ).length === 0
           ) {
             throw new Error('Economy configuration is empty');
           }
@@ -121,7 +125,7 @@ export class ImportsService extends BaseService {
   }
 
   inspect(rider: User, stage: string) {
-    const manifest = manifestSchema.parse(
+    const manifest = Schema.decodeUnknownSync(manifestSchema)(
       JSON.parse(this.filesRepository.readFileSync(resolve(this.folder(rider, stage), 'manifest.json'), 'utf8')),
     );
 
@@ -222,7 +226,7 @@ export class ImportsService extends BaseService {
           continue;
         }
 
-        const manifest = manifestSchema.parse(
+        const manifest = Schema.decodeUnknownSync(manifestSchema)(
           JSON.parse(this.filesRepository.readFileSync(resolve(folder, 'manifest.json'), 'utf8')),
         );
 

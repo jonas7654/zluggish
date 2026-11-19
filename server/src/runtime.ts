@@ -13,7 +13,7 @@ import { Simulation } from '#src/world/simulation';
 import { World } from '#src/world/state';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 import { DiscordService } from '#src/services/discord.service';
 import { MatrixService } from '#src/services/matrix.service';
@@ -32,9 +32,9 @@ export async function openRuntime(config: ResolvedConfig, assets: string) {
     const profiles = accounts.repositories.profileRepository;
     const world = new World();
 
-    const tokens = z
-      .object({ access: z.string(), refresh: z.string(), id: z.string() })
-      .parse(JSON.parse(readFileSync(resolve(packageRoot(), '../assets/tokens.json'), 'utf8')));
+    const tokens = Schema.decodeUnknownSync(
+      Schema.Struct({ access: Schema.String, refresh: Schema.String, id: Schema.String }),
+    )(JSON.parse(readFileSync(resolve(packageRoot(), '../assets/tokens.json'), 'utf8')));
 
     const context: RepositoryContext = {
       config,

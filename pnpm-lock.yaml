@@ -244,9 +244,6 @@ importers:
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
-      zod:
-        specifier: ^4.0.0
-        version: 4.6.7
     devDependencies:
       '@bufbuild/buf':
         specifier: 1.75.0

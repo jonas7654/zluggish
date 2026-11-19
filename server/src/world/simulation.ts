@@ -17,8 +17,10 @@ import { clone, fromBinary, toBinary } from '@bufbuild/protobuf';
 import { readFileSync } from 'node:fs';
 import { appendFile, rename, stat } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
-import { z } from 'zod';
+import { Schema } from 'effect';
 import { botCommand } from '#src/dtos/management.dto';
+
+const isBikeAction = Schema.is(Schema.Enum(UserBikeAction));
 
 interface GhostPlayback {
   states: PlayerState[];
@@ -60,7 +62,7 @@ export class Simulation {
 
   readonly pool: RiderPool;
 
-  readonly ghostAppearance: z.infer<typeof ghostAppearanceSchema>;
+  readonly ghostAppearance: (typeof ghostAppearanceSchema)['Type'];
 
   readonly starts: Record<string, { road: number; time: number }>;
 
@@ -96,13 +98,13 @@ export class Simulation {
     readonly runtime: Runtime,
     readonly now: () => number = () => performance.now() / 1000,
   ) {
-    this.ghostAppearance = ghostAppearanceSchema.parse(
+    this.ghostAppearance = Schema.decodeUnknownSync(ghostAppearanceSchema)(
       runtime.config.ghosts.profileFile ? JSON.parse(readFileSync(runtime.config.ghosts.profileFile, 'utf8')) : {},
     );
     this.pool = new RiderPool(runtime.assets, runtime.config.bots.ridersFile);
-    this.starts = z
-      .record(z.string(), z.object({ road: z.number(), time: z.number() }))
-      .parse(JSON.parse(readFileSync(resolve(runtime.assets, 'data/start_lines.txt'), 'utf8')));
+    this.starts = Schema.decodeUnknownSync(
+      Schema.Record(Schema.String, Schema.Struct({ road: Schema.Finite, time: Schema.Finite })),
+    )(JSON.parse(readFileSync(resolve(runtime.assets, 'data/start_lines.txt'), 'utf8')));
     // Static road assets load at startup; blobs are rebuilt on the riding path.
     Blob.roads(runtime.assets);
     runtime.world.simulation = this;
@@ -259,7 +261,7 @@ export class Simulation {
         const defaults = entries.get(key);
         const saved = this.runtime.settings.world(id);
 
-        const entry = configSchema.parse({
+        const entry = Schema.decodeUnknownSync(configSchema)({
           pelotons: [{ ...defaults, ...saved, id: key }],
         }).pelotons[0];
 
@@ -307,7 +309,7 @@ export class Simulation {
     this.directors.delete(id);
     const saved = this.runtime.settings.world(`blob:${id}`);
 
-    const config = configSchema.parse({
+    const config = Schema.decodeUnknownSync(configSchema)({
       soloBlob: {
         ...this.runtime.config.soloBlob,
         enabled: Number(id) === this.runtime.config.soloBlob.playerId && this.runtime.config.soloBlob.enabled,
@@ -564,15 +566,15 @@ export class Simulation {
 
     if (buffer.readBigUInt64LE() !== id) return null;
 
-    const action = z.nativeEnum(UserBikeAction).safeParse(buffer.readUInt32LE(8));
+    const action = buffer.readUInt32LE(8);
 
-    if (!action.success) return null;
+    if (!isBikeAction(action)) return null;
     const previous = this.lastGesture.get(id);
 
-    if (previous?.action === action.data && this.now() - previous.time < 2) return null;
-    this.lastGesture.set(id, { action: action.data, time: this.now() });
+    if (previous?.action === action && this.now() - previous.time < 2) return null;
+    this.lastGesture.set(id, { action, time: this.now() });
 
-    return this.blobs.get(id)?.gesture(action.data) ?? null;
+    return this.blobs.get(id)?.gesture(action) ?? null;
   }
 
   command(id: bigint, command: string, administrator = false) {
@@ -594,8 +596,7 @@ export class Simulation {
     }
 
     // These change the world for every rider. Only the management area sends them, on behalf of a rider.
-    if (!administrator && botCommand.safeParse(name).success)
-      return 'Use the web app management area for server commands.';
+    if (!administrator && Schema.is(botCommand)(name)) return 'Use the web app management area for server commands.';
 
     if (name === 'group' || name === 'groupall') {
       this.group(id, name === 'groupall');

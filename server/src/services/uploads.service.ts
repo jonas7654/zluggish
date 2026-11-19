@@ -17,7 +17,7 @@ import type { StoredEntry } from '#src/dtos/workout.dto';
 import { WorkoutsService } from '#src/services/workout.service';
 import { clearField, clone, fromBinary, toBinary } from '@bufbuild/protobuf';
 import { resolve } from 'node:path';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 const isoDate = (value: string | null | undefined) =>
   value && /^\d{4}-\d{2}-\d{2}(?:[T ].*)?$/.test(value) && !Number.isNaN(Date.parse(value.slice(0, 10)))
@@ -90,14 +90,14 @@ export class UploadsService extends BaseService {
 
   status(player: number) {
     return this.uploadsRepository.status(player).map((row) =>
-      z
-        .object({
-          activity_id: z.number(),
-          provider: z.string(),
-          state: z.string(),
-          last_error: z.string().nullable(),
-        })
-        .parse(row),
+      Schema.decodeUnknownSync(
+        Schema.Struct({
+          activity_id: Schema.Finite,
+          provider: Schema.String,
+          state: Schema.String,
+          last_error: Schema.NullOr(Schema.String),
+        }),
+      )(row),
     );
   }
 
@@ -139,7 +139,8 @@ export class UploadsService extends BaseService {
         });
 
       if (state === undefined) this.uploadsRepository.insert(activity, provider);
-      else this.uploadsRepository.requeue(activity, provider, z.enum(UploadState).parse(state));
+      else
+        this.uploadsRepository.requeue(activity, provider, Schema.decodeUnknownSync(Schema.Enum(UploadState))(state));
       this.jobsRepository.enqueue('delivery', { activityId: activity, provider });
     });
 
@@ -227,7 +228,7 @@ export class UploadsService extends BaseService {
 
   private async deliver(job: RunningJob) {
     const activity = job.number('activityId');
-    const provider = z.enum(UploadProvider).parse(job.text('provider'));
+    const provider = Schema.decodeUnknownSync(Schema.Enum(UploadProvider))(job.text('provider'));
     const token = job.claim.token;
 
     // Check the claim, the delivery and consent, and commit sending, in one short
@@ -497,7 +498,10 @@ export class UploadsService extends BaseService {
         'zwift_create',
       );
 
-      full.id = BigInt(z.object({ id: z.number().int().positive() }).parse(await created.json()).id);
+      full.id = BigInt(
+        Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Int.check(Schema.isGreaterThan(0)) }))(await created.json())
+          .id,
+      );
 
       if (attempt) {
         this.uploadsRepository.progress(attempt.activity, attempt.provider, attempt.token, 'created', String(full.id));

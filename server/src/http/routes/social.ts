@@ -23,7 +23,8 @@ import { create, toBinary } from '@bufbuild/protobuf';
 import type { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { resolve } from 'node:path';
-import { z } from 'zod';
+import { Schema } from 'effect';
+import { NumberFromInput } from '#src/schema';
 
 export function socialRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
   const service = runtime.services.social;
@@ -46,10 +47,9 @@ export function socialRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
   };
 
   app.get('/api/profiles', (c) => {
-    const ids = z
-      .array(z.coerce.number().int().positive().safe())
-      .max(1000)
-      .parse(c.req.queries('id') ?? []);
+    const ids = Schema.decodeUnknownSync(
+      Schema.Array(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0))).check(Schema.isMaxLength(1000)),
+    )(c.req.queries('id') ?? []);
 
     return c.body(
       toBinary(
@@ -91,31 +91,26 @@ export function socialRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
   );
   app.on('POST', ['/api/search/profiles', '/api/search/profiles/restricted'], async (c) => {
     authenticated(c);
-    const input = profileSearchSchema.parse(await c.req.json());
+    const input = Schema.decodeUnknownSync(profileSearchSchema)(await c.req.json());
 
-    const start = z.coerce
-      .number()
-      .int()
-      .min(0)
-      .parse(c.req.query('start') ?? 0);
+    const start = Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)))(
+      c.req.query('start') ?? 0,
+    );
 
-    const limit = z.coerce
-      .number()
-      .int()
-      .min(0)
-      .max(1000)
-      .parse(c.req.query('limit') ?? 100);
+    const limit = Schema.decodeUnknownSync(
+      NumberFromInput.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0), Schema.isLessThanOrEqualTo(1000)),
+    )(c.req.query('limit') ?? 100);
 
     const rows = service.listUser(`%${input.query}%`, `%${input.query}%`, limit, start);
 
-    return c.json(rows.map((row) => summary(z.number().parse(row.player_id))));
+    return c.json(rows.map((row) => summary(Schema.decodeUnknownSync(Schema.Finite)(row.player_id))));
   });
   app.post('/api/profiles/:id/privacy', async (c) => {
     const user = authenticated(c);
 
     if (String(user.player_id) !== c.req.param('id')) throw new HTTPException(401);
 
-    const input = privacyUpdateSchema.parse(await c.req.json());
+    const input = Schema.decodeUnknownSync(privacyUpdateSchema)(await c.req.json());
 
     const profile = runtime.services.profiles.get(user.player_id);
     profile.privacyBits = BigInt(
@@ -137,7 +132,7 @@ export function socialRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
   app.get('/api/profiles/:id/statistics', (c) => {
     const row = service.findActivity(c.req.param('id'), c.req.query('startDateTime') ?? '1970-01-01');
 
-    return c.json(z.record(z.string(), z.number().nullable()).parse(row));
+    return c.json(Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.NullOr(Schema.Finite)))(row));
   });
   app.post('/api/profiles/:id/photo', async (c) => {
     const user = authenticated(c);
@@ -173,7 +168,7 @@ export function socialRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
   app.put('/relay/profiles/me/phone', async (c) => {
     const user = authenticated(c);
 
-    const input = companionConnectionSchema.parse(await c.req.json());
+    const input = Schema.decodeUnknownSync(companionConnectionSchema)(await c.req.json());
 
     const port = input.securePort ?? input.port;
 
@@ -288,7 +283,9 @@ export function socialRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     const player =
       c.req.param('player') === 'me'
         ? user.player_id
-        : z.coerce.number().int().positive().safe().parse(c.req.param('player'));
+        : Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(
+            c.req.param('player'),
+          );
 
     const after = c.req.query('after') ?? '18446744065933551616';
     const before = c.req.query('before') ?? '0';
@@ -307,7 +304,7 @@ export function socialRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
     if (!row) return c.body(null, 200);
 
-    const parsed = playbackRecordSchema.parse(row);
+    const parsed = Schema.decodeUnknownSync(playbackRecordSchema)(row);
 
     return c.body(
       toBinary(

@@ -3,7 +3,7 @@ import type { User } from '#src/repositories/accounts.repository';
 import { AccountsService } from '#src/services/auth.service';
 import { BaseService } from '#src/services/base.service';
 import { resolve } from 'node:path';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 export interface BrowserSession {
   csrf: string;
@@ -14,7 +14,7 @@ export interface BrowserSession {
 
 type BrowserEvent = { type: 'login'; identity: string } | { type: 'clear-selection' };
 
-const identityPayload = z.object({ session_cookie: z.string() });
+const identityPayload = Schema.Struct({ session_cookie: Schema.String });
 
 export const REMEMBER_SECONDS = 90 * 86_400;
 
@@ -138,7 +138,9 @@ export class SessionsService extends BaseService {
     if (!payload) return null;
 
     try {
-      const parsed = identityPayload.parse(JSON.parse(Buffer.from(payload, 'base64url').toString()));
+      const parsed = Schema.decodeUnknownSync(identityPayload)(
+        JSON.parse(Buffer.from(payload, 'base64url').toString()),
+      );
 
       const identity = this.cryptoRepository.verifyIdentity(parsed.session_cookie, this.secret);
 
@@ -151,7 +153,7 @@ export class SessionsService extends BaseService {
   token(identity: string, template: string) {
     const payload = JSON.parse(Buffer.from(template.split('.', 2)[1] ?? '', 'base64url').toString());
 
-    const values = z.record(z.string(), z.json()).parse(payload);
+    const values = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))(payload);
 
     const body = Buffer.from(
       JSON.stringify({

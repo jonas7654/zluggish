@@ -9,7 +9,8 @@ import type { RiderPool } from '#src/world/riders';
 import { course, forward, road } from '#src/world/state';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { z } from 'zod';
+import { decodeOwned } from '#src/schema';
+import { Schema } from 'effect';
 
 type BlobConfig = ResolvedConfig['soloBlob'];
 
@@ -91,12 +92,12 @@ export class Blob {
     if (cached) return cached;
 
     const roads = {
-      roadLimits: z
-        .record(z.string(), z.tuple([z.number(), z.number()]))
-        .parse(JSON.parse(readFileSync(resolve(assets, 'data/road_limits.txt'), 'utf8'))),
-      roadWidths: z
-        .record(z.string(), z.array(z.tuple([z.number(), z.number(), z.number()])))
-        .parse(JSON.parse(readFileSync(resolve(assets, 'data/road_width_profile.txt'), 'utf8'))),
+      roadLimits: decodeOwned(Schema.Record(Schema.String, Schema.Tuple([Schema.Finite, Schema.Finite])))(
+        JSON.parse(readFileSync(resolve(assets, 'data/road_limits.txt'), 'utf8')),
+      ),
+      roadWidths: decodeOwned(
+        Schema.Record(Schema.String, Schema.Array(Schema.Tuple([Schema.Finite, Schema.Finite, Schema.Finite]))),
+      )(JSON.parse(readFileSync(resolve(assets, 'data/road_width_profile.txt'), 'utf8'))),
     };
 
     Blob.assets.set(assets, roads);

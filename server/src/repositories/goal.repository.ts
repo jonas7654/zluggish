@@ -4,7 +4,7 @@ import { query, SqliteExecutor } from '#src/db/query';
 import { sql } from 'kysely';
 import type { DatabaseSync } from 'node:sqlite';
 import { ProtobufRows } from '#src/repositories/protobuf.repository';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 export class GoalRepository {
   private readonly records: ProtobufRows;
@@ -39,7 +39,9 @@ export class GoalRepository {
   }
 
   activityTotals(playerId: bigint, sport: number, start: Date, end: Date) {
-    return z.object({ distance: z.number().nullable(), duration: z.number().nullable() }).parse(
+    return Schema.decodeUnknownSync(
+      Schema.Struct({ distance: Schema.NullOr(Schema.Finite), duration: Schema.NullOr(Schema.Finite) }),
+    )(
       this.executor.get(
         query
           .selectFrom('activity')

@@ -1,19 +1,19 @@
 import { readFileSync } from 'node:fs';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
-export const pythonFixtures = z
-  .object({
-    key: z.string(),
-    payload: z.string(),
-    packets: z.array(z.object({ flags: z.number(), wire: z.string(), decrypted: z.string() })),
-    credentialKey: z.string(),
-    credentials: z.string(),
-    password: z.string(),
-    scryptHash: z.string(),
-    sha256Hash: z.string(),
-    profile: z.string(),
-    secret: z.string(),
-    identity: z.string(),
-    cookie: z.string(),
-  })
-  .parse(JSON.parse(readFileSync(new URL('../fixtures/python.json', import.meta.url), 'utf8')));
+export const pythonFixtures = Schema.decodeUnknownSync(
+  Schema.Struct({
+    key: Schema.String,
+    payload: Schema.String,
+    packets: Schema.Array(Schema.Struct({ flags: Schema.Finite, wire: Schema.String, decrypted: Schema.String })),
+    credentialKey: Schema.String,
+    credentials: Schema.String,
+    password: Schema.String,
+    scryptHash: Schema.String,
+    sha256Hash: Schema.String,
+    profile: Schema.String,
+    secret: Schema.String,
+    identity: Schema.String,
+    cookie: Schema.String,
+  }),
+)(JSON.parse(readFileSync(new URL('../fixtures/python.json', import.meta.url), 'utf8')));

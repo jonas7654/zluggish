@@ -11,7 +11,8 @@ import type { Context, Hono } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { HTTPException } from 'hono/http-exception';
 import { resolve } from 'node:path';
-import { z } from 'zod';
+import { Option, Schema } from 'effect';
+import { orElse, PositiveIntFromString } from '#src/schema';
 
 export function authenticated(c: Context<RuntimeEnv>) {
   const rider = c.get('user');
@@ -62,19 +63,31 @@ function unlockPage(c: Context<RuntimeEnv>, user: User, error = '') {
   );
 }
 
-type FormFields = Record<string, string | File | (string | File)[]>;
+type FormFields = Readonly<Record<string, string | File | readonly (string | File)[]>>;
 
 export async function csrf(c: Context<RuntimeEnv>, runtime: Runtime): Promise<FormFields> {
   const form = await c.req.parseBody();
 
-  if (!runtime.services.sessions.validCsrf(c.get('browser'), z.string().catch('').parse(form.csrf_token)))
+  if (
+    !runtime.services.sessions.validCsrf(
+      c.get('browser'),
+      Schema.decodeUnknownSync(Schema.String.pipe(orElse('')))(form.csrf_token),
+    )
+  )
     throw new HTTPException(400, {
       message: 'The form expired. Reload and retry.',
     });
 
-  return z
-    .record(z.string(), z.union([z.string(), z.instanceof(File), z.array(z.union([z.string(), z.instanceof(File)]))]))
-    .parse(form);
+  return Schema.decodeUnknownSync(
+    Schema.Record(
+      Schema.String,
+      Schema.Union([
+        Schema.String,
+        Schema.instanceOf(File),
+        Schema.Array(Schema.Union([Schema.String, Schema.instanceOf(File)])),
+      ]),
+    ),
+  )(form);
 }
 
 export function peerAddress(c: Context) {
@@ -222,10 +235,10 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     if (c.req.method === 'POST') {
       const form = await csrf(c, runtime);
 
-      const id = z.coerce.number().int().positive().safe().safeParse(form.player_id);
+      const id = Schema.decodeUnknownOption(PositiveIntFromString)(form.player_id);
 
-      const user = id.success ? accounts.get(id.data) : null;
-      const password = z.string().catch('').parse(form.password);
+      const user = Option.isSome(id) ? accounts.get(id.value) : null;
+      const password = Schema.decodeUnknownSync(Schema.String.pipe(orElse('')))(form.password);
       const step = form.step === 'password';
       let signedIn: User | null = null;
 
@@ -408,10 +421,12 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
     const address = peerAddress(c);
 
-    if (form.map && form.map !== 'CALENDAR') world.mapOverrides.set(address, z.string().parse(form.map));
+    if (form.map && form.map !== 'CALENDAR')
+      world.mapOverrides.set(address, Schema.decodeUnknownSync(Schema.String)(form.map));
     else if (form.map === 'CALENDAR') world.mapOverrides.delete(address);
 
-    if (form.climb && form.climb !== 'CALENDAR') world.climbOverrides.set(address, z.string().parse(form.climb));
+    if (form.climb && form.climb !== 'CALENDAR')
+      world.climbOverrides.set(address, Schema.decodeUnknownSync(Schema.String)(form.climb));
     else if (form.climb === 'CALENDAR') world.climbOverrides.delete(address);
 
     return c.redirect('/ride');
@@ -422,14 +437,19 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     let user;
 
     if (form.username) {
-      user = accounts.byUsername(z.string().parse(form.username));
+      user = accounts.byUsername(Schema.decodeUnknownSync(Schema.String)(form.username));
 
-      if (!user || !(await accounts.verify(user, z.string().catch('').parse(form.password)))) {
+      if (
+        !user ||
+        !(await accounts.verify(user, Schema.decodeUnknownSync(Schema.String.pipe(orElse('')))(form.password)))
+      ) {
         runtime.world.lifecycle.diagnostic('auth.login_failed', 'Login rejected', true);
         throw new HTTPException(401);
       }
     } else {
-      const token = form.code ? z.string().parse(form.code) : z.string().parse(form.refresh_token);
+      const token = form.code
+        ? Schema.decodeUnknownSync(Schema.String)(form.code)
+        : Schema.decodeUnknownSync(Schema.String)(form.refresh_token);
 
       if (form.code && !token.startsWith('zwift_refresh_token')) throw new HTTPException(401);
 
@@ -459,9 +479,12 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
     const form = c.req.header('Authorization') ? await c.req.parseBody() : await csrf(c, runtime);
 
-    if (user.pass_hash && !(await accounts.verify(user, z.string().catch('').parse(form.current_password))))
+    if (
+      user.pass_hash &&
+      !(await accounts.verify(user, Schema.decodeUnknownSync(Schema.String.pipe(orElse('')))(form.current_password)))
+    )
       throw new HTTPException(403);
-    const password = z.string().min(1).parse(form['password-new']);
+    const password = Schema.decodeUnknownSync(Schema.String.check(Schema.isMinLength(1)))(form['password-new']);
 
     if (password !== form['password-confirm']) throw new HTTPException(400);
 

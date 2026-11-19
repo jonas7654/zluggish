@@ -7,13 +7,16 @@ import { create, toBinary } from '@bufbuild/protobuf';
 import type { Context, Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { resolve } from 'node:path';
-import { z } from 'zod';
+import { Schema } from 'effect';
+import { NumberFromInput } from '#src/schema';
 
 export function profileRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
   runtime.services.imports.recover();
 
   app.get('/download/:id/avatarLarge.jpg', (c) => {
-    const id = z.coerce.number().int().positive().safe().parse(c.req.param('id'));
+    const id = Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(
+      c.req.param('id'),
+    );
 
     const path = resolve(runtime.services.profiles.folder(id), 'avatarLarge.jpg');
 
@@ -53,7 +56,9 @@ export function profileRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
   app.get('/api/profiles/:id', (c) => {
     const viewer = authenticated(c);
 
-    const id = z.coerce.number().int().positive().safe().parse(c.req.param('id'));
+    const id = Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(
+      c.req.param('id'),
+    );
 
     if (
       !runtime.services.accounts.get(id) &&
@@ -77,7 +82,7 @@ export function profileRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
     if (String(user.player_id) !== c.req.param('id')) throw new HTTPException(401);
 
-    const update = profileUpdateSchema.parse(await c.req.json());
+    const update = Schema.decodeUnknownSync(profileUpdateSchema)(await c.req.json());
 
     const profile = runtime.services.profiles.get(user.player_id);
 

@@ -15,7 +15,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 {
   await test('activity create, feeds, details, update, images, signed media and owner-only delete', async (t) => {
@@ -34,7 +34,7 @@ import { z } from 'zod';
 
     const response = await f.request(base, { method: 'POST', ...binary(ActivitySchema, data) });
     assert.equal(response.status, 200);
-    const { id } = z.object({ id: z.number() }).parse(await response.json());
+    const { id } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await response.json());
     const saved = await decode(await f.request(base), ActivityListSchema);
     assert.equal(saved.activities[0]?.playerId, BigInt(f.rider.player_id));
     assert.equal(saved.activities[0]?.name, data.name);
@@ -46,11 +46,18 @@ import { z } from 'zod';
     ]) {
       const feed = await f.request(path);
       assert.equal(feed.status, 200);
-      assert.equal(z.array(z.object({ id: z.number() })).parse(await feed.json())[0]?.id, id);
+      assert.equal(
+        Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ id: Schema.Finite })))(await feed.json())[0]?.id,
+        id,
+      );
     }
 
     const detail = await f.request(`/api/activities/${id}`);
-    assert.equal(z.object({ distanceInMeters: z.number() }).parse(await detail.json()).distanceInMeters, 12_345);
+    assert.equal(
+      Schema.decodeUnknownSync(Schema.Struct({ distanceInMeters: Schema.Finite }))(await detail.json())
+        .distanceInMeters,
+      12_345,
+    );
 
     const response1 = await f.request(`${base}/${id}`, {
       method: 'PUT',
@@ -68,7 +75,7 @@ import { z } from 'zod';
     });
 
     assert.equal(image.status, 200);
-    const imageId = z.object({ id: z.number() }).parse(await image.json()).id;
+    const imageId = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await image.json()).id;
     assert.deepEqual(
       readFileSync(resolve(f.profiles.folder(f.rider.player_id), 'images', `${imageId}.jpg`)),
       Buffer.from(jpeg),
@@ -136,16 +143,26 @@ import { z } from 'zod';
     assert.equal(goals.goals.length, 4);
     const response9 = await f.request(base, { headers: { Accept: 'application/json' } });
 
-    const json = z
-      .array(z.object({ id: z.number(), actualDistanceInMeters: z.number(), actualDurationInMinutes: z.number() }))
-      .parse(await response9.json());
+    const json = Schema.decodeUnknownSync(
+      Schema.Array(
+        Schema.Struct({
+          id: Schema.Finite,
+          actualDistanceInMeters: Schema.Finite,
+          actualDurationInMinutes: Schema.Finite,
+        }),
+      ),
+    )(await response9.json());
 
     assert.equal(json.length, 4);
 
     for (const goal of json) assert.equal(goal.actualDurationInMinutes, goal.actualDistanceInMeters);
     const mobile = await f.request('/relay/worlds/1/aggregate/mobile?goalCount=4');
     assert.equal(mobile.status, 200);
-    assert.equal(z.object({ goals: z.array(z.unknown()) }).parse(await mobile.json()).goals.length, 4);
+    assert.equal(
+      Schema.decodeUnknownSync(Schema.Struct({ goals: Schema.Array(Schema.Unknown) }))(await mobile.json()).goals
+        .length,
+      4,
+    );
     const id = goals.goals[0]!.id;
 
     const update = {
@@ -189,9 +206,9 @@ import { z } from 'zod';
 await test('F11 activity startup list excludes old dates without losing detail, feed or another rider history', async (t) => {
   const f = await mediumFixture(t);
 
-  const { cutoff } = z
-    .object({ cutoff: z.string() })
-    .parse(f.accounts.db.prepare("SELECT date('now','-1 month') AS cutoff").get());
+  const { cutoff } = Schema.decodeUnknownSync(Schema.Struct({ cutoff: Schema.String }))(
+    f.accounts.db.prepare("SELECT date('now','-1 month') AS cutoff").get(),
+  );
 
   const ids: number[] = [];
 
@@ -210,7 +227,7 @@ await test('F11 activity startup list excludes old dates without losing detail, 
     });
 
     assert.equal(response.status, 200);
-    ids.push(z.object({ id: z.number() }).parse(await response.json()).id);
+    ids.push(Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await response.json()).id);
   }
 
   const other = await f.request(
@@ -247,9 +264,12 @@ await test('F11 activity startup list excludes old dates without losing detail, 
 
   const detail = await f.request(`/api/activities/${ids[0]}`);
   assert.equal(detail.status, 200);
-  assert.equal(z.object({ name: z.string() }).parse(await detail.json()).name, '2000-01-01');
+  assert.equal(
+    Schema.decodeUnknownSync(Schema.Struct({ name: Schema.String }))(await detail.json()).name,
+    '2000-01-01',
+  );
   const feed = await f.request('/api/activity-feed-service-v2/feed/just-me');
-  const activities = z.array(z.object({ id: z.number() })).parse(await feed.json());
+  const activities = Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ id: Schema.Finite })))(await feed.json());
   assert.deepEqual(
     activities.map((item) => item.id).sort((a, b) => a - b),
     ids,
@@ -282,7 +302,7 @@ await test('private activities stay out of other riders feeds, lists, details an
     });
 
     assert.equal(response.status, 200);
-    const { id } = z.object({ id: z.number() }).parse(await response.json());
+    const { id } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await response.json());
     privateIds.push(id);
 
     const chart = f.accounts.db
@@ -292,7 +312,7 @@ await test('private activities stay out of other riders feeds, lists, details an
     new AssetFiles().writeDurable(resolve(f.config.storageDir, 'activities', String(chart)), '{"heartRate":[150]}');
     const ownerDetail = await f.request(`/api/activities/${id}`);
     assert.equal(ownerDetail.status, 200);
-    const detail = z.object({ privacy: z.string() }).parse(await ownerDetail.json());
+    const detail = Schema.decodeUnknownSync(Schema.Struct({ privacy: Schema.String }))(await ownerDetail.json());
     assert.equal(detail.privacy, values.privateActivity ? 'PRIVATE' : ActivityPrivacyType[values.privacy ?? 0]);
     const outsider = await f.request(`/api/activities/${id}`, {}, f.other);
     assert.equal(outsider.status, values.privacy === ActivityPrivacyType.PUBLIC ? 200 : 404);
@@ -310,7 +330,7 @@ await test('private activities stay out of other riders feeds, lists, details an
     `/api/activity-feed-service-v2/feed/profile/${f.rider.player_id}`,
   ]) {
     const response = await f.request(path, {}, f.other);
-    const feed = z.array(z.object({ id: z.number() })).parse(await response.json());
+    const feed = Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ id: Schema.Finite })))(await response.json());
     assert.deepEqual(
       feed.map((activity) => activity.id),
       [privateIds[3]],
@@ -411,7 +431,7 @@ await test('hidden fitness is redacted in protobuf lists, detail, feeds and char
     }),
   });
 
-  const { id } = z.object({ id: z.number() }).parse(await created.json());
+  const { id } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await created.json());
   const other = await decode(await f.request(base, {}, f.other), ActivityListSchema);
   assert.equal(other.activities[0]?.avgHeartRate, 0);
   assert.equal(other.activities[0]?.avgWatts, 0);
@@ -421,7 +441,7 @@ await test('hidden fitness is redacted in protobuf lists, detail, feeds and char
   const own = await decode(await f.request(base), ActivityListSchema);
   assert.equal(own.activities[0]?.avgHeartRate, 175);
   const detail = await f.request(`/api/activities/${id}`, {}, f.other);
-  const json = z.record(z.string(), z.json()).parse(await detail.json());
+  const json = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))(await detail.json());
   assert.equal(json.avgHeartRate, undefined);
   assert.equal(json.avgWatts, undefined);
 
@@ -431,7 +451,11 @@ await test('hidden fitness is redacted in protobuf lists, detail, feeds and char
   ]) {
     const response = await f.request(path, {}, f.other);
     assert.equal(response.status, 200);
-    const feed = z.array(z.record(z.string(), z.json())).parse(await response.json());
+
+    const feed = Schema.decodeUnknownSync(Schema.Array(Schema.Record(Schema.String, Schema.Json)))(
+      await response.json(),
+    );
+
     assert.equal(feed.length, 1);
     assert.equal(feed[0]?.calories, 0);
     assert.equal(feed[0]?.avgSpeedInMetersPerSecond, 0);

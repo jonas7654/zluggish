@@ -1,3 +1,5 @@
+import type { Overrides } from '#src/dtos/settings.dto';
+import type { Types } from 'effect';
 import { PlayerProfileSchema } from '#src/protocol/generated/profile_pb';
 import { GhostSchema, PlayerStateSchema } from '#src/protocol/generated/udp-node-msgs_pb';
 import { FitQueueFullError } from '#src/errors';
@@ -108,7 +110,7 @@ await test('settings reads come from the cache and follow each committed change'
   f.settings.save(rider.player_id, { 'ghosts.enabled': true });
   assert.deepEqual(f.settings.read(rider.player_id), { 'ghosts.enabled': true });
 
-  const copy = f.settings.read(rider.player_id);
+  const copy: Types.Mutable<Overrides> = f.settings.read(rider.player_id);
   copy['ghosts.enabled'] = false;
   assert.deepEqual(f.settings.read(rider.player_id), { 'ghosts.enabled': true });
 

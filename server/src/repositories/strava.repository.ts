@@ -3,17 +3,18 @@ import { DeliveryRefusedError, refused } from '#src/errors';
 import { CookieSession, SessionRepository } from '#src/repositories/session.repository';
 import { readFileSync, statSync } from 'node:fs';
 import { extname } from 'node:path';
-import { z } from 'zod';
+import { Schema } from 'effect';
+import { Url } from '#src/schema';
 
 const site = 'https://www.strava.com';
 const selectUrl = `${site}/upload/select`;
 const marker = 'Upload and Sync Your Activities';
 const redirect = 'https://launcher.zwift.com/authorization';
 
-const tokenResponse = z.object({
-  access_token: z.string(),
-  refresh_token: z.string(),
-  expires_at: z.number(),
+const tokenResponse = Schema.Struct({
+  access_token: Schema.String,
+  refresh_token: Schema.String,
+  expires_at: Schema.Finite,
 });
 
 export interface StravaToken {
@@ -33,7 +34,7 @@ async function oauth(form: Record<string, string>) {
 
   if (!response.ok) throw new Error(`Strava OAuth failed: ${response.status}`);
 
-  return tokenResponse.parse(await response.json());
+  return Schema.decodeUnknownSync(tokenResponse)(await response.json());
 }
 
 const sessionCookie = '_strava4_session';
@@ -73,7 +74,9 @@ async function uploadPhoto(session: CookieSession, token: string, athlete: numbe
 
   if (!metadata.ok) throw new Error('Photo metadata failed');
 
-  const target = z.object({ uri: z.url(), header: z.record(z.string(), z.string()) }).parse(await metadata.json());
+  const target = Schema.decodeUnknownSync(
+    Schema.Struct({ uri: Url, header: Schema.Record(Schema.String, Schema.String) }),
+  )(await metadata.json());
 
   const stored = await fetch(target.uri, {
     method: 'PUT',
@@ -130,11 +133,11 @@ async function updateActivity(session: CookieSession, id: string, name: string, 
   if (!saved.ok) throw new Error('Failed to save activity');
 }
 
-const progress = z.array(
-  z.object({
-    workflow: z.string().optional(),
-    id: z.union([z.number(), z.string()]).optional(),
-    activity: z.object({ id: z.union([z.number(), z.string()]) }).optional(),
+const progress = Schema.Array(
+  Schema.Struct({
+    workflow: Schema.optional(Schema.String),
+    id: Schema.optional(Schema.Union([Schema.Finite, Schema.String])),
+    activity: Schema.optional(Schema.Struct({ id: Schema.Union([Schema.Finite, Schema.String]) })),
   }),
 );
 
@@ -143,7 +146,7 @@ async function waitReady(session: CookieSession, upload: string, delay = 1000) {
   for (let attempt = 0; attempt < 60; attempt++) {
     const response = await session.request(`${site}/upload/progress.json?${new URLSearchParams({ 'ids[]': upload })}`);
 
-    const [item] = progress.parse(await response.json());
+    const [item] = Schema.decodeUnknownSync(progress)(await response.json());
 
     if (item?.workflow === 'success') return item;
 
@@ -363,7 +366,7 @@ export class StravaRepository {
 
     if (!body.includes('workflow')) throw new Error('Strava rejected the upload');
 
-    for (const upload of progress.parse(JSON.parse(body))) {
+    for (const upload of Schema.decodeUnknownSync(progress)(JSON.parse(body))) {
       if (upload.id === undefined) continue;
       const item = await waitReady(session, String(upload.id), delay);
       const id = item.activity?.id ?? item.id;

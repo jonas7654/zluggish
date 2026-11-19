@@ -5,19 +5,20 @@ import type { Goal } from '#src/protocol/generated/goal_pb';
 import { GoalSchema } from '#src/protocol/generated/goal_pb';
 import { BaseService } from '#src/services/base.service';
 import { create } from '@bufbuild/protobuf';
-import { z } from 'zod';
+import { Schema } from 'effect';
+import { withDefault } from '#src/schema';
 
-export const goalInput = z.object({
-  id: z.number().int().nonnegative().default(0),
-  profileId: z.number().int().positive(),
-  sport: z.enum(ActivitySport),
-  name: z.string(),
-  type: z.union([z.literal(0), z.literal(1)]),
-  periodicity: z.union([z.literal(0), z.literal(1)]),
-  targetDistanceInMeters: z.number(),
-  targetDurationInMinutes: z.number(),
-  actualDistanceInMeters: z.number().default(0),
-  actualDurationInMinutes: z.number().default(0),
+export const goalInput = Schema.Struct({
+  id: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)).pipe(withDefault(0)),
+  profileId: Schema.Int.check(Schema.isGreaterThan(0)),
+  sport: Schema.Enum(ActivitySport),
+  name: Schema.String,
+  type: Schema.Union([Schema.Literal(0), Schema.Literal(1)]),
+  periodicity: Schema.Union([Schema.Literal(0), Schema.Literal(1)]),
+  targetDistanceInMeters: Schema.Finite,
+  targetDurationInMinutes: Schema.Finite,
+  actualDistanceInMeters: Schema.Finite.pipe(withDefault(0)),
+  actualDurationInMinutes: Schema.Finite.pipe(withDefault(0)),
 });
 
 export class GoalService extends BaseService {
@@ -107,7 +108,7 @@ export class GoalService extends BaseService {
     };
   }
 
-  static parseGoal(body: z.infer<typeof goalInput>) {
+  static parseGoal(body: (typeof goalInput)['Type']) {
     return create(GoalSchema, {
       id: BigInt(body.id),
       playerId: BigInt(body.profileId),

@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { test } from 'node:test';
 import type { TestContext } from 'node:test';
-import { z } from 'zod';
+import { Schema } from 'effect';
 import { create, toBinary } from '@bufbuild/protobuf';
 import { PlayerProfileSchema } from '#src/protocol/generated/profile_pb';
 import type { User } from '#src/repositories/accounts.repository';
@@ -23,7 +23,7 @@ async function browserFixture(t: TestContext) {
   t.after(() => server.close());
 
   if (!server.listening) await once(server, 'listening');
-  const address = z.object({ port: z.number() }).parse(server.address());
+  const address = Schema.decodeUnknownSync(Schema.Struct({ port: Schema.Finite }))(server.address());
   const origin = `http://127.0.0.1:${address.port}`;
   const browser = await chromium.launch();
   t.after(() => browser.close());
@@ -32,7 +32,7 @@ async function browserFixture(t: TestContext) {
   t.after(() => web.close());
 
   if (!web.listening) await once(web, 'listening');
-  const webAddress = z.object({ port: z.number() }).parse(web.address());
+  const webAddress = Schema.decodeUnknownSync(Schema.Struct({ port: Schema.Finite }))(web.address());
 
   return { ...f, origin, browser, webOrigin: `http://127.0.0.1:${webAddress.port}` };
 }

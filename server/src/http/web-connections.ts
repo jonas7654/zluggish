@@ -1,16 +1,22 @@
 import type { Hono } from 'hono';
 import { resolve } from 'node:path';
-import { z } from 'zod';
+import { Schema } from 'effect';
+import { NumberFromInput, Strict, withDefault } from '#src/schema';
 import { UploadProvider } from '#src/enum';
 import { ApplicationError, UnreadableCredentialsError } from '#src/errors';
 import type { HttpRuntime } from '#src/http/runtime';
 import type { WebEnv } from '#src/http/web-app';
 
-const provider = z.enum(['strava', 'garmin', 'intervals']);
-const credentials = z.strictObject({ username: z.string().trim().min(1).max(500), secret: z.string().max(10_000) });
+const provider = Schema.Literals(['strava', 'garmin', 'intervals']);
+
+const credentials = Strict({
+  username: Schema.Trim.check(Schema.isMinLength(1), Schema.isMaxLength(500)),
+  secret: Schema.String.check(Schema.isMaxLength(10_000)),
+});
+
 const workoutProviders = { intervals: 'intervals-icu', trainingpeaks: 'trainingpeaks' } as const;
 
-const credential = z.enum([
+const credential = Schema.Literals([
   'strava/api',
   'strava/authorization',
   'strava/cookie',
@@ -42,7 +48,7 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
   const sessions = management.sessions;
 
   // Credentials the key cannot decrypt stay saved, so the rider is asked to enter them again.
-  const saved = (player: number, name: z.infer<typeof provider>) => {
+  const saved = (player: number, name: (typeof provider)['Type']) => {
     const { credentials, unreadable } = connections.inspect(player, name);
 
     return { username: credentials?.[0] ?? '', saved: connections.has(player, name), unreadable };
@@ -66,10 +72,10 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
   });
   app.put('/api/me/connections/:provider', async (c) => {
     const player = sessions.require(c.get('sessionId')).player_id;
-    const name = provider.parse(c.req.param('provider'));
-    const input = credentials.parse(await c.req.json());
+    const name = Schema.decodeUnknownSync(provider)(c.req.param('provider'));
+    const input = Schema.decodeUnknownSync(credentials)(await c.req.json());
 
-    if (name === 'intervals') z.string().regex(/^\d+$/).parse(input.username);
+    if (name === 'intervals') Schema.decodeUnknownSync(Schema.String.check(Schema.isPattern(/^\d+$/)))(input.username);
     const secret = input.secret || connections.inspect(player, name).credentials?.[1];
 
     if (!secret) throw new ApplicationError({ status: 400, message: 'Enter a secret.' });
@@ -80,16 +86,11 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
   app.put('/api/me/connections/strava/cookie', async (c) => {
     const player = sessions.require(c.get('sessionId')).player_id;
 
-    const input = z
-      .strictObject({
-        cookie: z
-          .string()
-          .trim()
-          .min(1)
-          .max(10_000)
-          .regex(/^[^\r\n]+$/),
-      })
-      .parse(await c.req.json());
+    const input = Schema.decodeUnknownSync(
+      Strict({
+        cookie: Schema.Trim.check(Schema.isMinLength(1), Schema.isMaxLength(10_000), Schema.isPattern(/^[^\r\n]+$/)),
+      }),
+    )(await c.req.json());
 
     documents.put(player, 'strava4_session.txt', input.cookie);
 
@@ -97,7 +98,7 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
   });
   app.delete('/api/me/connections/:provider', (c) => {
     const player = sessions.require(c.get('sessionId')).player_id;
-    const name = provider.parse(c.req.param('provider'));
+    const name = Schema.decodeUnknownSync(provider)(c.req.param('provider'));
     connections.remove(player, name);
 
     if (name === 'strava') {
@@ -110,7 +111,7 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
   // One stored credential, so a rider can drop the session cookie and keep the API, or the reverse.
   app.delete('/api/me/connections/:provider/:credential', (c) => {
     const player = sessions.require(c.get('sessionId')).player_id;
-    const name = credential.parse(`${c.req.param('provider')}/${c.req.param('credential')}`);
+    const name = Schema.decodeUnknownSync(credential)(`${c.req.param('provider')}/${c.req.param('credential')}`);
 
     if (name === 'strava/api') connections.remove(player, 'strava');
     else if (name === 'garmin/credentials') connections.remove(player, 'garmin');
@@ -122,7 +123,10 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
     const id = c.get('sessionId');
     const user = sessions.require(id);
     const identity = runtime.services.accounts.identityOf(user);
-    const input = z.strictObject({ code: z.string().min(1).max(32).optional() }).parse(await c.req.json());
+
+    const input = Schema.decodeUnknownSync(
+      Strict({ code: Schema.optional(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(32))) }),
+    )(await c.req.json());
 
     try {
       const status = await integrations.authorizeGarminSession(
@@ -142,9 +146,12 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
     const user = sessions.require(id);
     const identity = runtime.services.accounts.identityOf(user);
 
-    const input = z
-      .strictObject({ code: z.string().min(1).max(2000).optional(), state: z.string().optional() })
-      .parse(await c.req.json());
+    const input = Schema.decodeUnknownSync(
+      Strict({
+        code: Schema.optional(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(2000))),
+        state: Schema.optional(Schema.String),
+      }),
+    )(await c.req.json());
 
     if (input.code) {
       const session = sessions.find(id)!;
@@ -190,7 +197,9 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
     const user = sessions.require(id);
     const identity = runtime.services.accounts.identityOf(user);
 
-    const input = z.strictObject({ provider: z.enum(['intervals', 'trainingpeaks']) }).parse(await c.req.json());
+    const input = Schema.decodeUnknownSync(Strict({ provider: Schema.Literals(['intervals', 'trainingpeaks']) }))(
+      await c.req.json(),
+    );
 
     // The chosen provider becomes the one the game uses when both are configured.
     files.write(
@@ -213,19 +222,22 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
   app.get('/api/me/uploads', (c) =>
     c.json({ jobs: uploads.status(sessions.require(c.get('sessionId')).player_id).slice(0, 100) }),
   );
-  const activityId = z.coerce.number().int().positive().safe();
+  const activityId = NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0));
   app.get('/api/me/activities/:id/uploads', (c) =>
     c.json({
-      uploads: uploads.forActivity(sessions.require(c.get('sessionId')).player_id, activityId.parse(c.req.param('id'))),
+      uploads: uploads.forActivity(
+        sessions.require(c.get('sessionId')).player_id,
+        Schema.decodeUnknownSync(activityId)(c.req.param('id')),
+      ),
     }),
   );
   app.post('/api/me/activities/:id/uploads', async (c) => {
     const player = sessions.require(c.get('sessionId')).player_id;
-    const id = activityId.parse(c.req.param('id'));
+    const id = Schema.decodeUnknownSync(activityId)(c.req.param('id'));
 
-    const input = z
-      .strictObject({ provider: z.enum(UploadProvider), again: z.boolean().default(false) })
-      .parse(await c.req.json());
+    const input = Schema.decodeUnknownSync(
+      Strict({ provider: Schema.Enum(UploadProvider), again: Schema.Boolean.pipe(withDefault(false)) }),
+    )(await c.req.json());
 
     void uploads.request(player, id, input.provider, input.again);
 
@@ -233,7 +245,11 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
   });
   app.post('/api/me/uploads/retry', async (c) => {
     const player = sessions.require(c.get('sessionId')).player_id;
-    const input = z.strictObject({ ambiguous: z.boolean().default(false) }).parse(await c.req.json());
+
+    const input = Schema.decodeUnknownSync(Strict({ ambiguous: Schema.Boolean.pipe(withDefault(false)) }))(
+      await c.req.json(),
+    );
+
     void uploads.retry(player, input.ambiguous);
 
     return c.json({ ok: true });

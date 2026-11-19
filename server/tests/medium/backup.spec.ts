@@ -1,3 +1,5 @@
+import { decodeOwned } from '#src/schema';
+import { Schema } from 'effect';
 import { openDatabase } from '#src/db/open';
 import { ActivitySchema } from '#src/protocol/generated/activity_pb';
 import { backupStorage, restoreStorage } from '#src/migrations/backup';
@@ -13,7 +15,6 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import type { TestContext } from 'node:test';
 import { test } from 'node:test';
-import { z } from 'zod';
 
 const fit = readFileSync(new URL('../fixtures/ride.fit', import.meta.url));
 
@@ -41,7 +42,7 @@ async function backedUp(t: TestContext) {
     ...binary(ActivitySchema, data),
   });
 
-  const { id } = z.object({ id: z.number() }).parse(await response.json());
+  const { id } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await response.json());
   f.services.activities.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }));
   const backup = mkdtempSync(resolve(tmpdir(), 'zluggish-backup-'));
   t.after(() => rmSync(backup, { recursive: true, force: true }));
@@ -93,10 +94,11 @@ await test('a restore without the credentials key stops with a clear error', asy
   rmSync(resolve(backup, StorageFile.CredentialsKey));
   const manifestPath = resolve(backup, 'backup-manifest.json');
 
-  const manifest = z
-    .object({ checksums: z.record(z.string(), z.string()) })
-    .loose()
-    .parse(JSON.parse(readFileSync(manifestPath, 'utf8')));
+  const manifest = decodeOwned(
+    Schema.StructWithRest(Schema.Struct({ checksums: Schema.Record(Schema.String, Schema.String) }), [
+      Schema.Record(Schema.String, Schema.Unknown),
+    ]),
+  )(JSON.parse(readFileSync(manifestPath, 'utf8')));
 
   delete manifest.checksums[StorageFile.CredentialsKey];
   writeFileSync(manifestPath, JSON.stringify(manifest));

@@ -34,7 +34,8 @@ import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { HTTPException } from 'hono/http-exception';
 import { resolve } from 'node:path';
-import { z } from 'zod';
+import { fieldErrors } from '#src/schema';
+import { Schema } from 'effect';
 
 export interface PublicMetadata {
   gameInfo: string;
@@ -166,16 +167,8 @@ export function createGameApp(metadata: PublicMetadata, runtime?: Runtime) {
     if (browserJson(c)) {
       c.header('Cache-Control', 'no-store');
 
-      if (error instanceof z.ZodError) {
-        const fieldErrors: Record<string, string[]> = {};
-
-        for (const issue of error.issues) {
-          const field = String(issue.path[0] ?? 'form');
-          (fieldErrors[field] ??= []).push(issue.message);
-        }
-
-        return c.json({ ok: false, message: 'Check the form fields.', fieldErrors }, 400);
-      }
+      if (Schema.isSchemaError(error))
+        return c.json({ ok: false, message: 'Check the form fields.', fieldErrors: fieldErrors(error) }, 400);
 
       if (error instanceof HTTPException || error instanceof ApplicationError) {
         const status = error.status;
@@ -194,7 +187,7 @@ export function createGameApp(metadata: PublicMetadata, runtime?: Runtime) {
 
     if (error instanceof HTTPException) return error.getResponse();
 
-    if (error instanceof z.ZodError) return c.text('Invalid request', 400);
+    if (Schema.isSchemaError(error)) return c.text('Invalid request', 400);
 
     log.error('http.failed', 'Request failed unexpectedly', {
       requestId: c.get('requestId'),

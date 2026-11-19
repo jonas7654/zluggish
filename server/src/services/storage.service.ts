@@ -9,14 +9,15 @@ import { BaseService } from '#src/services/base.service';
 import { clone, create, fromBinary, isFieldSet, toBinary } from '@bufbuild/protobuf';
 import { reflect } from '@bufbuild/protobuf/reflect';
 import { resolve } from 'node:path';
-import { z } from 'zod';
+import { Option, Schema } from 'effect';
+import { withDefault } from '#src/schema';
 
-const fileRow = z.object({
-  id: z.number(),
-  player_id: z.number(),
-  folder: z.string(),
-  filename: z.string(),
-  timestamp: z.number(),
+const fileRow = Schema.Struct({
+  id: Schema.Finite,
+  player_id: Schema.Finite,
+  folder: Schema.String,
+  filename: Schema.String,
+  timestamp: Schema.Finite,
 });
 
 function safeName(value: string) {
@@ -64,16 +65,14 @@ export class StorageService extends BaseService {
         attributes[index] = attribute;
       }
 
-      const dictionary = z
-        .object({
-          bikeframes: z.record(z.string(), z.string()),
-          bikeframesextra: z.record(z.string(), z.string()).default({}),
-        })
-        .parse(
-          JSON.parse(
-            this.filesRepository.readFileSync(resolve(this.context.assets, 'data/game_dictionary.txt'), 'utf8'),
-          ),
-        );
+      const dictionary = Schema.decodeUnknownSync(
+        Schema.Struct({
+          bikeframes: Schema.Record(Schema.String, Schema.String),
+          bikeframesextra: Schema.Record(Schema.String, Schema.String).pipe(withDefault({})),
+        }),
+      )(
+        JSON.parse(this.filesRepository.readFileSync(resolve(this.context.assets, 'data/game_dictionary.txt'), 'utf8')),
+      );
 
       const now = BigInt(Date.now());
 
@@ -131,25 +130,26 @@ export class StorageService extends BaseService {
     const existing = this.storageRepository.findZfile(id, folder, name);
     const timestamp = Math.floor(Date.now() / 1000);
 
-    if (existing) this.storageRepository.updateZfileTimestamp(timestamp, fileRow.parse(existing).id);
+    if (existing)
+      this.storageRepository.updateZfileTimestamp(timestamp, Schema.decodeUnknownSync(fileRow)(existing).id);
 
     const fileId = existing
-      ? fileRow.parse(existing).id
+      ? Schema.decodeUnknownSync(fileRow)(existing).id
       : Number(this.storageRepository.insertZfile(id, folder, name, timestamp).lastInsertRowid);
 
     return { id: fileId, folder, name, timestamp };
   }
 
   list(id: number, folder: string) {
-    return this.storageRepository.listZfile(id, folder).map((row) => fileRow.parse(row));
+    return this.storageRepository.listZfile(id, folder).map((row) => Schema.decodeUnknownSync(fileRow)(row));
   }
 
   private owned(id: number, fileId: string) {
-    const parsed = fileRow.safeParse(this.storageRepository.findZfileRow(fileId, id));
+    const parsed = Schema.decodeUnknownOption(fileRow)(this.storageRepository.findZfileRow(fileId, id));
 
-    if (!parsed.success) throw new ApplicationError({ status: 404 });
+    if (Option.isNone(parsed)) throw new ApplicationError({ status: 404 });
 
-    return parsed.data;
+    return parsed.value;
   }
 
   delete(id: number, fileId: string) {

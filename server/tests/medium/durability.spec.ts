@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 const fit = readFileSync(new URL('../fixtures/ride.fit', import.meta.url));
 
@@ -91,7 +91,7 @@ await test('a delivery flushes its sending state before the provider request', a
     ...binary(ActivitySchema, data),
   });
 
-  const { id } = z.object({ id: z.number() }).parse(await response.json());
+  const { id } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await response.json());
   f.services.activities.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }));
   order.length = 0;
   await f.services.jobs.drain();

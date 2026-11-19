@@ -19,7 +19,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 const jsonRequest = (body: MeetupInput) => ({
   headers: { 'Content-Type': 'application/json' },
@@ -48,13 +48,13 @@ await test('meetup rescheduling reconciles expired, retained, removed and newly 
 
   const created = await f.request('/api/private_event', { method: 'POST', ...jsonRequest(input) });
   assert.equal(created.status, 201);
-  const { id } = z.object({ id: z.number() }).parse(await created.json());
+  const { id } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await created.json());
   const path = `/api/private_event/${id}`;
 
   const counts = async (accepted: number) => {
     const response = await f.request(path, { headers: { Accept: 'application/json' } });
     assert.equal(response.status, 200);
-    const event = storedSchema.parse(await response.json());
+    const event = Schema.decodeUnknownSync(storedSchema)(await response.json());
     assert.equal(event.acceptedTotalCount, accepted);
     assert.equal(event.acceptedFolloweeCount, accepted - 1);
     assert.equal(event.invitedTotalCount, 3);
@@ -85,9 +85,13 @@ await test('meetup rescheduling reconciles expired, retained, removed and newly 
 
   for (const rider of [retained, added]) {
     const notifications = await f.request('/api/notifications', {}, rider);
-    const entries = z.array(z.string()).parse(await notifications.json());
+    const entries = Schema.decodeUnknownSync(Schema.Array(Schema.String))(await notifications.json());
     assert.equal(entries.length, 1);
-    const notification = z.object({ read: z.boolean(), argString0: z.string() }).parse(JSON.parse(entries[0]!));
+
+    const notification = Schema.decodeUnknownSync(Schema.Struct({ read: Schema.Boolean, argString0: Schema.String }))(
+      JSON.parse(entries[0]!),
+    );
+
     assert.equal(notification.read, false);
     assert.deepEqual(JSON.parse(notification.argString0), {
       eventId: id,
@@ -131,7 +135,7 @@ await test('meetup rescheduling reconciles expired, retained, removed and newly 
 
     const response = await f.request('/api/private_event', { method: 'POST', ...json(input) });
     assert.equal(response.status, 201);
-    const { id } = z.object({ id: z.number() }).parse(await response.json());
+    const { id } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await response.json());
     const base = `/api/private_event/${id}`;
     const event = await decode(await f.request(base, {}, f.other), PrivateEventProtoSchema);
     assert.equal(event.organizerId, BigInt(f.rider.player_id));
@@ -148,11 +152,15 @@ await test('meetup rescheduling reconciles expired, retained, removed and newly 
     }
 
     const feed = await f.request('/api/private_event/feed', { headers: { Accept: 'application/json' } }, f.other);
-    assert.equal(z.array(z.object({ inviteStatus: z.string() })).parse(await feed.json())[0]?.inviteStatus, 'ACCEPTED');
+    assert.equal(
+      Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ inviteStatus: Schema.String })))(await feed.json())[0]
+        ?.inviteStatus,
+      'ACCEPTED',
+    );
     const response3 = await f.request('/api/notifications', {}, f.other);
-    const notifications = z.array(z.string()).parse(await response3.json());
+    const notifications = Schema.decodeUnknownSync(Schema.Array(Schema.String))(await response3.json());
     assert.equal(notifications.length, 1);
-    const notification = z.object({ id: z.number() }).parse(JSON.parse(notifications[0]!));
+    const notification = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(JSON.parse(notifications[0]!));
 
     const response4 = await f.request(
       `/api/notifications/${notification.id}`,
@@ -164,9 +172,14 @@ await test('meetup rescheduling reconciles expired, retained, removed and newly 
     const response5 = await f.request(base, { method: 'PUT', ...json({ ...input, distanceInMeters: 20_000 }) });
     assert.equal(response5.status, 200);
     const response6 = await f.request('/api/notifications', {}, f.other);
-    const reset = z.array(z.string()).parse(await response6.json());
-    assert.equal(z.object({ read: z.boolean() }).parse(JSON.parse(reset[0]!)).read, false);
-    assert.equal(z.object({ readDate: z.union([z.string(), z.null()]) }).parse(JSON.parse(reset[0]!)).readDate, null);
+    const reset = Schema.decodeUnknownSync(Schema.Array(Schema.String))(await response6.json());
+    assert.equal(Schema.decodeUnknownSync(Schema.Struct({ read: Schema.Boolean }))(JSON.parse(reset[0]!)).read, false);
+    assert.equal(
+      Schema.decodeUnknownSync(Schema.Struct({ readDate: Schema.Union([Schema.String, Schema.Null]) }))(
+        JSON.parse(reset[0]!),
+      ).readDate,
+      null,
+    );
     const finish = BigInt(Date.parse(input.eventStart) + 90_000) - 1_414_016_074_397n;
 
     const response7 = await f.request('/api/race-results', {
@@ -252,7 +265,10 @@ await test('meetup rescheduling reconciles expired, retained, removed and newly 
     ]) {
       const response = await f.request(`/api/personal-records/results/summary/profiles/me/CYCLING${path}`);
       assert.equal(response.status, 200);
-      assert.ok(z.object({ results: z.array(z.unknown()) }).parse(await response.json()).results.length > 0);
+      assert.ok(
+        Schema.decodeUnknownSync(Schema.Struct({ results: Schema.Array(Schema.Unknown) }))(await response.json())
+          .results.length > 0,
+      );
     }
   });
 }
@@ -261,9 +277,9 @@ await test('meetup rescheduling reconciles expired, retained, removed and newly 
   await test('F05 imported route badges backfill once, preserving real completions and rider isolation', async (t) => {
     const f = await mediumFixture(t);
 
-    const dictionary = z
-      .object({ achievements: z.record(z.string(), z.number()) })
-      .parse(JSON.parse(readFileSync(resolve(f.assets, 'data/game_dictionary.txt'), 'utf8')));
+    const dictionary = Schema.decodeUnknownSync(
+      Schema.Struct({ achievements: Schema.Record(Schema.String, Schema.Finite) }),
+    )(JSON.parse(readFileSync(resolve(f.assets, 'data/game_dictionary.txt'), 'utf8')));
 
     const [badge, hash] = Object.entries(dictionary.achievements)[0]!;
 
@@ -277,11 +293,13 @@ await test('meetup rescheduling reconciles expired, retained, removed and newly 
     for (let i = 0; i < 2; i++) {
       const response14 = await f.request('/api/route-results/completion-stats/all');
 
-      const stats = z
-        .object({
-          response: z.object({ stats: z.array(z.object({ routeHash: z.number(), firstCompletedAt: z.string() })) }),
-        })
-        .parse(await response14.json());
+      const stats = Schema.decodeUnknownSync(
+        Schema.Struct({
+          response: Schema.Struct({
+            stats: Schema.Array(Schema.Struct({ routeHash: Schema.Finite, firstCompletedAt: Schema.String })),
+          }),
+        }),
+      )(await response14.json());
 
       assert.ok(stats.response.stats.some((s) => s.routeHash === hash && s.firstCompletedAt === ''));
     }
@@ -295,13 +313,19 @@ await test('meetup rescheduling reconciles expired, retained, removed and newly 
       .run(f.rider.player_id, hash, Number(worldTime()));
     const response15 = await f.request('/api/route-results/completion-stats/all');
 
-    const real = z
-      .object({ response: z.object({ stats: z.array(z.object({ firstCompletedAt: z.string() })) }) })
-      .parse(await response15.json());
+    const real = Schema.decodeUnknownSync(
+      Schema.Struct({
+        response: Schema.Struct({ stats: Schema.Array(Schema.Struct({ firstCompletedAt: Schema.String })) }),
+      }),
+    )(await response15.json());
 
     assert.ok(real.response.stats[0]?.firstCompletedAt);
     const response16 = await f.request('/api/route-results/completion-stats/all', {}, f.other);
-    const other = z.object({ response: z.object({ stats: z.array(z.unknown()) }) }).parse(await response16.json());
+
+    const other = Schema.decodeUnknownSync(
+      Schema.Struct({ response: Schema.Struct({ stats: Schema.Array(Schema.Unknown) }) }),
+    )(await response16.json());
+
     assert.deepEqual(other.response.stats, []);
   });
 }

@@ -1,23 +1,34 @@
 import { StravaMethod } from '#src/enum';
-import { z } from 'zod';
+import { IntBetween, strict } from '#src/schema';
+import { Schema } from 'effect';
 
-export const overrideSchema = z.strictObject({
-  'ghosts.enabled': z.boolean().optional(),
-  'uploads.zwift.enabled': z.boolean().optional(),
-  'uploads.strava.method': z.enum(StravaMethod).optional(),
-  'devices.zwiftClick.enabled': z.boolean().optional(),
-  'workouts.trainingpeaks.bridgeFolder': z.string().optional(),
+export const overrideSchema = Schema.Struct({
+  'ghosts.enabled': Schema.optional(Schema.Boolean),
+  'uploads.zwift.enabled': Schema.optional(Schema.Boolean),
+  'uploads.strava.method': Schema.optional(Schema.Enum(StravaMethod)),
+  'devices.zwiftClick.enabled': Schema.optional(Schema.Boolean),
+  'workouts.trainingpeaks.bridgeFolder': Schema.optional(Schema.String),
 });
 
-export type Overrides = z.infer<typeof overrideSchema>;
+export type Overrides = typeof overrideSchema.Type;
 
 export type SettingKey = keyof Overrides;
 
-export const settingKeySchema = overrideSchema.keyof();
+export const settingKeySchema = Schema.Literals(
+  // SAFETY: the keys of overrideSchema.fields are exactly the SettingKey union.
+  Object.keys(overrideSchema.fields) as [SettingKey, ...SettingKey[]],
+);
 
-export const preferenceSchema = z.object({
-  playerId: z.number().int().positive().safe(),
+export const preferenceSchema = Schema.Struct({
+  playerId: IntBetween(1),
   overrides: overrideSchema,
 });
 
-export type Preference = z.infer<typeof preferenceSchema>;
+export type Preference = typeof preferenceSchema.Type;
+
+/** Overrides reject keys they do not declare. */
+export const decodeOverrides = Schema.decodeUnknownSync(overrideSchema, strict);
+
+export const decodePreference = Schema.decodeUnknownSync(preferenceSchema, strict);
+
+export const decodeSettingKey = Schema.decodeUnknownSync(settingKeySchema);

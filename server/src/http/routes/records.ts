@@ -26,7 +26,8 @@ import { clearField, clone, create, fromBinary, fromJsonString, toBinary } from 
 import type { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { resolve } from 'node:path';
-import { z } from 'zod';
+import { Schema } from 'effect';
+import { NumberFromInput } from '#src/schema';
 
 const timestamp = (value: number | null) => (value ? new Date(value + 1_414_016_075_000).toISOString() : '');
 
@@ -282,25 +283,20 @@ export function recordRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
   app.get('/api/route-results/completion-stats/all', (c) => {
     const user = authenticated(c);
 
-    const page = z.coerce
-      .number()
-      .int()
-      .min(0)
-      .parse(c.req.query('page') ?? 0);
+    const page = Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)))(
+      c.req.query('page') ?? 0,
+    );
 
-    const size = z.coerce
-      .number()
-      .int()
-      .min(1)
-      .max(1000)
-      .parse(c.req.query('pageSize') ?? 100);
+    const size = Schema.decodeUnknownSync(
+      NumberFromInput.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(1000)),
+    )(c.req.query('pageSize') ?? 100);
 
     runtime.services.records.backfillRoutes(user.player_id);
 
     const rows = service.listRouteResult(user.player_id);
 
     const stats = rows.map((row) => {
-      const item = routeCompletionStatsSchema.parse(row);
+      const item = Schema.decodeUnknownSync(routeCompletionStatsSchema)(row);
 
       return {
         routeHash: item.route_hash,
@@ -418,7 +414,9 @@ export function recordRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
         const meetup = service.findPrivateEvent(id);
 
         if (meetup) {
-          const { eventStart } = meetupStartSchema.parse(JSON.parse(z.string().parse(meetup.json)));
+          const { eventStart } = Schema.decodeUnknownSync(meetupStartSchema)(
+            JSON.parse(Schema.decodeUnknownSync(Schema.String)(meetup.json)),
+          );
 
           entry.activityData.elapsedMs = entry.activityData.time - BigInt(Date.parse(eventStart));
         }

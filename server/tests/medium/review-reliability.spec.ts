@@ -19,7 +19,7 @@ import { EventEmitter, once } from 'node:events';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 await test('deleting a queued activity while another upload is sending prevents its later delivery', async (t) => {
   const f = await mediumFixture(t);
@@ -42,7 +42,7 @@ await test('deleting a queued activity while another upload is sending prevents 
       ...binary(ActivitySchema, data),
     });
 
-    const { id } = z.object({ id: z.number() }).parse(await response.json());
+    const { id } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await response.json());
     f.services.activities.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }));
     ids.push(id);
   }
@@ -83,7 +83,7 @@ await test('a failed completion transaction commits nothing and a repeated save 
   };
 
   const first = await f.request(base, { method: 'POST', ...binary(ActivitySchema, data) });
-  const { id } = z.object({ id: z.number() }).parse(await first.json());
+  const { id } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await first.json());
   f.accounts.db.exec(`CREATE TRIGGER fail_completion BEFORE INSERT ON activity_completion
     BEGIN SELECT RAISE(ABORT, 'injected completion failure'); END`);
 
@@ -113,7 +113,9 @@ await test('a failed completion transaction commits nothing and a repeated save 
   assert.equal(f.accounts.db.prepare('SELECT name FROM activity WHERE id=?').get(id)?.name, 'Final name');
   assert.deepEqual(
     Buffer.from(
-      z.instanceof(Uint8Array).parse(f.accounts.db.prepare('SELECT fit FROM activity WHERE id=?').get(id)?.fit),
+      Schema.decodeUnknownSync(Schema.instanceOf(Uint8Array))(
+        f.accounts.db.prepare('SELECT fit FROM activity WHERE id=?').get(id)?.fit,
+      ),
     ),
     Buffer.from(data.fit),
   );
@@ -138,7 +140,7 @@ await test('reopened delivery queues mark interrupted sends ambiguous and honor 
     ...binary(ActivitySchema, data),
   });
 
-  const { id } = z.object({ id: z.number() }).parse(await response.json());
+  const { id } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await response.json());
   f.services.activities.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }));
   f.accounts.db.exec("UPDATE activity_upload SET state='sending'");
   f.accounts.close();
@@ -205,7 +207,7 @@ await test('charts retain running records with no power and intermittent sensor 
     { timestamp: 1_000_002, distance: 6, speed: 3, heartRate: 130 },
   ];
 
-  for (const record of records) encoder.onMesg(z.number().parse(Profile.MesgNum.RECORD), record);
+  for (const record of records) encoder.onMesg(Schema.decodeUnknownSync(Schema.Finite)(Profile.MesgNum.RECORD), record);
   const chart = f.services.activities.activityChart(encoder.close());
   assert.deepEqual(chart.timeInSec, [0, 1, 2]);
   assert.deepEqual(chart.distanceInCm, [0, 300, 600]);
@@ -232,7 +234,7 @@ await test('repeated finalization keeps one streak update and deliveries retry o
     ...binary(ActivitySchema, data),
   });
 
-  const { id } = z.object({ id: z.number() }).parse(await response.json());
+  const { id } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await response.json());
   f.services.documents.put(f.rider.player_id, 'runalyze_token.txt', 'test');
   let delivered = 0;
   t.mock.method(globalThis, 'fetch', () => {
@@ -294,7 +296,7 @@ await test('charts keep records without optional sensors and power curves includ
   ]) {
     const encoder = new Encoder();
     const file: FileIdMesg = { type: 'activity', manufacturer: 'development', product: 1, timeCreated: new Date() };
-    encoder.onMesg(z.number().parse(Profile.MesgNum.FILE_ID), file);
+    encoder.onMesg(Schema.decodeUnknownSync(Schema.Finite)(Profile.MesgNum.FILE_ID), file);
 
     for (const [i, power] of powers.entries()) {
       const record: RecordMesg = {
@@ -305,7 +307,7 @@ await test('charts keep records without optional sensors and power curves includ
 
       if (power !== undefined) record.power = power;
 
-      encoder.onMesg(z.number().parse(Profile.MesgNum.RECORD), record);
+      encoder.onMesg(Schema.decodeUnknownSync(Schema.Finite)(Profile.MesgNum.RECORD), record);
     }
 
     const bytes = encoder.close();

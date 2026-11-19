@@ -1,42 +1,47 @@
-import { ConfigError, validateConfig } from '#src/config/index';
+import { ConfigError, decodeConfigInput, validateConfig } from '#src/config/index';
 import { CONFIG_NAME } from '#src/config/load';
-import { configSchema } from '#src/config/schema';
+import type { ConfigInput } from '#src/config/schema';
 import { CryptoRepository } from '#src/repositories/crypto.repository';
 import { AssetFiles } from '#src/repositories/files.repository';
 import { LockRepository } from '#src/repositories/lock.repository';
 import type { Preference } from '#src/dtos/settings.dto';
 import { SettingsStore } from '#src/repositories/settings.repository';
 import { preferenceSchema } from '#src/dtos/settings.dto';
+import { PositiveInt, strict, withDefault } from '#src/schema';
 import { parse as parseIni } from 'ini';
 import { existsSync, readFileSync, readdirSync, unlinkSync } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { DatabaseSync, backup } from 'node:sqlite';
-import { z } from 'zod';
+import { Exit, Schema } from 'effect';
 
-const journalSchema = z.strictObject({
-  version: z.literal(1),
-  id: z.string().uuid(),
-  output: z.string(),
-  source: z.string(),
-  preferences: z.array(preferenceSchema),
-  backup: z.string().nullable(),
+const journalSchema = Schema.Struct({
+  version: Schema.Literal(1),
+  id: Schema.String.check(Schema.isUUID()),
+  output: Schema.String,
+  source: Schema.String,
+  preferences: Schema.Array(preferenceSchema),
+  backup: Schema.NullOr(Schema.String),
 });
 
-const legacyRiderSchema = z.object({
-  player_id: z.number().int().positive().safe(),
-  enable_ghosts: z.union([z.literal(0), z.literal(1)]),
-});
+const decodeJournal = Schema.decodeUnknownSync(journalSchema, strict);
 
-const discordSchema = z.object({
-  discord: z
-    .object({
-      channel: z.string().regex(/^\d+$/),
-      welcome_message: z.string().default(''),
-      help_message: z.string().default(''),
-      announce_players: z.union([z.string(), z.boolean()]).default(false),
-    })
-    .passthrough(),
-});
+const decodeLegacyRider = Schema.decodeUnknownSync(
+  Schema.Struct({
+    player_id: PositiveInt,
+    enable_ghosts: Schema.Literals([0, 1]),
+  }),
+);
+
+const decodeDiscord = Schema.decodeUnknownExit(
+  Schema.Struct({
+    discord: Schema.Struct({
+      channel: Schema.String.check(Schema.isPattern(/^\d+$/)),
+      welcome_message: Schema.String.pipe(withDefault('')),
+      help_message: Schema.String.pipe(withDefault('')),
+      announce_players: Schema.Union([Schema.String, Schema.Boolean]).pipe(withDefault(false)),
+    }),
+  }),
+);
 
 export interface MigrationOptions {
   storage: string;
@@ -50,22 +55,38 @@ function camelCase(key: string) {
 }
 
 // Legacy bot documents are data, not executable configuration.
-const legacyJson = z.json();
+const decodeLegacyJson = Schema.decodeUnknownSync(Schema.Json);
 
-type LegacyValue = z.infer<typeof legacyJson>;
+type LegacyValue = typeof Schema.Json.Type;
+
+const isLegacyArray = Schema.is(Schema.Array(Schema.Json));
+
+const isLegacyObject = Schema.is(Schema.Record(Schema.String, Schema.Json));
 
 function convertKeys(value: LegacyValue): LegacyValue {
-  const array = z.array(legacyJson).safeParse(value);
+  if (isLegacyArray(value)) return value.map((element) => convertKeys(element));
 
-  if (array.success) return array.data.map((element) => convertKeys(element));
-  const object = z.record(z.string(), legacyJson).safeParse(value);
+  if (!isLegacyObject(value)) return value;
 
-  if (!object.success) return value;
-
-  return Object.fromEntries(Object.entries(object.data).map(([key, item]) => [camelCase(key), convertKeys(item)]));
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [camelCase(key), convertKeys(item)]));
 }
 
-export function renderConfig(config: z.input<typeof configSchema>) {
+const decodeLegacyObject = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json));
+
+const decodeLegacyPelotons = Schema.decodeUnknownSync(
+  Schema.Struct({ pelotons: Schema.Array(Schema.Record(Schema.String, Schema.Json)) }),
+);
+
+/** Decode one converted legacy file as part of a configuration. */
+function legacySection(file: string, ...input: Parameters<typeof decodeConfigInput>) {
+  try {
+    return decodeConfigInput(...input);
+  } catch {
+    throw new ConfigError(`${file}: invalid legacy configuration`);
+  }
+}
+
+export function renderConfig(config: ConfigInput) {
   validateConfig(config);
 
   const serialized = JSON.stringify(config, null, 2)
@@ -100,13 +121,13 @@ export function migrationCandidate(options: MigrationOptions) {
   const multiplier = botCount && /^-?\d+$/.test(botCount.trim()) ? Math.min(Number(botCount), 100) : 1;
 
   const discordFile = exists('discord.cfg') ? reference('discord.cfg') : '';
-  let discord = configSchema.parse({}).integrations.discord;
+  let discord = decodeConfigInput({}).integrations.discord;
 
   if (discordFile) {
-    const parsed = discordSchema.safeParse(parseIni(text('discord.cfg')));
+    const parsed = decodeDiscord(parseIni(text('discord.cfg')));
 
-    if (!parsed.success) throw new ConfigError('discord.cfg: invalid legacy configuration');
-    const values = parsed.data.discord;
+    if (Exit.isFailure(parsed)) throw new ConfigError('discord.cfg: invalid legacy configuration');
+    const values = parsed.value.discord;
     const yes = ['1', 'yes', 'true', 'on'];
     const no = ['0', 'no', 'false', 'off'];
 
@@ -123,34 +144,24 @@ export function migrationCandidate(options: MigrationOptions) {
     };
   }
 
-  let pelotons = configSchema.parse({}).pelotons;
-  let soloBlob = configSchema.parse({}).soloBlob;
+  let { pelotons, soloBlob } = decodeConfigInput({});
 
   if (exists('peloton.txt')) {
-    const value = z
-      .object({ pelotons: z.array(z.record(z.string(), legacyJson)) })
-      .parse(JSON.parse(text('peloton.txt')));
+    const value = decodeLegacyPelotons(JSON.parse(text('peloton.txt')));
 
     const entries = value.pelotons.map((entry, index) => {
-      const converted = z.record(z.string(), legacyJson).parse(convertKeys(entry));
+      const converted = decodeLegacyObject(convertKeys(entry));
 
       return { ...converted, id: `legacy-${index + 1}` };
     });
 
-    const parsed = configSchema.safeParse({ pelotons: entries });
-
-    if (!parsed.success) throw new ConfigError('peloton.txt: invalid legacy configuration');
-
-    pelotons = parsed.data.pelotons;
+    pelotons = legacySection('peloton.txt', { pelotons: entries }).pelotons;
   }
 
   if (exists('solo_blob.txt')) {
-    const value = legacyJson.parse(JSON.parse(text('solo_blob.txt')));
-    const parsed = configSchema.safeParse({ soloBlob: convertKeys(value) });
+    const value = decodeLegacyJson(JSON.parse(text('solo_blob.txt')));
 
-    if (!parsed.success) throw new ConfigError('solo_blob.txt: invalid legacy configuration');
-
-    soloBlob = parsed.data.soloBlob;
+    soloBlob = legacySection('solo_blob.txt', { soloBlob: convertKeys(value) }).soloBlob;
   }
 
   const config = validateConfig({
@@ -208,7 +219,7 @@ export function migrationCandidate(options: MigrationOptions) {
           )
           .all();
 
-        for (const row of rows) riders.push(legacyRiderSchema.parse(row));
+        for (const row of rows) riders.push(decodeLegacyRider(row));
       }
     } finally {
       db.close();
@@ -241,7 +252,10 @@ export function migrationCandidate(options: MigrationOptions) {
     const method = `${folder}/strava_upload_method.txt`;
     const bridge = `${folder}/trainingpeaks_bridge_folder.txt`;
 
-    const parsed = preferenceSchema.safeParse({
+    const parsed = Schema.decodeUnknownExit(
+      preferenceSchema,
+      strict,
+    )({
       playerId: rider.player_id,
       overrides: {
         'ghosts.enabled': rider.enable_ghosts === 1,
@@ -252,9 +266,9 @@ export function migrationCandidate(options: MigrationOptions) {
       },
     });
 
-    if (!parsed.success) throw new ConfigError(`Invalid legacy preferences for rider ${rider.player_id}`);
+    if (Exit.isFailure(parsed)) throw new ConfigError(`Invalid legacy preferences for rider ${rider.player_id}`);
 
-    return parsed.data;
+    return parsed.value;
   });
 
   const store = SettingsStore.openReadOnly(storage);
@@ -298,7 +312,7 @@ export async function migrateConfig(options: MigrationOptions) {
     let journal;
 
     if (existsSync(journalPath)) {
-      journal = journalSchema.parse(JSON.parse(readFileSync(journalPath, 'utf8')));
+      journal = decodeJournal(JSON.parse(readFileSync(journalPath, 'utf8')));
 
       if (resolve(options.output) !== journal.output)
         throw new ConfigError('An interrupted migration targets another output; resume that destination first');
@@ -319,7 +333,7 @@ export async function migrateConfig(options: MigrationOptions) {
         }
       }
 
-      journal = journalSchema.parse({
+      journal = decodeJournal({
         version: 1,
         id,
         output: candidate.output,

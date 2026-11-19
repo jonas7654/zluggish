@@ -1,70 +1,76 @@
-import { inputSchema as meetupInput } from '#src/dtos/meetup.dto';
+import { inputChanges } from '#src/dtos/meetup.dto';
 import { overrideSchema } from '#src/dtos/settings.dto';
-import { z } from 'zod';
+import { IsoDate, normalized, satisfies, Strict } from '#src/schema';
+import { Schema } from 'effect';
 
 export function normalizeLoginName(value: string) {
   return value.trim().toLowerCase();
 }
 
-export const loginName = z
-  .string()
-  .transform(normalizeLoginName)
-  .pipe(
-    z
-      .string()
-      .min(1)
-      .max(254)
-      .refine((value) => !/[\s\0]/.test(value), 'Enter a login name without spaces.'),
-  );
+export const loginName = normalized(
+  normalizeLoginName,
+  Schema.String.check(
+    Schema.isMinLength(1),
+    Schema.isMaxLength(254),
+    satisfies<string>((value) => !/[\s\0]/.test(value), 'Enter a login name without spaces.'),
+  ),
+);
 
-export const password = z.string().min(1).max(1024);
-export const credentials = z.strictObject({ username: loginName, password });
+export const password = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(1024));
+const credentialFields = { username: loginName, password };
 
-export const newUser = z.strictObject({
-  username: loginName,
-  password,
-  first_name: z.string().trim().min(1).max(50),
-  last_name: z.string().trim().max(50),
-});
+export const credentials = Strict(credentialFields);
 
-export const setupRequest = z.union([
-  newUser.extend({ mode: z.literal('new'), key: z.string().max(200) }),
-  credentials.extend({ mode: z.literal('existing'), key: z.string().max(200) }),
-  z.strictObject({
-    mode: z.literal('existing'),
-    key: z.string().max(200),
-    player_id: z.number().int().positive().safe(),
+const newUserFields = {
+  ...credentialFields,
+  first_name: Schema.Trim.check(Schema.isMinLength(1), Schema.isMaxLength(50)),
+  last_name: Schema.Trim.check(Schema.isMaxLength(50)),
+};
+
+export const newUser = Strict(newUserFields);
+
+export const setupRequest = Schema.Union([
+  Strict({ ...newUserFields, mode: Schema.Literal('new'), key: Schema.String.check(Schema.isMaxLength(200)) }),
+  Strict({
+    ...credentialFields,
+    mode: Schema.Literal('existing'),
+    key: Schema.String.check(Schema.isMaxLength(200)),
+  }),
+  Strict({
+    mode: Schema.Literal('existing'),
+    key: Schema.String.check(Schema.isMaxLength(200)),
+    player_id: Schema.Int.check(Schema.isGreaterThan(0)),
     password,
   }),
 ]);
 
-export const mutationRequest = z.strictObject({
-  revision: z.number().int().positive(),
-  operation: z.string().uuid(),
-  password: password.optional(),
-  role: z.enum(['rider', 'administrator']).optional(),
+export const mutationRequest = Strict({
+  revision: Schema.Int.check(Schema.isGreaterThan(0)),
+  operation: Schema.String.check(Schema.isUUID()),
+  password: Schema.optional(password),
+  role: Schema.optional(Schema.Literals(['rider', 'administrator'])),
 });
 
-export const editUserRequest = z.strictObject({
-  revision: z.number().int().positive(),
-  operation: z.string().uuid(),
+export const editUserRequest = Strict({
+  revision: Schema.Int.check(Schema.isGreaterThan(0)),
+  operation: Schema.String.check(Schema.isUUID()),
   username: loginName,
-  first_name: z.string().trim().min(1).max(50),
-  last_name: z.string().trim().max(50),
+  first_name: Schema.Trim.check(Schema.isMinLength(1), Schema.isMaxLength(50)),
+  last_name: Schema.Trim.check(Schema.isMaxLength(50)),
 });
 
-export const ownProfileRequest = z.strictObject({
-  revision: z.number().int().positive(),
-  operation: z.string().uuid(),
+export const ownProfileRequest = Strict({
+  revision: Schema.Int.check(Schema.isGreaterThan(0)),
+  operation: Schema.String.check(Schema.isUUID()),
   username: loginName,
-  first_name: z.string().trim().min(1).max(50),
-  last_name: z.string().trim().max(50),
-  birthday: z.union([z.literal(''), z.iso.date()]),
+  first_name: Schema.Trim.check(Schema.isMinLength(1), Schema.isMaxLength(50)),
+  last_name: Schema.Trim.check(Schema.isMaxLength(50)),
+  birthday: Schema.Union([Schema.Literal(''), IsoDate]),
 });
 
-export const settingsRequest = z.strictObject({
-  revision: z.number().int().nonnegative(),
-  operation: z.string().uuid(),
+export const settingsRequest = Strict({
+  revision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  operation: Schema.String.check(Schema.isUUID()),
   overrides: overrideSchema,
 });
 
@@ -77,14 +83,14 @@ export type JsonValue =
   | null
   | undefined;
 
-export const eventRequest = z.strictObject({
-  operation: z.string().uuid(),
-  revision: z.string(),
-  changes: meetupInput.partial().strict().optional(),
+export const eventRequest = Strict({
+  operation: Schema.String.check(Schema.isUUID()),
+  revision: Schema.String,
+  changes: Schema.optional(inputChanges),
 });
 
 /** Chat commands that change bots for every user. Only the management area may send them. */
-export const botCommand = z.enum([
+export const botCommand = Schema.Literals([
   'group',
   'groupall',
   'autogroup',
@@ -94,16 +100,16 @@ export const botCommand = z.enum([
   'peloton',
 ]);
 
-export const serverRequest = z.strictObject({
-  operation: z.string().uuid(),
-  user: z.number().int().positive().optional(),
-  command: botCommand.optional(),
-  argument: z.string().trim().max(20).optional(),
+export const serverRequest = Strict({
+  operation: Schema.String.check(Schema.isUUID()),
+  user: Schema.optional(Schema.Int.check(Schema.isGreaterThan(0))),
+  command: Schema.optional(botCommand),
+  argument: Schema.optional(Schema.Trim.check(Schema.isMaxLength(20))),
 });
 
-export const worldRequest = z.strictObject({
-  operation: z.string().uuid(),
-  revision: z.number().int().nonnegative(),
-  id: z.string().max(100),
-  values: z.record(z.string(), z.json()),
+export const worldRequest = Strict({
+  operation: Schema.String.check(Schema.isUUID()),
+  revision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  id: Schema.String.check(Schema.isMaxLength(100)),
+  values: Schema.Record(Schema.String, Schema.Json),
 });

@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync, truncateSync, utimesSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 const sample = (id: bigint, index: number, courseId = 6) =>
   create(PlayerStateSchema, {
@@ -83,7 +83,7 @@ await test('a restarted server resumes a recent ride on the same course and its 
     ...binary(ActivitySchema, { playerId: id, courseId: 6n, name: 'Recovered', startDate: new Date().toISOString() }),
   });
 
-  const { id: activity } = z.object({ id: z.number() }).parse(await response.json());
+  const { id: activity } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await response.json());
   f.world.histories.set(id, world.histories.get(id) ?? []);
   services.services.activities.finalize(
     create(ActivitySchema, {

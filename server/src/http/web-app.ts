@@ -5,7 +5,8 @@ import { HTTPException } from 'hono/http-exception';
 import type { Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
-import { z } from 'zod';
+import { Schema } from 'effect';
+import { fieldErrors, NumberFromInput, Strict } from '#src/schema';
 import { ApplicationError, UnreadableCredentialsError } from '#src/errors';
 import { credentials, password, newUser } from '#src/dtos/management.dto';
 import type { HttpRuntime } from '#src/http/runtime';
@@ -146,7 +147,10 @@ export function createWebApp(runtime: HttpRuntime) {
     return login(c, user, true);
   });
   app.post('/api/setup/key', async (c) => {
-    const input = z.strictObject({ key: z.string().max(200) }).parse(await c.req.json());
+    const input = Schema.decodeUnknownSync(Strict({ key: Schema.String.check(Schema.isMaxLength(200)) }))(
+      await c.req.json(),
+    );
+
     management.checkSetupKey(input.key);
 
     return c.json({
@@ -161,7 +165,7 @@ export function createWebApp(runtime: HttpRuntime) {
     });
   });
   app.post('/api/session', async (c) => {
-    const input = credentials.parse(await c.req.json());
+    const input = Schema.decodeUnknownSync(credentials)(await c.req.json());
     const live = unchanged(c);
     const user = await management.signIn(input.username, input.password);
 
@@ -179,13 +183,16 @@ export function createWebApp(runtime: HttpRuntime) {
     c.json({ user: management.publicUser(sessions.require(c.get('sessionId'))), csrf: c.get('csrf') }),
   );
   app.post('/api/session/confirm', async (c) => {
-    const input = z.strictObject({ password }).parse(await c.req.json());
+    const input = Schema.decodeUnknownSync(Strict({ password }))(await c.req.json());
     await management.confirm(c.get('sessionId'), input.password);
 
     return c.json({ confirmedUntil: sessions.find(c.get('sessionId'))!.confirmedUntil });
   });
   app.post('/api/me/password', async (c) => {
-    const input = z.strictObject({ current_password: password.optional(), password }).parse(await c.req.json());
+    const input = Schema.decodeUnknownSync(Strict({ current_password: Schema.optional(password), password }))(
+      await c.req.json(),
+    );
+
     await management.changeOwnPassword(c.get('sessionId'), input.current_password, input.password);
     sessions.end(c.get('sessionId'));
 
@@ -213,14 +220,11 @@ export function createWebApp(runtime: HttpRuntime) {
   webConnectionRoutes(app, runtime);
   webProfileRoutes(app, runtime);
 
-  const activityId = z.string().regex(/^\d{1,19}$/);
+  const activityId = Schema.String.check(Schema.isPattern(/^\d{1,19}$/));
   app.get('/api/me/activities', (c) => {
-    const page = z.coerce
-      .number()
-      .int()
-      .min(0)
-      .max(1_000_000)
-      .parse(c.req.query('page') ?? '0');
+    const page = Schema.decodeUnknownSync(
+      NumberFromInput.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0), Schema.isLessThanOrEqualTo(1_000_000)),
+    )(c.req.query('page') ?? '0');
 
     const rows = activities.own(sessions.require(c.get('sessionId')).player_id, undefined, page);
 
@@ -255,12 +259,17 @@ export function createWebApp(runtime: HttpRuntime) {
     return c.json({ climbs, total: all.length });
   });
   app.get('/api/me/activities/:id', (c) =>
-    c.json(activities.ownDetail(sessions.require(c.get('sessionId')).player_id, activityId.parse(c.req.param('id')))),
+    c.json(
+      activities.ownDetail(
+        sessions.require(c.get('sessionId')).player_id,
+        Schema.decodeUnknownSync(activityId)(c.req.param('id')),
+      ),
+    ),
   );
   app.get('/api/me/activities/:id/fit', (c) => {
     const { fit, filename } = activities.ownFit(
       sessions.require(c.get('sessionId')).player_id,
-      activityId.parse(c.req.param('id')),
+      Schema.decodeUnknownSync(activityId)(c.req.param('id')),
     );
 
     return c.body(new Uint8Array(fit), 200, {
@@ -269,8 +278,12 @@ export function createWebApp(runtime: HttpRuntime) {
     });
   });
   app.get('/api/me/activities/:id/images/:image', (c) => {
-    const id = activityId.parse(c.req.param('id'));
-    const image = z.coerce.number().int().positive().safe().parse(c.req.param('image'));
+    const id = Schema.decodeUnknownSync(activityId)(c.req.param('id'));
+
+    const image = Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(
+      c.req.param('image'),
+    );
+
     const jpg = activities.ownImage(sessions.require(c.get('sessionId')).player_id, id, image);
 
     return c.body(jpg, 200, {
@@ -286,14 +299,19 @@ export function createWebApp(runtime: HttpRuntime) {
   });
   app.get('/api/manage/users', (c) => c.json({ users: accounts.list().map((user) => management.publicUser(user)) }));
   app.post('/api/manage/users', async (c) => {
-    const input = z
-      .strictObject({ operation: z.string().uuid(), user: z.record(z.string(), z.json()) })
-      .parse(await c.req.json());
+    const input = Schema.decodeUnknownSync(
+      Strict({ operation: Schema.String.check(Schema.isUUID()), user: Schema.Record(Schema.String, Schema.Json) }),
+    )(await c.req.json());
 
-    return c.json(await management.create(c.get('sessionId'), newUser.parse(input.user), input.operation), 201);
+    return c.json(
+      await management.create(c.get('sessionId'), Schema.decodeUnknownSync(newUser)(input.user), input.operation),
+      201,
+    );
   });
   app.get('/api/manage/users/:id', (c) => {
-    const user = accounts.get(z.coerce.number().int().positive().safe().parse(c.req.param('id')));
+    const user = accounts.get(
+      Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(c.req.param('id')),
+    );
 
     if (!user) throw new ApplicationError({ status: 404, message: 'User not found.' });
 
@@ -302,7 +320,10 @@ export function createWebApp(runtime: HttpRuntime) {
 
   app.get('/api/manage/users/:id/profile', (c) =>
     c.json(
-      management.ownProfile(c.get('sessionId'), z.coerce.number().int().positive().safe().parse(c.req.param('id'))),
+      management.ownProfile(
+        c.get('sessionId'),
+        Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(c.req.param('id')),
+      ),
     ),
   );
   app.patch('/api/manage/users/:id/profile', async (c) =>
@@ -310,7 +331,7 @@ export function createWebApp(runtime: HttpRuntime) {
       management.editOwnProfile(
         c.get('sessionId'),
         await c.req.json(),
-        z.coerce.number().int().positive().safe().parse(c.req.param('id')),
+        Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(c.req.param('id')),
       ),
     ),
   );
@@ -319,18 +340,24 @@ export function createWebApp(runtime: HttpRuntime) {
       management.saveAvatar(
         c.get('sessionId'),
         new Uint8Array(await c.req.arrayBuffer()),
-        z.coerce.number().int().positive().safe().parse(c.req.param('id')),
+        Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(c.req.param('id')),
       ),
     ),
   );
   app.delete('/api/manage/users/:id/avatar', (c) =>
     c.json(
-      management.removeAvatar(c.get('sessionId'), z.coerce.number().int().positive().safe().parse(c.req.param('id'))),
+      management.removeAvatar(
+        c.get('sessionId'),
+        Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(c.req.param('id')),
+      ),
     ),
   );
 
   app.get('/api/manage/users/:id/avatar', (c) => {
-    const id = z.coerce.number().int().positive().safe().parse(c.req.param('id'));
+    const id = Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(
+      c.req.param('id'),
+    );
+
     const path = management.avatarPath(id);
 
     if (!accounts.get(id) || !files.exists(path)) throw new ApplicationError({ status: 404, message: 'No photo.' });
@@ -343,7 +370,7 @@ export function createWebApp(runtime: HttpRuntime) {
       c.json(
         await management.mutate(
           c.get('sessionId'),
-          z.coerce.number().int().positive().safe().parse(c.req.param('id')),
+          Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(c.req.param('id')),
           action,
           await c.req.json(),
         ),
@@ -354,19 +381,23 @@ export function createWebApp(runtime: HttpRuntime) {
     c.json(
       management.edit(
         c.get('sessionId'),
-        z.coerce.number().int().positive().safe().parse(c.req.param('id')),
+        Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(c.req.param('id')),
         await c.req.json(),
       ),
     ),
   );
   app.get('/api/manage/users/:id/settings', (c) =>
-    c.json(management.settings(z.coerce.number().int().positive().safe().parse(c.req.param('id')))),
+    c.json(
+      management.settings(
+        Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(c.req.param('id')),
+      ),
+    ),
   );
   app.patch('/api/manage/users/:id/settings', async (c) =>
     c.json(
       management.saveSettings(
         c.get('sessionId'),
-        z.coerce.number().int().positive().safe().parse(c.req.param('id')),
+        Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(c.req.param('id')),
         await c.req.json(),
         true,
       ),
@@ -402,7 +433,7 @@ export function createWebApp(runtime: HttpRuntime) {
     c.json(
       management.editEvent(
         c.get('sessionId'),
-        z.coerce.number().int().positive().parse(c.req.param('id')),
+        Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(c.req.param('id')),
         c.req.method === 'DELETE' ? 'delete-event' : 'edit-event',
         await c.req.json(),
       ),
@@ -456,8 +487,8 @@ export function createWebApp(runtime: HttpRuntime) {
         : c.text('Build the web app before starting.', 503);
     });
   app.onError((error, c) => {
-    if (error instanceof z.ZodError)
-      return c.json({ message: 'Check the form fields.', fieldErrors: z.flattenError(error).fieldErrors }, 400);
+    if (Schema.isSchemaError(error))
+      return c.json({ message: 'Check the form fields.', fieldErrors: fieldErrors(error) }, 400);
 
     if (error instanceof HTTPException) return c.json({ message: error.message }, error.status);
 
