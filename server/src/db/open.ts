@@ -116,9 +116,15 @@ export function openDatabase(storage: string): DatabaseSync {
     renameSync(existingPath, path);
   }
 
-  mkdirSync(storage, { recursive: true });
   // A settings.db from an offline config migration is a legacy store: merge it.
   const legacySettings = existsSync(resolve(storage, StorageFile.Settings));
+
+  if (fresh && legacySettings) backupLegacyStorage(storage, 'pre-migration');
+
+  // Back up an existing v5 store before opening it for writes.
+  if (legacyVersion === 5) migrateStorage(storage);
+
+  mkdirSync(storage, { recursive: true });
   let db = new DatabaseSync(path, { timeout: 5000 });
 
   try {

@@ -1,3 +1,4 @@
+import { archiveSuffix } from '#src/migrations/backup-archive';
 import { RuntimeContext } from '#src/context';
 import { JobType } from '#src/enum';
 import { publishBackup, pruneNightlyBackups } from '#src/migrations/backup';
@@ -56,15 +57,15 @@ const make = Effect.gen(function* () {
       const payload = { operation };
       const state = repository.stateFor(type, payload);
 
-      if (state) return { state, name: manualName(operation) };
+      if (state) return { state, name: manualName(operation) + archiveSuffix };
       repository.enqueue(type, payload);
 
-      return { state: 'queued', name: manualName(operation) };
+      return { state: 'queued', name: manualName(operation) + archiveSuffix };
     }),
     status: Effect.fn('BackupService.status')(function* (operation: string) {
       const state = repository.stateFor(type, { operation });
 
-      return state ? { state, name: manualName(operation) } : null;
+      return state ? { state, name: manualName(operation) + archiveSuffix } : null;
     }),
   };
 });

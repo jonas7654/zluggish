@@ -108,7 +108,11 @@ function cleanup({ repositories, retention, storage }: RetentionScope) {
       const entries = await repositories.filesRepository.entriesAsync(directory);
 
       const backups = entries
-        .filter((entry) => entry.isDirectory() && entry.name.startsWith('storage-v'))
+        .filter(
+          (entry) =>
+            (entry.isDirectory() || (entry.isFile() && entry.name.endsWith('.tar.gz'))) &&
+            entry.name.startsWith('storage-v'),
+        )
         .map((entry) => entry.name)
         .toSorted()
         .toReversed();

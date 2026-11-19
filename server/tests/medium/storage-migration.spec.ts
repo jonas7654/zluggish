@@ -1,3 +1,4 @@
+import { readArchivedFile, withBackupDirectory } from '#src/migrations/backup-archive';
 import { Schema } from 'effect';
 import { openDatabase } from '#src/db/open';
 import { ActivitySchema } from '#src/protocol/generated/activity_pb';
@@ -229,7 +230,7 @@ await test('the storage merge imports every legacy store once and keeps the lega
   assert.deepEqual(manifest.report.orphanFolders, ['99']);
 
   const backup = Schema.decodeUnknownSync(Schema.Struct({ checksums: Schema.Record(Schema.String, Schema.String) }))(
-    JSON.parse(readFileSync(resolve(manifest.backup, 'backup-manifest.json'), 'utf8')),
+    JSON.parse(readArchivedFile(manifest.backup, 'backup-manifest.json')),
   );
 
   for (const name of ['zluggish.db', 'settings.db', '1/streaks.bin', '1/medias/1.mp4', 'credentials-key.bin'])
@@ -275,16 +276,19 @@ await test('a legacy backup preserves the storage tree and the original schema',
   assert.equal(resolve(manifest.backup, '..'), resolve(storage, '..', 'backups'));
   assert.equal(existsSync(resolve(storage, 'backups')), false);
   write(storage, 'custom/local.cfg', 'changed setting');
-  assert.equal(readFileSync(resolve(manifest.backup, 'custom/local.cfg'), 'utf8'), 'original setting');
+  assert.match(manifest.backup, /\.tar\.gz$/);
+  assert.equal(readArchivedFile(manifest.backup, 'custom/local.cfg'), 'original setting');
 
-  const saved = new DatabaseSync(resolve(manifest.backup, StorageFile.Database), { readOnly: true });
+  withBackupDirectory(manifest.backup, (directory) => {
+    const saved = new DatabaseSync(resolve(directory, StorageFile.Database), { readOnly: true });
 
-  try {
-    assert.equal(saved.prepare('SELECT version FROM version').get()?.version, 5);
-    assert.equal(saved.prepare("SELECT name FROM sqlite_master WHERE name='activity_completion'").get(), undefined);
-  } finally {
-    saved.close();
-  }
+    try {
+      assert.equal(saved.prepare('SELECT version FROM version').get()?.version, 5);
+      assert.equal(saved.prepare("SELECT name FROM sqlite_master WHERE name='activity_completion'").get(), undefined);
+    } finally {
+      saved.close();
+    }
+  });
 });
 
 await test('a repeated start does not migrate again', (t) => {
@@ -493,4 +497,60 @@ await test('a legacy cleanup needs a published migration and its backup', (t) =>
 
   rmSync(backup, { recursive: true });
   assert.throws(() => legacyPlan(storage), /backup .* is missing/);
+});
+
+await test('a failed initial archive leaves existing legacy storage byte-for-byte unchanged', (t) => {
+  const { storage, open } = legacy(t);
+
+  const snapshot = () =>
+    new Map(
+      readdirSync(storage, { recursive: true, withFileTypes: true })
+        .filter((entry) => entry.isFile())
+        .map((entry) => {
+          const path = resolve(entry.parentPath, entry.name);
+
+          return [relative(storage, path), readFileSync(path)];
+        }),
+    );
+
+  writeFileSync(resolve(storage, '..', 'backups'), 'blocks backup directory');
+  const before = snapshot();
+
+  assert.throws(() => open(), /backup/i);
+  assert.deepEqual(snapshot(), before);
+  assert.equal(existsSync(resolve(storage, StorageFile.Manifest)), false);
+  assert.equal(existsSync(resolve(storage, StorageFile.Temporary)), false);
+});
+
+await test('a failed initial archive creates no database when only legacy settings exist', (t) => {
+  const root = mkdtempSync(resolve(tmpdir(), 'zluggish-legacy-settings-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const storage = resolve(root, 'storage');
+  mkdirSync(storage);
+  const settings = SettingsStore.legacy(storage);
+  settings.save(12, { 'ghosts.enabled': true });
+  settings.close();
+  const settingsPath = resolve(storage, StorageFile.Settings);
+  const before = readFileSync(settingsPath);
+  writeFileSync(resolve(root, 'backups'), 'blocks backup directory');
+
+  assert.throws(() => openDatabase(storage), /backup/i);
+  assert.deepEqual(readdirSync(storage), [StorageFile.Settings]);
+  assert.deepEqual(readFileSync(settingsPath), before);
+});
+
+await test('an unreadable legacy database leaves no partial archive or migration state', (t) => {
+  const { storage, open } = legacy(t);
+  const settings = resolve(storage, StorageFile.Settings);
+  const database = resolve(storage, StorageFile.Database);
+  const original = readFileSync(database);
+  const invalid = 'unreadable legacy settings database';
+  writeFileSync(settings, invalid);
+
+  assert.throws(() => open(), /not a database/i);
+  assert.deepEqual(readFileSync(database), original);
+  assert.equal(readFileSync(settings, 'utf8'), invalid);
+  assert.deepEqual(readdirSync(resolve(storage, '..', 'backups')), []);
+  assert.equal(existsSync(resolve(storage, StorageFile.Manifest)), false);
+  assert.equal(existsSync(resolve(storage, StorageFile.Temporary)), false);
 });

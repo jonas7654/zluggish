@@ -7,7 +7,7 @@ description: Back up and restore the Zluggish storage.
 
 ## Automatic and on-demand backups
 
-Zluggish makes a backup every night at 02:00 UTC while the server is running. It keeps the 10 most recent nightly backups under `backups/`, next to `storage/`.
+Zluggish makes a backup every night at 02:00 UTC while the server is running. It keeps the 10 most recent nightly `.tar.gz` backups under `backups/`, next to `storage/`.
 
 To create a backup at any time, sign in as an administrator and select **Manage → Server → Backups → Create backup**. The page shows when the backup finishes and where it was saved. Manual backups remain until you remove them.
 
@@ -18,10 +18,10 @@ When Zluggish migrates legacy data, it also saves a snapshot of the original sto
 Stop the server before running the [storage command](../reference/cli/storage.md).
 
 ```sh
-node server/dist/src/cli/bin.js --storage-dir ./storage storage backup --output ./backups/zluggish-2026-11-16
+node server/dist/src/cli/bin.js --storage-dir ./storage storage backup --output ./backups/zluggish-2026-11-16.tar.gz
 ```
 
-Nightly, manual and CLI backups use the same restore format. They contain a consistent SQLite snapshot, copies of the storage files such as media and FIT exports, the selected config when available, and a checksum manifest.
+Nightly and manual backups are gzip-compressed tar archives. Use a `.tar.gz` output path to create an archive with the CLI. The restore command also accepts older backup directories. Creating and restoring archives requires `tar`, which is available in the Docker image. They contain a consistent SQLite snapshot, copies of the storage files such as media and FIT exports, the selected config when available, and a checksum manifest.
 
 ## Restore
 
@@ -29,7 +29,7 @@ Nightly, manual and CLI backups use the same restore format. They contain a cons
 2. Restore the backup:
 
    ```sh
-   node server/dist/src/cli/bin.js --storage-dir ./storage storage restore --input ./backups/zluggish-2026-11-16
+   node server/dist/src/cli/bin.js --storage-dir ./storage storage restore --input ./backups/zluggish-2026-11-16.tar.gz
    ```
 
 3. Show the deliveries that are not complete:

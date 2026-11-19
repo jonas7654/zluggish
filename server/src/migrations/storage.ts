@@ -1,3 +1,4 @@
+import { archiveSuffix, compressBackupSync } from '#src/migrations/backup-archive';
 import { ConfigError } from '#src/config/index';
 import { completionSchemaSQL, storageSchemaSQL } from '#src/db/ddl';
 import { RiderDocumentName, SecretDocuments } from '#src/enum';
@@ -11,6 +12,7 @@ import { ProtobufRows } from '#src/repositories/protobuf.repository';
 import { StreakService } from '#src/services/streak.service';
 import { clearField, fromBinary, toBinary } from '@bufbuild/protobuf';
 import {
+  chmodSync,
   closeSync,
   copyFileSync,
   existsSync,
@@ -179,14 +181,20 @@ export function backupLegacyStorage(storage: string, prefix: string) {
   const created = mkdirSync(directory, { recursive: true, mode: 0o700 });
   const started = new Date().toISOString().replaceAll(/[:.]/g, '-');
   const name = `${prefix}-${started}-${crypto.randomUUID()}`;
-  const target = resolve(directory, name);
+  const target = resolve(directory, name + archiveSuffix);
   const stage = mkdtempSync(resolve(directory, '.migration-'));
+  const snapshot = resolve(stage, 'snapshot');
+  const archive = resolve(stage, 'backup.tar.gz');
 
   try {
+    mkdirSync(snapshot);
     const checksums: Record<string, string> = Object.create(null);
-    copyLegacyTree(source, stage, checksums, source);
-    writeDurable(resolve(stage, backupManifest), `${JSON.stringify({ version: 1, checksums }, null, 2)}\n`);
-    renameSync(stage, target);
+    copyLegacyTree(source, snapshot, checksums, source);
+    writeDurable(resolve(snapshot, backupManifest), `${JSON.stringify({ version: 1, checksums }, null, 2)}\n`);
+    compressBackupSync(snapshot, archive);
+    chmodSync(archive, 0o600);
+    syncFile(archive);
+    renameSync(archive, target);
     syncDirectory(directory);
 
     if (created) syncDirectory(dirname(directory));
@@ -678,10 +686,10 @@ export function migrateStorage(storage: string, reached: (step: MigrationStep) =
   const temporary = resolve(storage, StorageFile.Temporary);
   const started = new Date().toISOString();
 
+  const backup = backupLegacyStorage(storage, `storage-v${STORAGE_VERSION}`);
+
   for (const source of [database, resolve(storage, StorageFile.Settings)]) checkpointSource(source);
   reached('checkpointed');
-
-  const backup = backupLegacyStorage(storage, `storage-v${STORAGE_VERSION}`);
 
   const sources = Object.fromEntries(
     [StorageFile.Database, StorageFile.Settings].flatMap((name) =>

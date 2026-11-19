@@ -1,3 +1,4 @@
+import { readArchivedFile } from '#src/migrations/backup-archive';
 import { JobType } from '#src/enum';
 import { backupDirectory, nightlyBackupName } from '#src/migrations/backup-paths';
 import { BackupService } from '#src/services/backup.service';
@@ -188,7 +189,7 @@ await test('only web administrators can create a restorable manual backup', asyn
   const operation = crypto.randomUUID();
   const url = '/api/manage/server/backups';
   const status = `${url}/${operation}`;
-  const name = `manual-${operation}`;
+  const name = `manual-${operation}.tar.gz`;
   assert.equal(await responseStatus(rider.request(url, 'POST', { operation })), 403);
   assert.equal(await responseStatus(rider.request(status)), 403);
   assert.equal(await responseStatus(administrator.request(url, 'POST', { operation }, 'invalid')), 403);
@@ -244,9 +245,14 @@ await test('nightly jobs run at 02:00 UTC, keep ten complete nights and leave ma
   }
 
   const names = readdirSync(directory).toSorted();
-  const nights = Array.from({ length: 10 }, (_, index) => nightlyBackupName(new Date(Date.UTC(2026, 0, index + 3))));
-  assert.deepEqual(names, [`manual-${manual}`, ...nights, 'storage-v6-prior']);
-  assert.ok(nights.every((name) => existsSync(resolve(directory, name, 'backup-manifest.json'))));
+
+  const nights = Array.from(
+    { length: 10 },
+    (_, index) => `${nightlyBackupName(new Date(Date.UTC(2026, 0, index + 3)))}.tar.gz`,
+  );
+
+  assert.deepEqual(names, [`manual-${manual}.tar.gz`, ...nights, 'storage-v6-prior']);
+  assert.ok(nights.every((name) => readArchivedFile(resolve(directory, name), 'backup-manifest.json').length > 0));
   assert.equal(existsSync(resolve(storage, 'backups')), false);
   assert.equal(repository.pending(JobType.StorageBackup), 1);
   assert.equal(repository.list(JobType.StorageBackup).at(-1)?.next_run_at, Date.UTC(2026, 0, 13, 2));

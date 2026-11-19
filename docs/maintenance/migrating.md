@@ -11,7 +11,7 @@ Zluggish is a rework of the legacy zwift-offline app. The main differences are:
 - A Svelte web app manages users, server settings, activities and integrations.
 - The storage and the settings management are better.
 
-Zluggish tries to import and convert your storage automatically. Before a legacy conversion, it saves a snapshot in `backups/` next to `storage/`. Keep the earliest migration snapshot if you plan to roll back to zwift-offline.
+Zluggish tries to import and convert your storage automatically. Before a legacy conversion, it saves a gzip-compressed snapshot in `backups/` next to `storage/`. If the snapshot fails, the migration stops before changing the legacy data. Keep the earliest migration snapshot if you plan to roll back to zwift-offline.
 
 :::danger
 
@@ -42,5 +42,5 @@ If a migration stops before it is complete, run the same command with the same d
 ## Roll back
 
 1. Stop Zluggish.
-2. Restore the zwift-offline folder from your backup.
+2. Restore the zwift-offline folder from your backup. To use the Zluggish pre-migration snapshot, extract the earliest `.tar.gz` archive into an empty zwift-offline storage directory.
 3. Start zwift-offline.
