@@ -1,3 +1,4 @@
+import { validateConfig } from '#src/config/index';
 import { PlayerProfileSchema } from '#src/protocol/generated/profile_pb';
 import { GhostSchema, PlayerStateSchema } from '#src/protocol/generated/udp-node-msgs_pb';
 import { AssetFiles } from '#src/repositories/files.repository';
@@ -180,4 +181,81 @@ await test('riding, ghost and bookmark loads, blobs, recovery and logout make no
   assert.deepEqual(calls, []);
   assert.equal(simulation.ghosts.has(id), false);
   assert.equal(simulation.bookmarks.get(id)?.size, 2, 'the command bookmark and the last ride bookmark');
+});
+
+await test('synthetic riders carry an FTP: pacers 400, bots and blobs from their owner, pelotons from their power', async (t) => {
+  const f = runtimeFixture(t);
+  const rider = await f.accounts.create('Owner Rider', 'test-password');
+  const owner = f.profiles.get(rider.player_id);
+  owner.ftp = 250;
+  owner.weightInGrams = 70_000;
+  f.profiles.save(rider.player_id, owner);
+
+  const pacer = resolve(f.accounts.storage, 'robopacers/demo');
+  new AssetFiles().writeDurable(
+    resolve(pacer, 'profile.bin'),
+    toBinary(PlayerProfileSchema, create(PlayerProfileSchema, { id: 100n, weightInGrams: 80_000 })),
+  );
+  new AssetFiles().writeDurable(
+    resolve(pacer, 'route.bin'),
+    toBinary(
+      GhostSchema,
+      create(GhostSchema, {
+        playerId: 100,
+        states: [0, 1000, 2000].map((x) => create(PlayerStateSchema, { id: 100n, x, roadTime: x + 1, power: 240 })),
+      }),
+    ),
+  );
+
+  const ghost = toBinary(
+    GhostSchema,
+    create(GhostSchema, { playerId: 1, states: [create(PlayerStateSchema, { id: 1n, roadTime: 1 })] }),
+  );
+
+  new AssetFiles().writeDurable(resolve(f.profiles.folder(rider.player_id), 'ghosts/6/1/a.bin'), ghost);
+  // A folder without an account falls back to the defaults.
+  new AssetFiles().writeDurable(resolve(f.accounts.storage, '999999', 'ghosts/6/1/b.bin'), ghost);
+
+  const runtime = {
+    ...f,
+    config: validateConfig({
+      storageDir: f.config.storageDir,
+      bots: { enabled: true },
+      pelotons: [{ id: 'demo', pacer: 100, bots: 3 }],
+      soloBlob: { enabled: true, playerId: rider.player_id, riders: 3 },
+    }),
+  };
+
+  const simulation = new Simulation(runtime, () => 100);
+  t.after(() => simulation.close());
+  await simulation.ready;
+
+  assert.equal(simulation.replays.get(100n)?.profile.ftp, 400);
+
+  const bots = simulation.replays
+    .values()
+    .filter((replay) => !replay.pacer)
+    .map((replay) => [replay.profile.ftp, replay.profile.weightInGrams] as const)
+    .toArray()
+    .sort((a, b) => a[0] - b[0]);
+
+  assert.deepEqual(bots, [
+    [250, 70_000],
+    [300, 80_000],
+  ]);
+
+  const peloton = simulation.pelotons.get('demo');
+  assert.ok(peloton);
+  assert.equal(peloton.riders.length, 3);
+
+  for (const bot of peloton.riders) {
+    assert.ok(bot.profile.ftp > 0);
+    assert.equal(bot.profile.ftp, Math.trunc(bot.ftp));
+  }
+
+  const blob = simulation.blobs.get(BigInt(rider.player_id));
+  assert.ok(blob);
+  assert.equal(blob.riders.length, 3);
+
+  for (const bot of blob.riders) assert.equal(bot.profile.ftp, 250);
 });
