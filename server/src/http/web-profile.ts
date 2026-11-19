@@ -1,3 +1,5 @@
+import { WebSessionsService } from '#src/services/web-session.service';
+import { ManagementService } from '#src/services/management.service';
 import { UploadsService } from '#src/services/uploads.service';
 import { ActivitiesService } from '#src/services/activities.service';
 import { ImportsService } from '#src/services/profile-import.service';
@@ -20,14 +22,14 @@ import type { WebEnv } from '#src/http/web-app';
 export function webProfileRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
   const appRoutes = effectRoutes(app, runtime);
 
-  const { management, accounts } = runtime.services;
+  const { accounts } = runtime.services;
   const imports = runtime.effects.runSync(ImportsService);
-  const { sessions } = management;
+  const sessions = runtime.effects.runSync(WebSessionsService);
 
   function context(c: Context<WebEnv>) {
     const id = c.get('sessionId');
-    const user = sessions.require(id);
-    const session = sessions.find(id)!;
+    const user = runtime.effects.runSync(sessions.require(id));
+    const session = runtime.effects.runSync(sessions.find(id))!;
 
     return { id, user, session };
   }
@@ -59,7 +61,7 @@ export function webProfileRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
   function stageFiles(c: Context<WebEnv>, identity: string, files: ImportFiles) {
     const { id, user, session } = context(c);
 
-    if (!sessions.current(id, identity))
+    if (!runtime.effects.runSync(sessions.current(id, identity)))
       throw new ApplicationError({ status: 401, message: 'Session changed. Sign in again.' });
 
     if (runtime.world.active(user.player_id))
@@ -148,36 +150,40 @@ export function webProfileRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
 
     return stageFiles(c, identity, files);
   });
-  app.post('/api/me/import/confirm', async (c) => {
-    const input = Schema.decodeUnknownSync(
-      Strict({
-        stage: Schema.String,
-        cancel: Schema.Boolean.pipe(withDefault(false)),
-        keepName: Schema.Boolean.pipe(withDefault(false)),
-        confirmSource: Schema.Boolean.pipe(withDefault(false)),
-      }),
-    )(await c.req.json());
+  appRoutes.post('/api/me/import/confirm', (c) =>
+    Effect.gen(function* () {
+      const managementService = yield* ManagementService;
 
-    const { user, session } = context(c);
-    const current = review(c);
+      const input = Schema.decodeUnknownSync(
+        Strict({
+          stage: Schema.String,
+          cancel: Schema.Boolean.pipe(withDefault(false)),
+          keepName: Schema.Boolean.pipe(withDefault(false)),
+          confirmSource: Schema.Boolean.pipe(withDefault(false)),
+        }),
+      )(yield* Effect.promise(() => c.req.json()));
 
-    if (!current || current.stage !== input.stage)
-      throw new ApplicationError({ status: 409, message: 'The import changed. Reload and review it again.' });
+      const { user, session } = context(c);
+      const current = review(c);
 
-    if (input.cancel) runtime.effects.runSync(imports.cancel(user, current.stage));
-    else {
-      if (current.confirmSource && !input.confirmSource)
-        throw new ApplicationError({ status: 400, message: 'Confirm the import source first.' });
+      if (!current || current.stage !== input.stage)
+        throw new ApplicationError({ status: 409, message: 'The import changed. Reload and review it again.' });
 
-      if (runtime.world.active(user.player_id))
-        throw new ApplicationError({ status: 409, message: 'Finish the active ride before importing.' });
-      runtime.effects.runSync(imports.publish(user, current.stage, input.keepName));
-    }
+      if (input.cancel) runtime.effects.runSync(imports.cancel(user, current.stage));
+      else {
+        if (current.confirmSource && !input.confirmSource)
+          throw new ApplicationError({ status: 400, message: 'Confirm the import source first.' });
 
-    delete session.pendingImport;
+        if (runtime.world.active(user.player_id))
+          throw new ApplicationError({ status: 409, message: 'Finish the active ride before importing.' });
+        runtime.effects.runSync(imports.publish(user, current.stage, input.keepName));
+      }
 
-    return c.json({ user: management.publicUser(accounts.get(user.player_id)!), review: null });
-  });
+      delete session.pendingImport;
+
+      return c.json({ user: yield* managementService.publicUser(accounts.get(user.player_id)!), review: null });
+    }),
+  );
 
   const connection = (c: Context<WebEnv>) =>
     Effect.gen(function* () {

@@ -1,3 +1,4 @@
+import { ManagementService } from '#src/services/management.service';
 import { decodeOwned } from '#src/schema';
 import { Schema } from 'effect';
 import { mediumBrowser, mediumFixture, mediumWeb } from '#tests/medium/support';
@@ -153,14 +154,16 @@ await test('setting a password revokes all of that rider’s sessions and refres
 
 await test('an administrator changes their own password without the current one', async (t) => {
   const f = await mediumFixture(t);
-  const management = f.services.management;
+  const management = f.effects.runSync(ManagementService);
 
-  await management.setup({
-    mode: 'existing',
-    key: management.issueSetupKey()!,
-    username: f.rider.username,
-    password: 'test-password',
-  });
+  await f.effects.runPromise(
+    management.setup({
+      mode: 'existing',
+      key: f.effects.runSync(management.issueSetupKey())!,
+      username: f.rider.username,
+      password: 'test-password',
+    }),
+  );
 
   const administrator = f.accounts.get(f.rider.player_id)!;
   const response = await mediumWeb(f, administrator).request('/api/me/password', 'POST', { password: 'secret' });

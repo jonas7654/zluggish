@@ -1,3 +1,4 @@
+import { ManagementService } from '#src/services/management.service';
 import { Resources } from '#src/node/lifecycle/resources';
 import { ConfigError } from '#src/config/index';
 import type { LoadOptions } from '#src/config/load';
@@ -83,7 +84,10 @@ async function start() {
 
     const server = startHttp(app, listener);
     resources.defer(() => closeHttp(server));
-    let setupKey = webConfig.enabled ? owner.runtime.services.management.issueSetupKey() : null;
+
+    let setupKey = webConfig.enabled
+      ? owner.runtime.effects.runSync(ManagementService.use((management) => management.issueSetupKey()))
+      : null;
 
     const web = webConfig.enabled
       ? startHttp(createWebApp(owner.runtime), { host: webConfig.host ?? config.network.host, port: webConfig.port })

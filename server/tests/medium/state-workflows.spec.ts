@@ -1,3 +1,4 @@
+import { WebSessionsService } from '#src/services/web-session.service';
 import { ActivitiesService } from '#src/services/activities.service';
 import { JobsService } from '#src/services/jobs.service';
 import { Effect } from 'effect';
@@ -43,11 +44,15 @@ const mfa: MfaState = {
 
 /** A signed-in web session for the rider, as the web app's authorization routes see it. */
 function webSession(f: Awaited<ReturnType<typeof mediumFixture>>) {
-  const sessions = f.services.management.sessions;
+  const sessions = f.effects.runSync(WebSessionsService);
   const identity = f.accounts.identityOf(f.rider);
-  const { id } = sessions.create(identity);
+  const { id } = f.effects.runSync(sessions.create(identity));
 
-  return { id, live: () => sessions.current(id, identity), end: () => sessions.end(id) };
+  return {
+    id,
+    live: () => f.effects.runSync(sessions.current(id, identity)),
+    end: () => f.effects.runSync(sessions.end(id)),
+  };
 }
 
 await test('delivery records send once, retry failures manually and never recreate deleted records', async (t) => {

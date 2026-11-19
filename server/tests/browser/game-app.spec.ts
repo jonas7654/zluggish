@@ -1,3 +1,4 @@
+import { ManagementService } from '#src/services/management.service';
 import { UploadsService } from '#src/services/uploads.service';
 import { WorkoutsService } from '#src/services/workout.service';
 import { Effect, Schema } from 'effect';
@@ -43,12 +44,16 @@ async function browserFixture(t: TestContext) {
 
 /** Signs in to the web app as an administrator created by first-time setup. */
 async function webSignIn(page: Page, f: Awaited<ReturnType<typeof browserFixture>>, rider: User) {
-  await f.services.management.setup({
-    mode: 'existing',
-    key: f.services.management.issueSetupKey()!,
-    player_id: rider.player_id,
-    password: 'test-password',
-  });
+  await f.effects.runPromise(
+    ManagementService.use((management) =>
+      management.setup({
+        mode: 'existing',
+        key: f.effects.runSync(ManagementService.use((management) => management.issueSetupKey()))!,
+        player_id: rider.player_id,
+        password: 'test-password',
+      }),
+    ),
+  );
   await page.goto(`${f.webOrigin}/sign-in`);
   await page.getByLabel('Login name', { exact: true }).fill(rider.username);
   await page.getByLabel('Password', { exact: true }).fill('test-password');
@@ -83,14 +88,18 @@ for (const javaScriptEnabled of [true, false]) {
     page.on('pageerror', (error) => {
       errors.push(error.message);
     });
-    await f.services.management.setup({
-      mode: 'new',
-      key: f.services.management.issueSetupKey()!,
-      username: 'browser',
-      first_name: 'New Browser',
-      last_name: 'Rider',
-      password: 'browser-password',
-    });
+    await f.effects.runPromise(
+      ManagementService.use((management) =>
+        management.setup({
+          mode: 'new',
+          key: f.effects.runSync(ManagementService.use((management) => management.issueSetupKey()))!,
+          username: 'browser',
+          first_name: 'New Browser',
+          last_name: 'Rider',
+          password: 'browser-password',
+        }),
+      ),
+    );
     await page.goto(`${f.origin}/login/`);
     const rider = f.accounts.list()[0]!;
     await page.getByRole('button', { name: 'New Browser Rider' }).click();
@@ -161,12 +170,16 @@ await test('import review requires source confirmation and cancel bypasses valid
   const f = await browserFixture(t);
   const rider = await f.accounts.create('Import Rider', 'test-password');
   f.accounts.repository.updateImportedProfile(rider.player_id, 'Import', 'Rider', 123);
-  await f.services.management.setup({
-    mode: 'existing',
-    key: f.services.management.issueSetupKey()!,
-    player_id: rider.player_id,
-    password: 'test-password',
-  });
+  await f.effects.runPromise(
+    ManagementService.use((management) =>
+      management.setup({
+        mode: 'existing',
+        key: f.effects.runSync(ManagementService.use((management) => management.issueSetupKey()))!,
+        player_id: rider.player_id,
+        password: 'test-password',
+      }),
+    ),
+  );
   const context = await f.browser.newContext();
   const page = await context.newPage();
   await page.goto(`${f.webOrigin}/sign-in`);

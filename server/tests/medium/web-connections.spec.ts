@@ -1,3 +1,4 @@
+import { WebSessionsService } from '#src/services/web-session.service';
 import { UploadsService } from '#src/services/uploads.service';
 import { WorkoutsService } from '#src/services/workout.service';
 import { Effect } from 'effect';
@@ -14,7 +15,10 @@ import { mediumFixture, mediumWeb } from '#tests/medium/support';
 await test('web connections require web authentication and CSRF, isolate riders and hide secrets', async (t) => {
   const f = await mediumFixture(t);
   const app = createWebApp(f);
-  const owner = f.services.management.sessions.create(f.accounts.identityOf(f.rider));
+
+  const owner = f.effects.runSync(
+    WebSessionsService.use((sessions) => sessions.create(f.accounts.identityOf(f.rider))),
+  );
 
   const request = (path: string, method = 'GET', data?: Record<string, string>, csrf = owner.session.csrf) =>
     app.request(`https://web.example${path}`, {
@@ -79,14 +83,18 @@ await test('web connections require web authentication and CSRF, isolate riders 
     false,
   );
   assert.equal(f.effects.runSync(ConnectionsService.use((service) => service.has(f.rider.player_id, 'strava'))), false);
-  f.services.management.sessions.end(owner.id);
+  f.effects.runSync(WebSessionsService.use((sessions) => sessions.end(owner.id)));
   assert.equal(await responseStatus(request('/api/me/connections')), 401);
 });
 
 await test('web Strava authorization consumes state and rejects a completion after sign-out', async (t) => {
   const f = await mediumFixture(t);
   const app = createWebApp(f);
-  const owner = f.services.management.sessions.create(f.accounts.identityOf(f.rider));
+
+  const owner = f.effects.runSync(
+    WebSessionsService.use((sessions) => sessions.create(f.accounts.identityOf(f.rider))),
+  );
+
   f.effects.runSync(
     ConnectionsService.use((service) => service.save(f.rider.player_id, 'strava', ['client', 'secret'])),
   );
@@ -123,7 +131,7 @@ await test('web Strava authorization consumes state and rejects a completion aft
   const pending = post({ code: 'code', state });
   await entered.promise;
   assert.equal(await responseStatus(post({ code: 'code', state })), 403);
-  f.services.management.sessions.end(owner.id);
+  f.effects.runSync(WebSessionsService.use((sessions) => sessions.end(owner.id)));
   release.resolve();
   assert.equal(await responseStatus(pending), 400);
   assert.equal(
@@ -214,7 +222,11 @@ await test('web uploads, workout sync and Strava session tests stay with the sig
 await test('web riders remove one stored credential and keep the rest', async (t) => {
   const f = await mediumFixture(t);
   const app = createWebApp(f);
-  const owner = f.services.management.sessions.create(f.accounts.identityOf(f.rider));
+
+  const owner = f.effects.runSync(
+    WebSessionsService.use((sessions) => sessions.create(f.accounts.identityOf(f.rider))),
+  );
+
   const connections = f.effects.runSync(ConnectionsService);
   const documents = f.effects.runSync(DocumentsService);
 
@@ -271,7 +283,11 @@ await test('web riders remove one stored credential and keep the rest', async (t
 await test('unexpected web failures are logged with their stack trace', async (t) => {
   const f = await mediumFixture(t);
   const app = createWebApp(f);
-  const owner = f.services.management.sessions.create(f.accounts.identityOf(f.rider));
+
+  const owner = f.effects.runSync(
+    WebSessionsService.use((sessions) => sessions.create(f.accounts.identityOf(f.rider))),
+  );
+
   const error = t.mock.method(f.world.lifecycle.log, 'error', () => {});
 
   t.mock.method(f.effects.runSync(ConnectionsService), 'inspect', () => {
@@ -294,7 +310,11 @@ await test('unexpected web failures are logged with their stack trace', async (t
 await test('credentials written with another key ask the rider to enter them again', async (t) => {
   const f = await mediumFixture(t);
   const app = createWebApp(f);
-  const owner = f.services.management.sessions.create(f.accounts.identityOf(f.rider));
+
+  const owner = f.effects.runSync(
+    WebSessionsService.use((sessions) => sessions.create(f.accounts.identityOf(f.rider))),
+  );
+
   const crypto = new CryptoRepository();
   const warn = t.mock.method(f.world.lifecycle.log, 'warn', () => {});
 

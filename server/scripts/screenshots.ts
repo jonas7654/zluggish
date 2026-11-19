@@ -1,3 +1,4 @@
+import { ManagementService } from '#src/services/management.service';
 import { ActivitiesService } from '#src/services/activities.service';
 import { JobsService } from '#src/services/jobs.service';
 import { Effect } from 'effect';
@@ -324,12 +325,16 @@ await test('capture README screenshots', { timeout: 120_000 }, async (t) => {
       );
   }
 
-  await f.services.management.setup({
-    mode: 'existing',
-    key: f.services.management.issueSetupKey()!,
-    player_id: users[0]!.player_id,
-    password,
-  });
+  await f.effects.runPromise(
+    ManagementService.use((management) =>
+      management.setup({
+        mode: 'existing',
+        key: f.effects.runSync(ManagementService.use((management) => management.issueSetupKey()))!,
+        player_id: users[0]!.player_id,
+        password,
+      }),
+    ),
+  );
 
   // Setup grants the administrator role, which starts a new identity.
   const maja = f.accounts.get(users[0]!.player_id)!;

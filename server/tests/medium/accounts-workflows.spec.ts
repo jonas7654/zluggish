@@ -1,3 +1,4 @@
+import { ManagementService } from '#src/services/management.service';
 import { responseStatus, inputValue } from '#tests/support/html';
 import { createGameApp } from '#src/http/app';
 import { migrateAccounts } from '#src/migrations/accounts';
@@ -82,15 +83,17 @@ await test('empty game app directs the operator to web setup and cannot register
     }
 
   assert.equal(await responseStatus(client.request('/api/users', { method: 'POST' })), 403);
-  const service = f.services.management;
-  await service.setup({
-    mode: 'new',
-    key: service.issueSetupKey()!,
-    username: 'alex',
-    first_name: 'Alex',
-    last_name: 'Rider',
-    password: 'owner-password',
-  });
+  const service = f.effects.runSync(ManagementService);
+  await f.effects.runPromise(
+    service.setup({
+      mode: 'new',
+      key: f.effects.runSync(service.issueSetupKey())!,
+      username: 'alex',
+      first_name: 'Alex',
+      last_name: 'Rider',
+      password: 'owner-password',
+    }),
+  );
   await client.picker();
   const login = await client.form('/login/', { player_id: '1', step: 'password', password: 'owner-password' });
   assert.equal(login.status, 302);

@@ -29,11 +29,14 @@ import { UploadsService } from '#src/services/uploads.service';
 import { ActivitiesService } from '#src/services/activities.service';
 import { RideRecoveryService } from '#src/services/ride-recovery.service';
 import { RideCompletionService } from '#src/services/ride-completion.service';
+import { WebSessionsService } from '#src/services/web-session.service';
+import { ManagementService } from '#src/services/management.service';
 import { Layer, ManagedRuntime } from 'effect';
 
 /** Services that use only repositories. */
 const foundationLayer = Layer.mergeAll(
   StreakService.layer,
+  WebSessionsService.layer,
   WorkoutsService.layer,
   JobsService.layer,
   ImportsService.layer,
@@ -50,8 +53,8 @@ const foundationLayer = Layer.mergeAll(
 /** Uploads, which the account and activity services below cancel and query. */
 const uploadsLayer = UploadsService.layer.pipe(Layer.provideMerge(foundationLayer));
 
-/** Every application service, built from the runtime context. Each tier may use the ones below it. */
-export const servicesLayer = Layer.mergeAll(
+/** The account, activity and world services. Each tier may use the ones below it. */
+const featuresLayer = Layer.mergeAll(
   ProfilesService.layer,
   ActivitiesService.layer,
   RideRecoveryService.layer,
@@ -70,11 +73,16 @@ export const servicesLayer = Layer.mergeAll(
   RecordsService.layer,
 ).pipe(Layer.provideMerge(uploadsLayer));
 
+/** Every application service, built from the runtime context. Management uses the services below it. */
+export const servicesLayer = ManagementService.layer.pipe(Layer.provideMerge(featuresLayer));
+
 /** Every service an application effect may use. Listed rather than inferred: the runtime context
 refers to the runtime, so an inferred type would be circular.
 */
 export type AppServices =
   | RuntimeContext
+  | WebSessionsService
+  | ManagementService
   | UploadsService
   | ActivitiesService
   | RideRecoveryService

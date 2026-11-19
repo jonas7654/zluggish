@@ -1,3 +1,4 @@
+import { ManagementService } from '#src/services/management.service';
 import { runtimeFixture } from '#tests/support/runtime';
 import { createWebApp } from '#src/http/web-app';
 import { serve } from '@hono/node-server';
@@ -15,7 +16,7 @@ for (const existing of [false, true])
       const f = runtimeFixture(t);
 
       const owner = existing ? await f.accounts.create('First Rider', 'test-password', 'owner') : null;
-      const key = f.services.management.issueSetupKey()!;
+      const key = f.effects.runSync(ManagementService.use((management) => management.issueSetupKey()))!;
       const web = serve({ fetch: createWebApp(f).fetch, hostname: '127.0.0.1', port: 0 });
       const game = serve({ fetch: f.app.fetch, hostname: '127.0.0.1', port: 0 });
       t.after(() => {

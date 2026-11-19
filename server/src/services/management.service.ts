@@ -1,3 +1,4 @@
+import { RuntimeContext } from '#src/context';
 import { resolve } from 'node:path';
 import { configSchema } from '#src/config/schema';
 import { EventsService } from '#src/services/events.service';
@@ -15,13 +16,11 @@ import {
 } from '#src/dtos/management.dto';
 import { UploadsService } from '#src/services/uploads.service';
 import type { JsonValue } from '#src/dtos/management.dto';
-import { Effect, Schema } from 'effect';
-import type { RideCompletionService } from '#src/services/ride-completion.service';
-import type { RepositoryContext } from '#src/context';
+import { Context, Effect, Layer, Schema } from 'effect';
+import { RideCompletionService } from '#src/services/ride-completion.service';
 import type { User } from '#src/repositories/accounts.repository';
 import { ManagementRepository } from '#src/repositories/management.repository';
 import { ApplicationError } from '#src/errors';
-import { BaseService } from '#src/services/base.service';
 import { WebSessionsService } from '#src/services/web-session.service';
 
 const isFailure = Schema.is(Schema.Struct({ error: Schema.String }));
@@ -36,78 +35,92 @@ const isJsonObject = Schema.is(Schema.Record(Schema.String, Schema.Json));
 
 const isJsonArray = Schema.is(Schema.Array(Schema.Json));
 
-export class ManagementService extends BaseService {
-  readonly store: ManagementRepository;
+/** The browser gets a parsed outcome: a failure message, a bot reply, or plain success. */
+function outcome(status: string, result: JsonValue) {
+  if (status !== 'complete')
+    return { status, ok: false, message: 'The result is unknown. Check the server log before you start it again.' };
 
-  readonly sessions: WebSessionsService;
+  if (isFailure(result)) return { status, ok: false, message: result.error };
 
-  private setupDigest: Buffer | null = null;
+  return { status, ok: true, message: isString(result) ? result : result === false ? 'Nothing to change.' : null };
+}
 
-  private passwordWork = 0;
+/** Operator configuration as read-only rows. The browser never receives secrets: paths only. */
+function configuration(value: JsonValue, prefix = ''): [string, string][] {
+  if (isJsonObject(value) && !Array.isArray(value))
+    return Object.entries(value).flatMap(([key, item]) => configuration(item, prefix ? `${prefix}.${key}` : key));
 
-  constructor(
-    private readonly context: RepositoryContext,
-    private readonly completion: RideCompletionService['Service'],
-  ) {
-    super(context.accounts.repositories);
-    this.store = new ManagementRepository(context.accounts.db);
-    this.sessions = new WebSessionsService(context.accounts);
-  }
+  return [[prefix, isJsonArray(value) ? value.join(', ') : String(value ?? '')]];
+}
 
-  publicUser(user: User) {
+const make = Effect.gen(function* () {
+  const context = yield* RuntimeContext;
+  const repositories = context.accounts.repositories;
+  const completion = yield* RideCompletionService;
+  const uploadsService = yield* UploadsService;
+  const eventsService = yield* EventsService;
+
+  const store = new ManagementRepository(context.accounts.db);
+
+  const sessions = yield* WebSessionsService;
+
+  let setupDigest: Buffer | null = null;
+
+  let passwordWork = 0;
+
+  function publicUser(user: User) {
     const { pass_hash, auth_version: _authVersion, ...safe } = user;
 
     return {
       ...safe,
       has_password: !!pass_hash,
-      connected: this.context.world.active(user.player_id),
-      avatar: this.avatarVersion(user.player_id),
+      connected: context.world.active(user.player_id),
+      avatar: avatarVersion(user.player_id),
     };
   }
 
-  issueSetupKey() {
-    if (this.store.complete()) return null;
+  function issueSetupKey() {
+    if (store.complete()) return null;
     const alphabet = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
-    const bits = [...this.cryptoRepository.randomBytes(32)].map((v) => v.toString(2).padStart(8, '0')).join('');
+    const bits = [...repositories.cryptoRepository.randomBytes(32)].map((v) => v.toString(2).padStart(8, '0')).join('');
     let key = '';
 
     for (let i = 0; i < bits.length; i += 5) key += alphabet[Number.parseInt(bits.slice(i, i + 5).padEnd(5, '0'), 2)];
-    this.setupDigest = Buffer.from(this.cryptoRepository.sha256(key), 'hex');
+    setupDigest = Buffer.from(repositories.cryptoRepository.sha256(key), 'hex');
 
     return key.match(/.{1,4}/g)!.join('-');
   }
 
-  private keyValid(key: string) {
-    const digest = Buffer.from(this.cryptoRepository.sha256(key.toUpperCase().replaceAll(/[-\s]/g, '')), 'hex');
+  function keyValid(key: string) {
+    const digest = Buffer.from(repositories.cryptoRepository.sha256(key.toUpperCase().replaceAll(/[-\s]/g, '')), 'hex');
 
-    return this.setupDigest !== null && this.cryptoRepository.timingSafeEqual(digest, this.setupDigest);
+    return setupDigest !== null && repositories.cryptoRepository.timingSafeEqual(digest, setupDigest);
   }
 
   /** Lets the setup form check the key before asking for account details. */
-  checkSetupKey(key: string) {
-    if (this.store.complete() || !this.keyValid(key))
-      throw new ApplicationError({ status: 403, message: 'Setup refused.' });
+  function checkSetupKey(key: string) {
+    if (store.complete() || !keyValid(key)) throw new ApplicationError({ status: 403, message: 'Setup refused.' });
   }
 
-  async passwordTask<T>(work: () => Promise<T>) {
-    if (this.passwordWork >= 4) throw new ApplicationError({ status: 503, message: 'Try again shortly.' });
-    this.passwordWork++;
+  async function passwordTask<T>(work: () => Promise<T>) {
+    if (passwordWork >= 4) throw new ApplicationError({ status: 503, message: 'Try again shortly.' });
+    passwordWork++;
 
     try {
       return await work();
     } finally {
-      this.passwordWork--;
+      passwordWork--;
     }
   }
 
-  private insert(input: (typeof newUser)['Type'], hash: string) {
-    if (this.context.accounts.loginNameTaken(input.username))
+  function insert(input: (typeof newUser)['Type'], hash: string) {
+    if (context.accounts.loginNameTaken(input.username))
       throw new ApplicationError({ status: 409, message: 'Login name already exists.' });
 
     const occupied = [
-      ...this.context.accounts.list().map((r) => r.player_id),
-      ...this.filesRepository
-        .readdirSync(this.context.accounts.storage)
+      ...context.accounts.list().map((r) => r.player_id),
+      ...repositories.filesRepository
+        .readdirSync(context.accounts.storage)
         .filter((v) => /^\d+$/.test(v))
         .map(Number),
     ];
@@ -116,7 +129,7 @@ export class ManagementService extends BaseService {
 
     if (!Number.isSafeInteger(id) || id > 2_147_483_647)
       throw new ApplicationError({ status: 409, message: 'User ID space exhausted.' });
-    this.accountsRepository.insert({
+    repositories.accountsRepository.insert({
       player_id: id,
       username: input.username,
       first_name: input.first_name,
@@ -124,20 +137,20 @@ export class ManagementService extends BaseService {
       pass_hash: hash,
     });
 
-    return this.context.accounts.get(id)!;
+    return context.accounts.get(id)!;
   }
 
-  async setup(raw: (typeof setupRequest)['Encoded'], live: () => boolean = () => true) {
+  async function setup(raw: (typeof setupRequest)['Encoded'], live: () => boolean = () => true) {
     const input = Schema.decodeUnknownSync(setupRequest)(raw);
 
-    if (this.store.complete() || !this.keyValid(input.key))
+    if (store.complete() || !keyValid(input.key))
       throw new ApplicationError({ status: 403, message: 'Setup refused.' });
 
     const existing =
       input.mode === 'existing'
         ? 'player_id' in input
-          ? this.context.accounts.get(input.player_id)
-          : this.context.accounts.byUsername(input.username)
+          ? context.accounts.get(input.player_id)
+          : context.accounts.byUsername(input.username)
         : null;
 
     if (input.mode === 'existing' && existing && !existing.pass_hash)
@@ -146,23 +159,23 @@ export class ManagementService extends BaseService {
         message: 'This user has no password. Create a new user, or set a password with the CLI.',
       });
 
-    const hash = await this.passwordTask(async () => {
-      if (input.mode === 'new') return this.cryptoRepository.hashPassword(input.password);
+    const hash = await passwordTask(async () => {
+      if (input.mode === 'new') return repositories.cryptoRepository.hashPassword(input.password);
 
-      if (!existing || !(await this.context.accounts.verify(existing, input.password)))
+      if (!existing || !(await context.accounts.verify(existing, input.password)))
         throw new ApplicationError({ status: 403, message: 'Setup refused.' });
 
       return null;
     });
 
-    const user = this.store.transaction(() => {
-      if (!live() || this.store.complete() || !this.keyValid(input.key))
+    const user = store.transaction(() => {
+      if (!live() || store.complete() || !keyValid(input.key))
         throw new ApplicationError({ status: 409, message: 'Setup refused.' });
       let target: User;
 
-      if (input.mode === 'new') target = this.insert(input, hash!);
+      if (input.mode === 'new') target = insert(input, hash!);
       else {
-        const current = existing && this.context.accounts.get(existing.player_id);
+        const current = existing && context.accounts.get(existing.player_id);
 
         if (
           !current ||
@@ -175,28 +188,28 @@ export class ManagementService extends BaseService {
         target = current;
       }
 
-      this.store.update(target.player_id, { role: 'administrator' });
-      this.store.finish();
-      const after = this.context.accounts.get(target.player_id)!;
+      store.update(target.player_id, { role: 'administrator' });
+      store.finish();
+      const after = context.accounts.get(target.player_id)!;
 
       return after;
     });
 
-    this.setupDigest = null;
+    setupDigest = null;
 
     return user;
   }
 
-  async signIn(username: string, password: string) {
-    const user = this.context.accounts.byUsername(username);
+  async function signIn(username: string, password: string) {
+    const user = context.accounts.byUsername(username);
 
-    const valid = await this.passwordTask(() =>
+    const valid = await passwordTask(() =>
       user
-        ? this.context.accounts.verify(user, password)
-        : this.cryptoRepository.hashPassword(password).then(() => false),
+        ? context.accounts.verify(user, password)
+        : repositories.cryptoRepository.hashPassword(password).then(() => false),
     );
 
-    const current = user && this.context.accounts.get(user.player_id);
+    const current = user && context.accounts.get(user.player_id);
 
     if (
       !user ||
@@ -211,54 +224,54 @@ export class ManagementService extends BaseService {
     return user;
   }
 
-  async confirm(id: string, password: string) {
-    const user = this.sessions.require(id, true, false);
-    const identity = this.context.accounts.identityOf(user);
+  async function confirm(id: string, password: string) {
+    const user = Effect.runSync(sessions.require(id, true, false));
+    const identity = context.accounts.identityOf(user);
 
     if (
-      !(await this.passwordTask(() => this.context.accounts.verify(user, password))) ||
-      !this.sessions.current(id, identity)
+      !(await passwordTask(() => context.accounts.verify(user, password))) ||
+      !Effect.runSync(sessions.current(id, identity))
     )
       throw new ApplicationError({ status: 401, message: 'Confirmation refused.' });
-    this.sessions.require(id, true, false);
-    this.sessions.sessions.get(id)!.confirmedUntil = Date.now() + 900_000;
+    Effect.runSync(sessions.require(id, true, false));
+    sessions.sessions.get(id)!.confirmedUntil = Date.now() + 900_000;
   }
 
   /** Administrators can already set any password, so they skip the current one. */
-  async changeOwnPassword(id: string, current: string | undefined, password: string) {
-    const user = this.sessions.require(id);
-    const identity = this.context.accounts.identityOf(user);
+  async function changeOwnPassword(id: string, current: string | undefined, password: string) {
+    const user = Effect.runSync(sessions.require(id));
+    const identity = context.accounts.identityOf(user);
 
-    const hash = await this.passwordTask(async () => {
-      if (user.role !== 'administrator' && !(await this.context.accounts.verify(user, current ?? '')))
+    const hash = await passwordTask(async () => {
+      if (user.role !== 'administrator' && !(await context.accounts.verify(user, current ?? '')))
         throw new ApplicationError({ status: 403, message: 'Password incorrect.' });
 
-      return this.cryptoRepository.hashPassword(password);
+      return repositories.cryptoRepository.hashPassword(password);
     });
 
-    this.store.transaction(() => {
-      if (!this.sessions.current(id, identity))
+    store.transaction(() => {
+      if (!Effect.runSync(sessions.current(id, identity)))
         throw new ApplicationError({ status: 401, message: 'Session changed.' });
-      this.store.update(user.player_id, { pass_hash: hash });
+      store.update(user.player_id, { pass_hash: hash });
     });
-    Effect.runSync(this.completion.cancel(user.player_id));
+    Effect.runSync(completion.cancel(user.player_id));
   }
 
-  private fingerprint(value: JsonValue) {
-    const signed = this.cryptoRepository.signIdentity(JSON.stringify(value), this.context.sessions.secret);
+  function fingerprintNow(value: JsonValue) {
+    const signed = repositories.cryptoRepository.signIdentity(JSON.stringify(value), context.sessions.secret);
 
     return signed.slice(signed.lastIndexOf('|') + 1);
   }
 
-  async create(id: string, raw: (typeof newUser)['Encoded'], operation: string) {
+  async function create(id: string, raw: (typeof newUser)['Encoded'], operation: string) {
     const input = Schema.decodeUnknownSync(newUser)(raw);
-    this.sessions.require(id, true);
-    const hash = await this.passwordTask(() => this.cryptoRepository.hashPassword(input.password));
+    Effect.runSync(sessions.require(id, true));
+    const hash = await passwordTask(() => repositories.cryptoRepository.hashPassword(input.password));
 
-    return this.store.transaction(() => {
-      const actor = this.sessions.require(id, true);
-      const fingerprint = this.fingerprint(input);
-      const prior = this.store.operation(actor.player_id, operation);
+    return store.transaction(() => {
+      const actor = Effect.runSync(sessions.require(id, true));
+      const fingerprint = fingerprintNow(input);
+      const prior = store.operation(actor.player_id, operation);
 
       if (prior) {
         if (prior.action !== 'create' || prior.fingerprint !== fingerprint)
@@ -267,36 +280,36 @@ export class ManagementService extends BaseService {
         return JSON.parse(prior.result!);
       }
 
-      const user = this.insert(input, hash);
-      const result = this.publicUser(user);
-      this.store.record(actor.player_id, operation, 'create', user.player_id, fingerprint, result);
+      const user = insert(input, hash);
+      const result = publicUser(user);
+      store.record(actor.player_id, operation, 'create', user.player_id, fingerprint, result);
 
       return result;
     });
   }
 
-  async mutate(id: string, targetId: number, action: string, raw: (typeof mutationRequest)['Encoded']) {
+  async function mutate(id: string, targetId: number, action: string, raw: (typeof mutationRequest)['Encoded']) {
     const input = Schema.decodeUnknownSync(mutationRequest)(raw);
-    this.sessions.require(id, true);
+    Effect.runSync(sessions.require(id, true));
 
     const hash =
       action === 'password' && input.password
-        ? await this.passwordTask(() => this.cryptoRepository.hashPassword(input.password!))
+        ? await passwordTask(() => repositories.cryptoRepository.hashPassword(input.password!))
         : undefined;
 
     let permission: Effect.Success<ReturnType<RideCompletionService['Service']['capture']>> = null;
     let committed = false;
 
-    const result = this.store.transaction(() => {
-      const actor = this.sessions.require(id, true);
+    const result = store.transaction(() => {
+      const actor = Effect.runSync(sessions.require(id, true));
 
       if (actor.player_id === targetId && action === 'password')
         throw new ApplicationError({ status: 403, message: 'Change your own password on your profile.' });
-      const target = this.context.accounts.get(targetId);
+      const target = context.accounts.get(targetId);
 
       if (!target) throw new ApplicationError({ status: 404, message: 'User not found.' });
-      const fingerprint = this.fingerprint({ action, targetId, input });
-      const prior = this.store.operation(actor.player_id, input.operation);
+      const fingerprint = fingerprintNow({ action, targetId, input });
+      const prior = store.operation(actor.player_id, input.operation);
 
       if (prior) {
         if (prior.fingerprint !== fingerprint)
@@ -312,11 +325,11 @@ export class ManagementService extends BaseService {
         target.enabled &&
         target.role === 'administrator' &&
         (action === 'disable' || (action === 'role' && input.role === 'rider')) &&
-        this.store.administrators() <= 1
+        store.administrators() <= 1
       )
         throw new ApplicationError({ status: 409, message: 'Keep at least one enabled administrator.' });
 
-      if (action === 'disable') permission = Effect.runSync(this.completion.capture(targetId));
+      if (action === 'disable') permission = Effect.runSync(completion.capture(targetId));
 
       const values =
         action === 'password' && hash
@@ -332,37 +345,37 @@ export class ManagementService extends BaseService {
                   : null;
 
       if (!values) throw new ApplicationError({ status: 400, message: 'Invalid action.' });
-      this.store.update(targetId, values);
+      store.update(targetId, values);
       committed = true;
 
       const after = {
-        ...this.publicUser(this.context.accounts.get(targetId)!),
+        ...publicUser(context.accounts.get(targetId)!),
         completion_deadline: permission?.deadline ?? null,
       };
 
-      this.store.record(actor.player_id, input.operation, action, targetId, fingerprint, after);
+      store.record(actor.player_id, input.operation, action, targetId, fingerprint, after);
 
       return after;
     });
 
     if (committed) {
-      if (action === 'disable') Effect.runSync(this.completion.grant(targetId, permission));
-      else Effect.runSync(this.completion.cancel(targetId));
+      if (action === 'disable') Effect.runSync(completion.grant(targetId, permission));
+      else Effect.runSync(completion.cancel(targetId));
     }
 
     return result;
   }
 
-  edit(id: string, player: number, raw: (typeof editUserRequest)['Encoded']) {
+  function edit(id: string, player: number, raw: (typeof editUserRequest)['Encoded']) {
     const input = Schema.decodeUnknownSync(editUserRequest)(raw);
 
-    return this.store.transaction(() => {
-      const actor = this.sessions.require(id, true);
-      const target = this.context.accounts.get(player);
+    return store.transaction(() => {
+      const actor = Effect.runSync(sessions.require(id, true));
+      const target = context.accounts.get(player);
 
       if (!target) throw new ApplicationError({ status: 404, message: 'User not found.' });
-      const fingerprint = this.fingerprint(input);
-      const prior = this.store.operation(actor.player_id, input.operation);
+      const fingerprint = fingerprintNow(input);
+      const prior = store.operation(actor.player_id, input.operation);
 
       if (prior) {
         if (prior.fingerprint !== fingerprint || prior.action !== 'edit')
@@ -371,90 +384,92 @@ export class ManagementService extends BaseService {
         return JSON.parse(prior.result!);
       }
 
-      if (this.context.world.active(player))
+      if (context.world.active(player))
         throw new ApplicationError({ status: 409, message: 'Disconnect the user before changing names.' });
 
       if (target.revision !== input.revision)
         throw new ApplicationError({ status: 409, message: 'User changed. Review the new data.' });
 
-      if (this.context.accounts.loginNameTaken(input.username, player))
+      if (context.accounts.loginNameTaken(input.username, player))
         throw new ApplicationError({ status: 409, message: 'Login name already exists.' });
 
-      const profile = this.context.profiles.get(player);
+      const profile = context.profiles.get(player);
       profile.firstName = input.first_name;
       profile.lastName = input.last_name;
       profile.email = input.username;
-      this.context.profiles.save(player, profile);
-      this.store.update(player, { username: input.username }, false);
-      const result = this.publicUser(this.context.accounts.get(player)!);
-      this.store.record(actor.player_id, input.operation, 'edit', player, fingerprint, result);
+      context.profiles.save(player, profile);
+      store.update(player, { username: input.username }, false);
+      const result = publicUser(context.accounts.get(player)!);
+      store.record(actor.player_id, input.operation, 'edit', player, fingerprint, result);
 
       return result;
     });
   }
 
-  ownProfile(id: string, player?: number) {
-    const actor = this.sessions.require(id, player !== undefined);
-    const user = player === undefined ? actor : this.context.accounts.get(player);
+  function ownProfile(id: string, player?: number) {
+    const actor = Effect.runSync(sessions.require(id, player !== undefined));
+    const user = player === undefined ? actor : context.accounts.get(player);
 
     if (!user) throw new ApplicationError({ status: 404, message: 'User not found.' });
-    const [month, day, year] = this.context.profiles.get(user.player_id).dob.split('/', 3);
+    const [month, day, year] = context.profiles.get(user.player_id).dob.split('/', 3);
 
     return {
-      user: this.publicUser(this.context.accounts.get(user.player_id)!),
+      user: publicUser(context.accounts.get(user.player_id)!),
       birthday: year && month && day ? `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}` : '',
-      avatar: this.avatarVersion(user.player_id),
+      avatar: avatarVersion(user.player_id),
     };
   }
 
   /** The game and the Companion app read the same file. */
-  avatarPath(player: number) {
-    return resolve(this.context.profiles.folder(player), 'avatarLarge.jpg');
+  function avatarPath(player: number) {
+    return resolve(context.profiles.folder(player), 'avatarLarge.jpg');
   }
 
   /** Changes with each upload, so the browser does not show a cached photo. */
-  avatarVersion(player: number) {
-    const path = this.avatarPath(player);
+  function avatarVersion(player: number) {
+    const path = avatarPath(player);
 
-    return this.filesRepository.existsSync(path) ? Math.trunc(this.filesRepository.statSync(path).mtimeMs) : null;
+    return repositories.filesRepository.existsSync(path)
+      ? Math.trunc(repositories.filesRepository.statSync(path).mtimeMs)
+      : null;
   }
 
-  saveAvatar(id: string, image: Uint8Array, player?: number) {
-    const actor = this.sessions.require(id, player !== undefined);
-    const user = player === undefined ? actor : this.context.accounts.get(player);
+  function saveAvatar(id: string, image: Uint8Array, player?: number) {
+    const actor = Effect.runSync(sessions.require(id, player !== undefined));
+    const user = player === undefined ? actor : context.accounts.get(player);
 
     if (!user) throw new ApplicationError({ status: 404, message: 'User not found.' });
 
     if (image.length < 4 || image[0] !== 0xff || image[1] !== 0xd8 || image.at(-2) !== 0xff || image.at(-1) !== 0xd9)
       throw new ApplicationError({ status: 400, message: 'Choose a JPG or PNG image.' });
-    this.filesRepository.write(this.avatarPath(user.player_id), image);
+    repositories.filesRepository.write(avatarPath(user.player_id), image);
 
-    return { avatar: this.avatarVersion(user.player_id) };
+    return { avatar: avatarVersion(user.player_id) };
   }
 
-  removeAvatar(id: string, player?: number) {
-    const actor = this.sessions.require(id, player !== undefined);
-    const user = player === undefined ? actor : this.context.accounts.get(player);
+  function removeAvatar(id: string, player?: number) {
+    const actor = Effect.runSync(sessions.require(id, player !== undefined));
+    const user = player === undefined ? actor : context.accounts.get(player);
 
     if (!user) throw new ApplicationError({ status: 404, message: 'User not found.' });
-    const path = this.avatarPath(user.player_id);
+    const path = avatarPath(user.player_id);
 
-    if (this.filesRepository.existsSync(path)) this.filesRepository.unlinkSync(path);
+    if (repositories.filesRepository.existsSync(path)) repositories.filesRepository.unlinkSync(path);
 
     return { avatar: null };
   }
 
-  editOwnProfile(id: string, raw: (typeof ownProfileRequest)['Encoded'], targetPlayer?: number) {
+  function editOwnProfile(id: string, raw: (typeof ownProfileRequest)['Encoded'], targetPlayer?: number) {
     const input = Schema.decodeUnknownSync(ownProfileRequest)(raw);
 
-    return this.store.transaction(() => {
-      const actor = this.sessions.require(id, targetPlayer !== undefined);
+    return store.transaction(() => {
+      const actor = Effect.runSync(sessions.require(id, targetPlayer !== undefined));
       const player = targetPlayer ?? actor.player_id;
-      const target = this.context.accounts.get(player);
+      const target = context.accounts.get(player);
 
       if (!target) throw new ApplicationError({ status: 404, message: 'User not found.' });
-      const fingerprint = this.fingerprint({ ...input, player });
-      const prior = this.store.operation(actor.player_id, input.operation);
+      const fingerprint = fingerprintNow({ ...input, player });
+      const prior = store.operation(actor.player_id, input.operation);
 
       if (prior) {
         if (prior.fingerprint !== fingerprint || prior.action !== 'profile')
@@ -463,49 +478,49 @@ export class ManagementService extends BaseService {
         return JSON.parse(prior.result!);
       }
 
-      if (this.context.world.active(player))
+      if (context.world.active(player))
         throw new ApplicationError({ status: 409, message: 'Leave the game before changing your profile.' });
 
       if (target.revision !== input.revision)
         throw new ApplicationError({ status: 409, message: 'Profile changed. Reload the page.' });
 
-      if (this.context.accounts.loginNameTaken(input.username, player))
+      if (context.accounts.loginNameTaken(input.username, player))
         throw new ApplicationError({ status: 409, message: 'Email address already in use.' });
 
-      const profile = this.context.profiles.get(player);
+      const profile = context.profiles.get(player);
       profile.firstName = input.first_name;
       profile.lastName = input.last_name;
       profile.email = input.username;
       profile.dob = input.birthday.replace(/^(\d{4})-(\d{2})-(\d{2})$/, '$2/$3/$1');
-      this.context.profiles.save(player, profile);
-      this.store.update(player, { username: input.username }, false);
-      const result = this.ownProfile(id, targetPlayer);
-      this.store.record(actor.player_id, input.operation, 'profile', player, fingerprint, result);
+      context.profiles.save(player, profile);
+      store.update(player, { username: input.username }, false);
+      const result = ownProfile(id, targetPlayer);
+      store.record(actor.player_id, input.operation, 'profile', player, fingerprint, result);
 
       return result;
     });
   }
 
-  settings(player: number) {
+  function settings(player: number) {
     return {
-      revision: this.context.settings.revision(player),
-      overrides: this.context.settings.read(player),
-      defaults: this.context.config.riderDefaults,
+      revision: context.settings.revision(player),
+      overrides: context.settings.read(player),
+      defaults: context.config.riderDefaults,
     };
   }
 
-  saveSettings(id: string, player: number, raw: (typeof settingsRequest)['Encoded'], manage = false) {
+  function saveSettings(id: string, player: number, raw: (typeof settingsRequest)['Encoded'], manage = false) {
     const input = Schema.decodeUnknownSync(settingsRequest)(raw);
 
-    return this.store.transaction(() => {
-      const actor = this.sessions.require(id, manage);
+    return store.transaction(() => {
+      const actor = Effect.runSync(sessions.require(id, manage));
 
       if ((manage && actor.player_id === player) || (!manage && actor.player_id !== player))
         throw new ApplicationError({ status: 403, message: 'Own settings only.' });
 
-      if (!this.context.accounts.get(player)) throw new ApplicationError({ status: 404, message: 'User not found.' });
-      const fingerprint = this.fingerprint({ player, input });
-      const prior = this.store.operation(actor.player_id, input.operation);
+      if (!context.accounts.get(player)) throw new ApplicationError({ status: 404, message: 'User not found.' });
+      const fingerprint = fingerprintNow({ player, input });
+      const prior = store.operation(actor.player_id, input.operation);
 
       if (prior) {
         if (prior.action !== 'settings' || prior.fingerprint !== fingerprint)
@@ -514,16 +529,16 @@ export class ManagementService extends BaseService {
         return JSON.parse(prior.result!);
       }
 
-      this.context.settings.save(player, input.overrides, input.revision);
-      this.context.bridge!.runSync(UploadsService.use((uploads) => uploads.revoke(player)));
-      const after = this.settings(player);
-      this.store.record(actor.player_id, input.operation, 'settings', player, fingerprint, after);
+      context.settings.save(player, input.overrides, input.revision);
+      Effect.runSync(uploadsService.revoke(player));
+      const after = settings(player);
+      store.record(actor.player_id, input.operation, 'settings', player, fingerprint, after);
 
       return after;
     });
   }
 
-  async serverOperation(
+  async function serverOperation(
     id: string,
     action: string,
     raw: (typeof serverRequest)['Encoded'],
@@ -534,12 +549,12 @@ export class ManagementService extends BaseService {
 
     if (action === 'bots' && (!input.user || !input.command))
       throw new ApplicationError({ status: 400, message: 'Choose a user and a bot command.' });
-    const fingerprint = this.fingerprint({ action, input });
+    const fingerprint = fingerprintNow({ action, input });
 
     // The retry check and the intent share one transaction, so a duplicate request never dispatches twice.
-    const { actor, prior } = this.store.transaction(() => {
-      const actor = this.sessions.require(id, true);
-      const prior = this.store.operation(actor.player_id, input.operation);
+    const { actor, prior } = store.transaction(() => {
+      const actor = Effect.runSync(sessions.require(id, true));
+      const prior = store.operation(actor.player_id, input.operation);
 
       if (prior) {
         if (prior.action !== action || prior.fingerprint !== fingerprint)
@@ -548,22 +563,22 @@ export class ManagementService extends BaseService {
         return { actor, prior };
       }
 
-      if (action === 'bots' && !this.context.world.active(input.user!))
+      if (action === 'bots' && !context.world.active(input.user!))
         throw new ApplicationError({ status: 409, message: 'The user must be riding now.' });
-      this.store.intent(actor.player_id, input.operation, action, fingerprint);
+      store.intent(actor.player_id, input.operation, action, fingerprint);
 
       return { actor, prior: null };
     });
 
-    if (prior) return this.outcome(prior.status, prior.result ? JSON.parse(prior.result) : null);
+    if (prior) return outcome(prior.status, prior.result ? JSON.parse(prior.result) : null);
     await flush();
     let result: JsonValue;
 
     try {
-      this.sessions.require(id, true);
+      Effect.runSync(sessions.require(id, true));
     } catch (error) {
       // A known result: the operation did not run. A retry returns it and never dispatches.
-      this.store.finishOperation(actor.player_id, input.operation, {
+      store.finishOperation(actor.player_id, input.operation, {
         error: 'The operation did not run. Confirm your password and start it again.',
       });
 
@@ -591,40 +606,20 @@ export class ManagementService extends BaseService {
       result = { error: 'Operation failed.' };
     }
 
-    this.store.finishOperation(actor.player_id, input.operation, result);
+    store.finishOperation(actor.player_id, input.operation, result);
 
-    return this.outcome('complete', result);
+    return outcome('complete', result);
   }
 
-  /** The browser gets a parsed outcome: a failure message, a bot reply, or plain success. */
-  private outcome(status: string, result: JsonValue) {
-    if (status !== 'complete')
-      return { status, ok: false, message: 'The result is unknown. Check the server log before you start it again.' };
-
-    if (isFailure(result)) return { status, ok: false, message: result.error };
-
-    return { status, ok: true, message: isString(result) ? result : result === false ? 'Nothing to change.' : null };
+  function eventsNow() {
+    return repositories.eventsRepository.listPrivateEvent().map((row) => decodeMeetup(JSON.parse(row.json)));
   }
 
-  /** Operator configuration as read-only rows. The browser never receives secrets: paths only. */
-  configuration(value: JsonValue, prefix = ''): [string, string][] {
-    if (isJsonObject(value) && !Array.isArray(value))
-      return Object.entries(value).flatMap(([key, item]) =>
-        this.configuration(item, prefix ? `${prefix}.${key}` : key),
-      );
-
-    return [[prefix, isJsonArray(value) ? value.join(', ') : String(value ?? '')]];
-  }
-
-  events() {
-    return this.eventsRepository.listPrivateEvent().map((row) => decodeMeetup(JSON.parse(row.json)));
-  }
-
-  editEvent(session: string, eventId: number, action: string, raw: (typeof eventRequest)['Encoded']) {
+  function editEvent(session: string, eventId: number, action: string, raw: (typeof eventRequest)['Encoded']) {
     const input = Schema.decodeUnknownSync(eventRequest)(raw);
-    const actor = this.sessions.require(session, true);
-    const fingerprint = this.fingerprint({ eventId, action, input });
-    const prior = this.store.operation(actor.player_id, input.operation);
+    const actor = Effect.runSync(sessions.require(session, true));
+    const fingerprint = fingerprintNow({ eventId, action, input });
+    const prior = store.operation(actor.player_id, input.operation);
 
     if (prior) {
       if (prior.action !== action || prior.fingerprint !== fingerprint)
@@ -633,41 +628,38 @@ export class ManagementService extends BaseService {
       return JSON.parse(prior.result!);
     }
 
-    const effects = this.context.bridge!;
-    const event = effects.runSync(EventsService.use((events) => events.read(String(eventId))));
+    const event = Effect.runSync(eventsService.read(String(eventId)));
 
     if (event.updateDate !== input.revision)
       throw new ApplicationError({ status: 409, message: 'Event changed. Reload and review.' });
     const result = { id: eventId, action };
 
     const commit = () => {
-      this.sessions.require(session, true);
-      this.store.record(actor.player_id, input.operation, action, eventId, fingerprint, result);
+      Effect.runSync(sessions.require(session, true));
+      store.record(actor.player_id, input.operation, action, eventId, fingerprint, result);
     };
 
-    effects.runSync(
-      EventsService.use((events) =>
-        action === 'delete-event'
-          ? events.deleteMeetup(event, commit)
-          : events.updateMeetup(event, decodeMeetupInput({ ...event, ...input.changes }), commit),
-      ),
+    Effect.runSync(
+      action === 'delete-event'
+        ? eventsService.deleteMeetup(event, commit)
+        : eventsService.updateMeetup(event, decodeMeetupInput({ ...event, ...input.changes }), commit),
     );
 
     return result;
   }
 
-  worldSettings() {
+  function worldSettings() {
     const keys = new Set([
-      ...this.context.settings.worldIds(),
-      ...this.context.config.pelotons.map((value) => `peloton:${value.id}`),
+      ...context.settings.worldIds(),
+      ...context.config.pelotons.map((value) => `peloton:${value.id}`),
     ]);
 
     return [...keys].map((id) => {
-      const overrides = this.context.settings.world(id);
+      const overrides = context.settings.world(id);
 
       const effective = id.startsWith('peloton:')
-        ? { ...this.context.config.pelotons.find((value) => value.id === id.slice(8)), ...overrides }
-        : { ...this.context.config.soloBlob, ...overrides };
+        ? { ...context.config.pelotons.find((value) => value.id === id.slice(8)), ...overrides }
+        : { ...context.config.soloBlob, ...overrides };
 
       type WorldField = { name: string; kind: 'boolean' | 'number' | 'string'; value: boolean | number | string };
 
@@ -679,17 +671,17 @@ export class ManagementService extends BaseService {
         else if (isString(value)) fields.push({ name, kind: 'string', value });
       }
 
-      return { id, revision: this.context.settings.worldRevision(id), overrides, fields };
+      return { id, revision: context.settings.worldRevision(id), overrides, fields };
     });
   }
 
-  saveWorld(session: string, raw: (typeof worldRequest)['Encoded']) {
+  function saveWorld(session: string, raw: (typeof worldRequest)['Encoded']) {
     const input = Schema.decodeUnknownSync(worldRequest)(raw);
 
-    return this.store.transaction(() => {
-      const actor = this.sessions.require(session, true);
-      const fingerprint = this.fingerprint(input);
-      const prior = this.store.operation(actor.player_id, input.operation);
+    return store.transaction(() => {
+      const actor = Effect.runSync(sessions.require(session, true));
+      const fingerprint = fingerprintNow(input);
+      const prior = store.operation(actor.player_id, input.operation);
 
       if (prior) {
         if (prior.action !== 'world-settings' || prior.fingerprint !== fingerprint)
@@ -700,24 +692,179 @@ export class ManagementService extends BaseService {
 
       if (input.id.startsWith('peloton:')) {
         const id = input.id.slice(8);
-        const base = this.context.config.pelotons.find((value) => value.id === id);
+        const base = context.config.pelotons.find((value) => value.id === id);
 
         if (!base) throw new ApplicationError({ status: 404, message: 'Unknown peloton.' });
         Schema.decodeUnknownSync(configSchema)({ pelotons: [{ ...base, ...input.values, id }] });
-      } else if (input.id.startsWith('blob:') && this.context.accounts.get(Number(input.id.slice(5)))) {
-        Schema.decodeUnknownSync(configSchema)({ soloBlob: { ...this.context.config.soloBlob, ...input.values } });
+      } else if (input.id.startsWith('blob:') && context.accounts.get(Number(input.id.slice(5)))) {
+        Schema.decodeUnknownSync(configSchema)({ soloBlob: { ...context.config.soloBlob, ...input.values } });
       } else throw new ApplicationError({ status: 400, message: 'Unknown world settings.' });
-      this.context.settings.saveWorld(input.id, input.values, input.revision);
+      context.settings.saveWorld(input.id, input.values, input.revision);
 
       const after = {
         id: input.id,
-        revision: this.context.settings.worldRevision(input.id),
-        overrides: this.context.settings.world(input.id),
+        revision: context.settings.worldRevision(input.id),
+        overrides: context.settings.world(input.id),
       };
 
-      this.store.record(actor.player_id, input.operation, 'world-settings', 0, fingerprint, after);
+      store.record(actor.player_id, input.operation, 'world-settings', 0, fingerprint, after);
 
       return after;
     });
   }
+
+  return {
+    store,
+
+    sessions,
+
+    publicUser: Effect.fn('ManagementService.publicUser')(function* (user: User) {
+      return publicUser(user);
+    }),
+
+    issueSetupKey: Effect.fn('ManagementService.issueSetupKey')(function* () {
+      return issueSetupKey();
+    }),
+    /** Lets the setup form check the key before asking for account details. */
+    checkSetupKey: Effect.fn('ManagementService.checkSetupKey')(function* (key: string) {
+      return checkSetupKey(key);
+    }),
+
+    passwordTask: Effect.fn('ManagementService.passwordTask')(function* <T>(work: () => Promise<T>) {
+      return yield* Effect.promise(() => passwordTask(work));
+    }),
+
+    setup: Effect.fn('ManagementService.setup')(function* (
+      raw: (typeof setupRequest)['Encoded'],
+      live: () => boolean = () => true,
+    ) {
+      return yield* Effect.promise(() => setup(raw, live));
+    }),
+
+    signIn: Effect.fn('ManagementService.signIn')(function* (username: string, password: string) {
+      return yield* Effect.promise(() => signIn(username, password));
+    }),
+
+    confirm: Effect.fn('ManagementService.confirm')(function* (id: string, password: string) {
+      return yield* Effect.promise(() => confirm(id, password));
+    }),
+    /** Administrators can already set any password, so they skip the current one. */
+    changeOwnPassword: Effect.fn('ManagementService.changeOwnPassword')(function* (
+      id: string,
+      current: string | undefined,
+      password: string,
+    ) {
+      return yield* Effect.promise(() => changeOwnPassword(id, current, password));
+    }),
+
+    create: Effect.fn('ManagementService.create')(function* (
+      id: string,
+      raw: (typeof newUser)['Encoded'],
+      operation: string,
+    ) {
+      return yield* Effect.promise(() => create(id, raw, operation));
+    }),
+
+    mutate: Effect.fn('ManagementService.mutate')(function* (
+      id: string,
+      targetId: number,
+      action: string,
+      raw: (typeof mutationRequest)['Encoded'],
+    ) {
+      return yield* Effect.promise(() => mutate(id, targetId, action, raw));
+    }),
+
+    edit: Effect.fn('ManagementService.edit')(function* (
+      id: string,
+      player: number,
+      raw: (typeof editUserRequest)['Encoded'],
+    ) {
+      return edit(id, player, raw);
+    }),
+
+    ownProfile: Effect.fn('ManagementService.ownProfile')(function* (id: string, player?: number) {
+      return ownProfile(id, player);
+    }),
+    /** The game and the Companion app read the same file. */
+    avatarPath: Effect.fn('ManagementService.avatarPath')(function* (player: number) {
+      return avatarPath(player);
+    }),
+    /** Changes with each upload, so the browser does not show a cached photo. */
+    avatarVersion: Effect.fn('ManagementService.avatarVersion')(function* (player: number) {
+      return avatarVersion(player);
+    }),
+
+    saveAvatar: Effect.fn('ManagementService.saveAvatar')(function* (id: string, image: Uint8Array, player?: number) {
+      return saveAvatar(id, image, player);
+    }),
+
+    removeAvatar: Effect.fn('ManagementService.removeAvatar')(function* (id: string, player?: number) {
+      return removeAvatar(id, player);
+    }),
+
+    editOwnProfile: Effect.fn('ManagementService.editOwnProfile')(function* (
+      id: string,
+      raw: (typeof ownProfileRequest)['Encoded'],
+      targetPlayer?: number,
+    ) {
+      return editOwnProfile(id, raw, targetPlayer);
+    }),
+
+    settings: Effect.fn('ManagementService.settings')(function* (player: number) {
+      return settings(player);
+    }),
+
+    saveSettings: Effect.fn('ManagementService.saveSettings')(function* (
+      id: string,
+      player: number,
+      raw: (typeof settingsRequest)['Encoded'],
+      manage = false,
+    ) {
+      return saveSettings(id, player, raw, manage);
+    }),
+
+    serverOperation: Effect.fn('ManagementService.serverOperation')(function* (
+      id: string,
+      action: string,
+      raw: (typeof serverRequest)['Encoded'],
+      flush: () => Promise<void>,
+      dispatch: { reload: () => Promise<void>; bots: (user: number, command: string) => string },
+    ) {
+      return yield* Effect.promise(() => serverOperation(id, action, raw, flush, dispatch));
+    }),
+    /** Operator configuration as read-only rows. The browser never receives secrets: paths only. */
+    configuration: Effect.fn('ManagementService.configuration')(function* (value: JsonValue, prefix = '') {
+      return configuration(value, prefix);
+    }),
+
+    events: Effect.fn('ManagementService.events')(function* () {
+      return eventsNow();
+    }),
+
+    editEvent: Effect.fn('ManagementService.editEvent')(function* (
+      session: string,
+      eventId: number,
+      action: string,
+      raw: (typeof eventRequest)['Encoded'],
+    ) {
+      return editEvent(session, eventId, action, raw);
+    }),
+
+    worldSettings: Effect.fn('ManagementService.worldSettings')(function* () {
+      return worldSettings();
+    }),
+
+    saveWorld: Effect.fn('ManagementService.saveWorld')(function* (
+      session: string,
+      raw: (typeof worldRequest)['Encoded'],
+    ) {
+      return saveWorld(session, raw);
+    }),
+  };
+});
+
+export class ManagementService extends Context.Service<ManagementService, Effect.Success<typeof make>>()(
+  'zluggish/ManagementService',
+) {
+  static readonly layer = Layer.effect(ManagementService, make);
 }

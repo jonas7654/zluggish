@@ -1,3 +1,4 @@
+import { WebSessionsService } from '#src/services/web-session.service';
 import { UploadsService } from '#src/services/uploads.service';
 import { WorkoutsService } from '#src/services/workout.service';
 import { FilesService } from '#src/services/files.service';
@@ -62,9 +63,6 @@ export function providerFailure(runtime: HttpRuntime, cause: unknown, status: 40
 export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
   const appRoutes = effectRoutes(app, runtime);
 
-  const { management } = runtime.services;
-  const sessions = management.sessions;
-
   // Credentials the key cannot decrypt stay saved, so the rider is asked to enter them again.
   const saved = Effect.fn('connections.saved')(function* (player: number, name: (typeof provider)['Type']) {
     const connections = yield* ConnectionsService;
@@ -75,9 +73,11 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
 
   appRoutes.get('/api/me/connections', (c) =>
     Effect.gen(function* () {
+      const webSessionsService = yield* WebSessionsService;
+
       const documentsService = yield* DocumentsService;
 
-      const player = sessions.require(c.get('sessionId')).player_id;
+      const player = (yield* webSessionsService.require(c.get('sessionId'))).player_id;
 
       return c.json({
         strava: {
@@ -95,9 +95,11 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
   );
   appRoutes.put('/api/me/connections/:provider', (c) =>
     Effect.gen(function* () {
+      const webSessionsService = yield* WebSessionsService;
+
       const connectionsService = yield* ConnectionsService;
 
-      const player = sessions.require(c.get('sessionId')).player_id;
+      const player = (yield* webSessionsService.require(c.get('sessionId'))).player_id;
       const name = Schema.decodeUnknownSync(provider)(c.req.param('provider'));
       const input = Schema.decodeUnknownSync(credentials)(yield* Effect.promise(() => c.req.json()));
 
@@ -113,9 +115,11 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
   );
   appRoutes.put('/api/me/connections/strava/cookie', (c) =>
     Effect.gen(function* () {
+      const webSessionsService = yield* WebSessionsService;
+
       const documentsService = yield* DocumentsService;
 
-      const player = sessions.require(c.get('sessionId')).player_id;
+      const player = (yield* webSessionsService.require(c.get('sessionId'))).player_id;
 
       const input = Schema.decodeUnknownSync(
         Strict({
@@ -130,11 +134,13 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
   );
   appRoutes.delete('/api/me/connections/:provider', (c) =>
     Effect.gen(function* () {
+      const webSessionsService = yield* WebSessionsService;
+
       const uploadsService = yield* UploadsService;
 
       const connectionsService = yield* ConnectionsService;
 
-      const player = sessions.require(c.get('sessionId')).player_id;
+      const player = (yield* webSessionsService.require(c.get('sessionId'))).player_id;
       const name = Schema.decodeUnknownSync(provider)(c.req.param('provider'));
       yield* connectionsService.remove(player, name);
 
@@ -149,11 +155,13 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
   // One stored credential, so a rider can drop the session cookie and keep the API, or the reverse.
   appRoutes.delete('/api/me/connections/:provider/:credential', (c) =>
     Effect.gen(function* () {
+      const webSessionsService = yield* WebSessionsService;
+
       const uploadsService = yield* UploadsService;
 
       const connectionsService = yield* ConnectionsService;
 
-      const player = sessions.require(c.get('sessionId')).player_id;
+      const player = (yield* webSessionsService.require(c.get('sessionId'))).player_id;
       const name = Schema.decodeUnknownSync(credential)(`${c.req.param('provider')}/${c.req.param('credential')}`);
 
       if (name === 'strava/api') yield* connectionsService.remove(player, 'strava');
@@ -165,10 +173,12 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
   );
   appRoutes.post('/api/me/connections/garmin/authorize', (c) =>
     Effect.gen(function* () {
+      const webSessionsService = yield* WebSessionsService;
+
       const integrationsService = yield* IntegrationsService;
 
       const id = c.get('sessionId');
-      const user = sessions.require(id);
+      const user = yield* webSessionsService.require(id);
       const identity = runtime.services.accounts.identityOf(user);
 
       const input = Schema.decodeUnknownSync(
@@ -176,7 +186,12 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
       )(yield* Effect.promise(() => c.req.json()));
 
       const status = yield* integrationsService
-        .authorizeGarminSession(`web:${id}`, () => sessions.current(id, identity), user, input.code)
+        .authorizeGarminSession(
+          `web:${id}`,
+          () => Effect.runSync(webSessionsService.current(id, identity)),
+          user,
+          input.code,
+        )
         .pipe(asProviderFailure(runtime, 400, 'Garmin authorization failed or expired. Try again.'));
 
       return c.json({ status });
@@ -184,12 +199,14 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
   );
   appRoutes.post('/api/me/connections/strava/authorize', (c) =>
     Effect.gen(function* () {
+      const webSessionsService = yield* WebSessionsService;
+
       const connectionsService = yield* ConnectionsService;
 
       const integrationsService = yield* IntegrationsService;
 
       const id = c.get('sessionId');
-      const user = sessions.require(id);
+      const user = yield* webSessionsService.require(id);
       const identity = runtime.services.accounts.identityOf(user);
 
       const input = Schema.decodeUnknownSync(
@@ -200,14 +217,14 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
       )(yield* Effect.promise(() => c.req.json()));
 
       if (input.code) {
-        const session = sessions.find(id)!;
+        const session = (yield* webSessionsService.find(id))!;
 
         if (!session.stravaState || input.state !== session.stravaState)
           throw new ApplicationError({ status: 403, message: 'Authorization expired.' });
         delete session.stravaState;
 
         yield* integrationsService
-          .authorizeStravaSession(() => sessions.current(id, identity), user, input.code)
+          .authorizeStravaSession(() => Effect.runSync(webSessionsService.current(id, identity)), user, input.code)
           .pipe(asProviderFailure(runtime, 400, 'Strava authorization failed. Try again.'));
 
         return c.json({ ok: true });
@@ -217,19 +234,21 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
 
       if (!client) throw new ApplicationError({ status: 400, message: 'Save Strava API credentials first.' });
       const redirect = new URL('/integrations', runtime.config.network.web.publicUrl ?? c.req.url).href;
-      const state = sessions.token();
-      sessions.find(id)!.stravaState = state;
+      const state = yield* webSessionsService.token();
+      (yield* webSessionsService.find(id))!.stravaState = state;
 
       return c.json({ url: yield* integrationsService.authorizationUrl(client[0], state, redirect) });
     }),
   );
   appRoutes.post('/api/me/connections/strava/test', (c) =>
     Effect.gen(function* () {
+      const webSessionsService = yield* WebSessionsService;
+
       const integrationsService = yield* IntegrationsService;
 
       const documentsService = yield* DocumentsService;
 
-      const player = sessions.require(c.get('sessionId')).player_id;
+      const player = (yield* webSessionsService.require(c.get('sessionId'))).player_id;
       const cookie = (yield* documentsService.text(player, 'strava4_session.txt'))?.split(/\r?\n/, 1)[0];
 
       if (!cookie) throw new ApplicationError({ status: 400, message: 'Save a session cookie first.' });
@@ -245,6 +264,8 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
   );
   appRoutes.post('/api/me/workouts/sync', (c) =>
     Effect.gen(function* () {
+      const webSessionsService = yield* WebSessionsService;
+
       const workoutsService = yield* WorkoutsService;
 
       const filesService = yield* FilesService;
@@ -252,7 +273,7 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
       const profilesService = yield* ProfilesService;
 
       const id = c.get('sessionId');
-      const user = sessions.require(id);
+      const user = yield* webSessionsService.require(id);
       const identity = runtime.services.accounts.identityOf(user);
 
       const input = Schema.decodeUnknownSync(Strict({ provider: Schema.Literals(['intervals', 'trainingpeaks']) }))(
@@ -270,28 +291,36 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
         .sync(user.player_id)
         .pipe(asProviderFailure(runtime, 503, 'Workout sync failed. Existing workouts were retained.'));
 
-      if (!sessions.current(id, identity)) throw new ApplicationError({ status: 401, message: 'Session changed.' });
+      if (!(yield* webSessionsService.current(id, identity)))
+        throw new ApplicationError({ status: 401, message: 'Session changed.' });
 
       return c.json({ message });
     }),
   );
   appRoutes.get('/api/me/uploads', (c) =>
     Effect.gen(function* () {
+      const webSessionsService = yield* WebSessionsService;
+
       const uploadsService = yield* UploadsService;
 
       return c.json({
-        jobs: (yield* uploadsService.status(sessions.require(c.get('sessionId')).player_id)).slice(0, 100),
+        jobs: (yield* uploadsService.status((yield* webSessionsService.require(c.get('sessionId'))).player_id)).slice(
+          0,
+          100,
+        ),
       });
     }),
   );
   const activityId = NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0));
   appRoutes.get('/api/me/activities/:id/uploads', (c) =>
     Effect.gen(function* () {
+      const webSessionsService = yield* WebSessionsService;
+
       const uploadsService = yield* UploadsService;
 
       return c.json({
         uploads: yield* uploadsService.forActivity(
-          sessions.require(c.get('sessionId')).player_id,
+          (yield* webSessionsService.require(c.get('sessionId'))).player_id,
           Schema.decodeUnknownSync(activityId)(c.req.param('id')),
         ),
       });
@@ -299,9 +328,11 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
   );
   appRoutes.post('/api/me/activities/:id/uploads', (c) =>
     Effect.gen(function* () {
+      const webSessionsService = yield* WebSessionsService;
+
       const uploadsService = yield* UploadsService;
 
-      const player = sessions.require(c.get('sessionId')).player_id;
+      const player = (yield* webSessionsService.require(c.get('sessionId'))).player_id;
       const id = Schema.decodeUnknownSync(activityId)(c.req.param('id'));
 
       const input = Schema.decodeUnknownSync(
@@ -315,9 +346,11 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
   );
   appRoutes.post('/api/me/uploads/retry', (c) =>
     Effect.gen(function* () {
+      const webSessionsService = yield* WebSessionsService;
+
       const uploadsService = yield* UploadsService;
 
-      const player = sessions.require(c.get('sessionId')).player_id;
+      const player = (yield* webSessionsService.require(c.get('sessionId'))).player_id;
 
       const input = Schema.decodeUnknownSync(Strict({ ambiguous: Schema.Boolean.pipe(withDefault(false)) }))(
         yield* Effect.promise(() => c.req.json()),

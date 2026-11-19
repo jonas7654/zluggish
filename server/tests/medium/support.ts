@@ -1,3 +1,4 @@
+import { WebSessionsService } from '#src/services/web-session.service';
 import { inputValue } from '#tests/support/html';
 import assert from 'node:assert/strict';
 import type { TestContext } from 'node:test';
@@ -86,7 +87,10 @@ export async function mediumBrowser(f: Awaited<ReturnType<typeof mediumFixture>>
 /** A signed-in web app session for the rider: JSON or multipart requests with its CSRF token. */
 export function mediumWeb(f: ReturnType<typeof runtimeFixture>, rider: User) {
   const app = createWebApp(f);
-  const { id, session } = f.services.management.sessions.create(f.accounts.identityOf(rider));
+
+  const { id, session } = f.effects.runSync(
+    WebSessionsService.use((sessions) => sessions.create(f.accounts.identityOf(rider))),
+  );
 
   const request = (path: string, method = 'GET', data?: FormData | Record<string, JsonValue>, csrf = session.csrf) => {
     const headers = new Headers({

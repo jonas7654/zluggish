@@ -1,3 +1,5 @@
+import { ManagementService } from '#src/services/management.service';
+import { WebSessionsService } from '#src/services/web-session.service';
 import { ActivitiesService } from '#src/services/activities.service';
 import { DurabilityService } from '#src/services/durability.service';
 import { FilesService } from '#src/services/files.service';
@@ -37,9 +39,10 @@ function sameOrigin(origin: string | undefined, url: string, publicUrl: string |
 export function createWebApp(runtime: HttpRuntime) {
   const app = new Hono<WebEnv>();
   const appRoutes = effectRoutes(app, runtime);
-  const { management, accounts } = runtime.services;
+  const { accounts } = runtime.services;
+  const management = runtime.effects.runSync(ManagementService);
   const durability = runtime.effects.runSync(DurabilityService);
-  const { sessions } = management;
+  const sessions = runtime.effects.runSync(WebSessionsService);
   const attempts = new Map<string, { count: number; until: number }>();
   const cookie = 'zluggish_web_session';
   const csrfCookie = 'zluggish_web_csrf';
@@ -87,12 +90,12 @@ export function createWebApp(runtime: HttpRuntime) {
   app.use('/api/*', async (c, next) => {
     // This listener accepts only its own opaque session store. Bearer tokens are never used.
     const id = getCookie(c, cookie);
-    const session = sessions.find(id);
+    const session = runtime.effects.runSync(sessions.find(id));
     let token = session?.csrf ?? getCookie(c, csrfCookie);
 
     // Anonymous requests get a double-submit token and allocate nothing on the server.
     if (!session && !/^[\w-]{43}$/.test(token ?? '')) {
-      token = sessions.token();
+      token = runtime.effects.runSync(sessions.token());
       setCookie(c, csrfCookie, token, cookieOptions(c));
     }
 
@@ -133,127 +136,232 @@ export function createWebApp(runtime: HttpRuntime) {
   });
 
   function login(c: Context<WebEnv>, user: NonNullable<ReturnType<typeof accounts.get>>, confirmed = false) {
-    sessions.end(c.get('sessionId'));
-    const fresh = sessions.create(accounts.identityOf(user), confirmed ? Date.now() + 900_000 : 0);
+    runtime.effects.runSync(sessions.end(c.get('sessionId')));
+
+    const fresh = runtime.effects.runSync(
+      sessions.create(accounts.identityOf(user), confirmed ? Date.now() + 900_000 : 0),
+    );
+
     setCookie(c, cookie, fresh.id, cookieOptions(c));
 
-    return c.json({ user: management.publicUser(user), csrf: fresh.session.csrf });
+    return c.json({ user: runtime.effects.runSync(management.publicUser(user)), csrf: fresh.session.csrf });
   }
 
-  app.get('/api/setup', (c) =>
-    c.json({
-      complete: management.store.complete(),
-      csrf: c.get('csrf'),
-      version: packageVersion(),
-      zwiftVersion: supportedZwiftVersion(),
+  appRoutes.get('/api/setup', (c) =>
+    Effect.gen(function* () {
+      const managementService = yield* ManagementService;
+
+      return c.json({
+        complete: managementService.store.complete(),
+        csrf: c.get('csrf'),
+        version: packageVersion(),
+        zwiftVersion: supportedZwiftVersion(),
+      });
     }),
   );
-  app.post('/api/setup', async (c) => {
-    const user = await management.setup(await c.req.json(), unchanged(c));
+  appRoutes.post('/api/setup', (c) =>
+    Effect.gen(function* () {
+      const managementService = yield* ManagementService;
 
-    return login(c, user, true);
-  });
-  app.post('/api/setup/key', async (c) => {
-    const input = Schema.decodeUnknownSync(Strict({ key: Schema.String.check(Schema.isMaxLength(200)) }))(
-      await c.req.json(),
-    );
+      const user = yield* managementService.setup(yield* Effect.promise(() => c.req.json()), unchanged(c));
 
-    management.checkSetupKey(input.key);
-
-    return c.json({
-      users: accounts.list().map(({ player_id, username, first_name, last_name, enabled, pass_hash }) => ({
-        player_id,
-        username,
-        first_name,
-        last_name,
-        enabled,
-        has_password: !!pass_hash,
-      })),
-    });
-  });
-  app.post('/api/session', async (c) => {
-    const input = Schema.decodeUnknownSync(credentials)(await c.req.json());
-    const live = unchanged(c);
-    const user = await management.signIn(input.username, input.password);
-
-    if (!live()) throw new ApplicationError({ status: 401, message: 'Session changed.' });
-
-    return login(c, user);
-  });
-  app.delete('/api/session', (c) => {
-    sessions.end(c.get('sessionId'));
-    deleteCookie(c, cookie, { path: '/' });
-
-    return c.json({ ok: true });
-  });
-  app.get('/api/me', (c) =>
-    c.json({ user: management.publicUser(sessions.require(c.get('sessionId'))), csrf: c.get('csrf') }),
+      return login(c, user, true);
+    }),
   );
-  app.post('/api/session/confirm', async (c) => {
-    const input = Schema.decodeUnknownSync(Strict({ password }))(await c.req.json());
-    await management.confirm(c.get('sessionId'), input.password);
+  appRoutes.post('/api/setup/key', (c) =>
+    Effect.gen(function* () {
+      const managementService = yield* ManagementService;
 
-    return c.json({ confirmedUntil: sessions.find(c.get('sessionId'))!.confirmedUntil });
-  });
-  app.post('/api/me/password', async (c) => {
-    const input = Schema.decodeUnknownSync(Strict({ current_password: Schema.optional(password), password }))(
-      await c.req.json(),
-    );
+      const input = Schema.decodeUnknownSync(Strict({ key: Schema.String.check(Schema.isMaxLength(200)) }))(
+        yield* Effect.promise(() => c.req.json()),
+      );
 
-    await management.changeOwnPassword(c.get('sessionId'), input.current_password, input.password);
-    sessions.end(c.get('sessionId'));
+      yield* managementService.checkSetupKey(input.key);
 
-    return c.json({ ok: true });
-  });
-  app.get('/api/me/profile', (c) => c.json(management.ownProfile(c.get('sessionId'))));
-  app.patch('/api/me/profile', async (c) => c.json(management.editOwnProfile(c.get('sessionId'), await c.req.json())));
+      return c.json({
+        users: accounts.list().map(({ player_id, username, first_name, last_name, enabled, pass_hash }) => ({
+          player_id,
+          username,
+          first_name,
+          last_name,
+          enabled,
+          has_password: !!pass_hash,
+        })),
+      });
+    }),
+  );
+  appRoutes.post('/api/session', (c) =>
+    Effect.gen(function* () {
+      const managementService = yield* ManagementService;
+
+      const input = Schema.decodeUnknownSync(credentials)(yield* Effect.promise(() => c.req.json()));
+      const live = unchanged(c);
+      const user = yield* managementService.signIn(input.username, input.password);
+
+      if (!live()) throw new ApplicationError({ status: 401, message: 'Session changed.' });
+
+      return login(c, user);
+    }),
+  );
+  appRoutes.delete('/api/session', (c) =>
+    Effect.gen(function* () {
+      const webSessionsService = yield* WebSessionsService;
+
+      yield* webSessionsService.end(c.get('sessionId'));
+      deleteCookie(c, cookie, { path: '/' });
+
+      return c.json({ ok: true });
+    }),
+  );
+  appRoutes.get('/api/me', (c) =>
+    Effect.gen(function* () {
+      const managementService = yield* ManagementService;
+
+      const webSessionsService = yield* WebSessionsService;
+
+      return c.json({
+        user: yield* managementService.publicUser(yield* webSessionsService.require(c.get('sessionId'))),
+        csrf: c.get('csrf'),
+      });
+    }),
+  );
+  appRoutes.post('/api/session/confirm', (c) =>
+    Effect.gen(function* () {
+      const managementService = yield* ManagementService;
+
+      const webSessionsService = yield* WebSessionsService;
+
+      const input = Schema.decodeUnknownSync(Strict({ password }))(yield* Effect.promise(() => c.req.json()));
+      yield* managementService.confirm(c.get('sessionId'), input.password);
+
+      return c.json({ confirmedUntil: (yield* webSessionsService.find(c.get('sessionId')))!.confirmedUntil });
+    }),
+  );
+  appRoutes.post('/api/me/password', (c) =>
+    Effect.gen(function* () {
+      const managementService = yield* ManagementService;
+
+      const webSessionsService = yield* WebSessionsService;
+
+      const input = Schema.decodeUnknownSync(Strict({ current_password: Schema.optional(password), password }))(
+        yield* Effect.promise(() => c.req.json()),
+      );
+
+      yield* managementService.changeOwnPassword(c.get('sessionId'), input.current_password, input.password);
+      yield* webSessionsService.end(c.get('sessionId'));
+
+      return c.json({ ok: true });
+    }),
+  );
+  appRoutes.get('/api/me/profile', (c) =>
+    Effect.gen(function* () {
+      const managementService = yield* ManagementService;
+
+      return c.json(yield* managementService.ownProfile(c.get('sessionId')));
+    }),
+  );
+  appRoutes.patch('/api/me/profile', (c) =>
+    Effect.gen(function* () {
+      const managementService = yield* ManagementService;
+
+      return c.json(
+        yield* managementService.editOwnProfile(c.get('sessionId'), yield* Effect.promise(() => c.req.json())),
+      );
+    }),
+  );
   appRoutes.get('/api/me/avatar', (c) =>
     Effect.gen(function* () {
+      const managementService = yield* ManagementService;
+
+      const webSessionsService = yield* WebSessionsService;
+
       const filesService = yield* FilesService;
 
-      const path = management.avatarPath(sessions.require(c.get('sessionId')).player_id);
+      const path = yield* managementService.avatarPath(
+        (yield* webSessionsService.require(c.get('sessionId'))).player_id,
+      );
 
       if (!(yield* filesService.exists(path))) throw new ApplicationError({ status: 404, message: 'No photo.' });
 
       return c.body(new Uint8Array(yield* filesService.read(path)), 200, { 'Content-Type': 'image/jpeg' });
     }),
   );
-  app.put('/api/me/avatar', async (c) =>
-    c.json(management.saveAvatar(c.get('sessionId'), new Uint8Array(await c.req.arrayBuffer()))),
-  );
-  app.delete('/api/me/avatar', (c) => c.json(management.removeAvatar(c.get('sessionId'))));
-  app.get('/api/me/settings', (c) => c.json(management.settings(sessions.require(c.get('sessionId')).player_id)));
-  app.patch('/api/me/settings', async (c) => {
-    const player = sessions.require(c.get('sessionId')).player_id;
+  appRoutes.put('/api/me/avatar', (c) =>
+    Effect.gen(function* () {
+      const managementService = yield* ManagementService;
 
-    return c.json(management.saveSettings(c.get('sessionId'), player, await c.req.json()));
-  });
+      return c.json(
+        yield* managementService.saveAvatar(
+          c.get('sessionId'),
+          new Uint8Array(yield* Effect.promise(() => c.req.arrayBuffer())),
+        ),
+      );
+    }),
+  );
+  appRoutes.delete('/api/me/avatar', (c) =>
+    Effect.gen(function* () {
+      const managementService = yield* ManagementService;
+
+      return c.json(yield* managementService.removeAvatar(c.get('sessionId')));
+    }),
+  );
+  appRoutes.get('/api/me/settings', (c) =>
+    Effect.gen(function* () {
+      const managementService = yield* ManagementService;
+
+      const webSessionsService = yield* WebSessionsService;
+
+      return c.json(
+        yield* managementService.settings((yield* webSessionsService.require(c.get('sessionId'))).player_id),
+      );
+    }),
+  );
+  appRoutes.patch('/api/me/settings', (c) =>
+    Effect.gen(function* () {
+      const managementService = yield* ManagementService;
+
+      const webSessionsService = yield* WebSessionsService;
+
+      const player = (yield* webSessionsService.require(c.get('sessionId'))).player_id;
+
+      return c.json(
+        yield* managementService.saveSettings(c.get('sessionId'), player, yield* Effect.promise(() => c.req.json())),
+      );
+    }),
+  );
   webConnectionRoutes(app, runtime);
   webProfileRoutes(app, runtime);
 
   const activityId = Schema.String.check(Schema.isPattern(/^\d{1,19}$/));
   appRoutes.get('/api/me/activities', (c) =>
     Effect.gen(function* () {
+      const webSessionsService = yield* WebSessionsService;
+
       const activitiesService = yield* ActivitiesService;
 
       const page = Schema.decodeUnknownSync(
         NumberFromInput.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0), Schema.isLessThanOrEqualTo(1_000_000)),
       )(c.req.query('page') ?? '0');
 
-      const rows = yield* activitiesService.own(sessions.require(c.get('sessionId')).player_id, undefined, page);
+      const rows = yield* activitiesService.own(
+        (yield* webSessionsService.require(c.get('sessionId'))).player_id,
+        undefined,
+        page,
+      );
 
       return c.json({ activities: rows.slice(0, 20), hasMore: rows.length > 20 });
     }),
   );
   appRoutes.get('/api/me/climbs', (c) =>
     Effect.gen(function* () {
+      const webSessionsService = yield* WebSessionsService;
+
       const recordsService = yield* RecordsService;
 
       const stats = new Map(
-        (yield* recordsService.climbPortalStats(sessions.require(c.get('sessionId')).player_id)).map((row) => [
-          String(row.route_hash),
-          row,
-        ]),
+        (yield* recordsService.climbPortalStats((yield* webSessionsService.require(c.get('sessionId'))).player_id)).map(
+          (row) => [String(row.route_hash), row],
+        ),
       );
 
       const climbs = [];
@@ -280,11 +388,13 @@ export function createWebApp(runtime: HttpRuntime) {
   );
   appRoutes.get('/api/me/activities/:id', (c) =>
     Effect.gen(function* () {
+      const webSessionsService = yield* WebSessionsService;
+
       const activitiesService = yield* ActivitiesService;
 
       return c.json(
         yield* activitiesService.ownDetail(
-          sessions.require(c.get('sessionId')).player_id,
+          (yield* webSessionsService.require(c.get('sessionId'))).player_id,
           Schema.decodeUnknownSync(activityId)(c.req.param('id')),
         ),
       );
@@ -292,10 +402,12 @@ export function createWebApp(runtime: HttpRuntime) {
   );
   appRoutes.get('/api/me/activities/:id/fit', (c) =>
     Effect.gen(function* () {
+      const webSessionsService = yield* WebSessionsService;
+
       const activitiesService = yield* ActivitiesService;
 
       const { fit, filename } = yield* activitiesService.ownFit(
-        sessions.require(c.get('sessionId')).player_id,
+        (yield* webSessionsService.require(c.get('sessionId'))).player_id,
         Schema.decodeUnknownSync(activityId)(c.req.param('id')),
       );
 
@@ -307,6 +419,8 @@ export function createWebApp(runtime: HttpRuntime) {
   );
   appRoutes.get('/api/me/activities/:id/images/:image', (c) =>
     Effect.gen(function* () {
+      const webSessionsService = yield* WebSessionsService;
+
       const activitiesService = yield* ActivitiesService;
 
       const id = Schema.decodeUnknownSync(activityId)(c.req.param('id'));
@@ -315,7 +429,11 @@ export function createWebApp(runtime: HttpRuntime) {
         c.req.param('image'),
       );
 
-      const jpg = yield* activitiesService.ownImage(sessions.require(c.get('sessionId')).player_id, id, image);
+      const jpg = yield* activitiesService.ownImage(
+        (yield* webSessionsService.require(c.get('sessionId'))).player_id,
+        id,
+        image,
+      );
 
       return c.body(jpg, 200, {
         'Content-Type': 'image/jpeg',
@@ -326,74 +444,110 @@ export function createWebApp(runtime: HttpRuntime) {
     }),
   );
   app.use('/api/manage/*', async (c, next) => {
-    sessions.require(c.get('sessionId'), true);
+    runtime.effects.runSync(sessions.require(c.get('sessionId'), true));
     await next();
   });
-  app.get('/api/manage/users', (c) => c.json({ users: accounts.list().map((user) => management.publicUser(user)) }));
-  app.post('/api/manage/users', async (c) => {
-    const input = Schema.decodeUnknownSync(
-      Strict({ operation: Schema.String.check(Schema.isUUID()), user: Schema.Record(Schema.String, Schema.Json) }),
-    )(await c.req.json());
+  appRoutes.get('/api/manage/users', (c) =>
+    Effect.gen(function* () {
+      const managementService = yield* ManagementService;
 
-    return c.json(
-      await management.create(c.get('sessionId'), Schema.decodeUnknownSync(newUser)(input.user), input.operation),
-      201,
-    );
-  });
-  app.get('/api/manage/users/:id', (c) => {
-    const user = accounts.get(
-      Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(c.req.param('id')),
-    );
-
-    if (!user) throw new ApplicationError({ status: 404, message: 'User not found.' });
-
-    return c.json(management.publicUser(user));
-  });
-
-  app.get('/api/manage/users/:id/profile', (c) =>
-    c.json(
-      management.ownProfile(
-        c.get('sessionId'),
-        Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(c.req.param('id')),
-      ),
-    ),
+      return c.json({ users: yield* Effect.forEach(accounts.list(), (user) => managementService.publicUser(user)) });
+    }),
   );
-  app.patch('/api/manage/users/:id/profile', async (c) =>
-    c.json(
-      management.editOwnProfile(
-        c.get('sessionId'),
-        await c.req.json(),
-        Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(c.req.param('id')),
-      ),
-    ),
+  appRoutes.post('/api/manage/users', (c) =>
+    Effect.gen(function* () {
+      const managementService = yield* ManagementService;
+
+      const input = Schema.decodeUnknownSync(
+        Strict({ operation: Schema.String.check(Schema.isUUID()), user: Schema.Record(Schema.String, Schema.Json) }),
+      )(yield* Effect.promise(() => c.req.json()));
+
+      return c.json(
+        yield* managementService.create(
+          c.get('sessionId'),
+          Schema.decodeUnknownSync(newUser)(input.user),
+          input.operation,
+        ),
+        201,
+      );
+    }),
   );
-  app.put('/api/manage/users/:id/avatar', async (c) =>
-    c.json(
-      management.saveAvatar(
-        c.get('sessionId'),
-        new Uint8Array(await c.req.arrayBuffer()),
+  appRoutes.get('/api/manage/users/:id', (c) =>
+    Effect.gen(function* () {
+      const managementService = yield* ManagementService;
+
+      const user = accounts.get(
         Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(c.req.param('id')),
-      ),
-    ),
+      );
+
+      if (!user) throw new ApplicationError({ status: 404, message: 'User not found.' });
+
+      return c.json(yield* managementService.publicUser(user));
+    }),
   );
-  app.delete('/api/manage/users/:id/avatar', (c) =>
-    c.json(
-      management.removeAvatar(
-        c.get('sessionId'),
-        Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(c.req.param('id')),
-      ),
-    ),
+
+  appRoutes.get('/api/manage/users/:id/profile', (c) =>
+    Effect.gen(function* () {
+      const managementService = yield* ManagementService;
+
+      return c.json(
+        yield* managementService.ownProfile(
+          c.get('sessionId'),
+          Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(c.req.param('id')),
+        ),
+      );
+    }),
+  );
+  appRoutes.patch('/api/manage/users/:id/profile', (c) =>
+    Effect.gen(function* () {
+      const managementService = yield* ManagementService;
+
+      return c.json(
+        yield* managementService.editOwnProfile(
+          c.get('sessionId'),
+          yield* Effect.promise(() => c.req.json()),
+          Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(c.req.param('id')),
+        ),
+      );
+    }),
+  );
+  appRoutes.put('/api/manage/users/:id/avatar', (c) =>
+    Effect.gen(function* () {
+      const managementService = yield* ManagementService;
+
+      return c.json(
+        yield* managementService.saveAvatar(
+          c.get('sessionId'),
+          new Uint8Array(yield* Effect.promise(() => c.req.arrayBuffer())),
+          Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(c.req.param('id')),
+        ),
+      );
+    }),
+  );
+  appRoutes.delete('/api/manage/users/:id/avatar', (c) =>
+    Effect.gen(function* () {
+      const managementService = yield* ManagementService;
+
+      return c.json(
+        yield* managementService.removeAvatar(
+          c.get('sessionId'),
+          Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(c.req.param('id')),
+        ),
+      );
+    }),
   );
 
   appRoutes.get('/api/manage/users/:id/avatar', (c) =>
     Effect.gen(function* () {
+      const managementService = yield* ManagementService;
+
       const filesService = yield* FilesService;
 
       const id = Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(
         c.req.param('id'),
       );
 
-      const path = management.avatarPath(id);
+      const path = yield* managementService.avatarPath(id);
 
       if (!accounts.get(id) || !(yield* filesService.exists(path)))
         throw new ApplicationError({ status: 404, message: 'No photo.' });
@@ -403,84 +557,124 @@ export function createWebApp(runtime: HttpRuntime) {
   );
 
   for (const action of ['password', 'disable', 'enable', 'revoke-sessions', 'role'])
-    app.on(action === 'role' ? 'PUT' : 'POST', `/api/manage/users/:id/${action}`, async (c) =>
-      c.json(
-        await management.mutate(
-          c.get('sessionId'),
-          Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(c.req.param('id')),
-          action,
-          await c.req.json(),
-        ),
-      ),
+    appRoutes.on(action === 'role' ? 'PUT' : 'POST', `/api/manage/users/:id/${action}`, (c) =>
+      Effect.gen(function* () {
+        const managementService = yield* ManagementService;
+
+        return c.json(
+          yield* managementService.mutate(
+            c.get('sessionId'),
+            Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(c.req.param('id')),
+            action,
+            yield* Effect.promise(() => c.req.json()),
+          ),
+        );
+      }),
     );
 
-  app.patch('/api/manage/users/:id', async (c) =>
-    c.json(
-      management.edit(
-        c.get('sessionId'),
-        Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(c.req.param('id')),
-        await c.req.json(),
-      ),
-    ),
+  appRoutes.patch('/api/manage/users/:id', (c) =>
+    Effect.gen(function* () {
+      const managementService = yield* ManagementService;
+
+      return c.json(
+        yield* managementService.edit(
+          c.get('sessionId'),
+          Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(c.req.param('id')),
+          yield* Effect.promise(() => c.req.json()),
+        ),
+      );
+    }),
   );
-  app.get('/api/manage/users/:id/settings', (c) =>
-    c.json(
-      management.settings(
-        Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(c.req.param('id')),
-      ),
-    ),
+  appRoutes.get('/api/manage/users/:id/settings', (c) =>
+    Effect.gen(function* () {
+      const managementService = yield* ManagementService;
+
+      return c.json(
+        yield* managementService.settings(
+          Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(c.req.param('id')),
+        ),
+      );
+    }),
   );
-  app.patch('/api/manage/users/:id/settings', async (c) =>
-    c.json(
-      management.saveSettings(
-        c.get('sessionId'),
-        Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(c.req.param('id')),
-        await c.req.json(),
-        true,
-      ),
-    ),
+  appRoutes.patch('/api/manage/users/:id/settings', (c) =>
+    Effect.gen(function* () {
+      const managementService = yield* ManagementService;
+
+      return c.json(
+        yield* managementService.saveSettings(
+          c.get('sessionId'),
+          Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(c.req.param('id')),
+          yield* Effect.promise(() => c.req.json()),
+          true,
+        ),
+      );
+    }),
   );
-  app.get('/api/manage/settings', (c) =>
-    c.json({
-      configuration: management.configuration({
-        network: runtime.config.network,
-        riderDefaults: runtime.config.riderDefaults,
-      }),
-      worldSettings: management.worldSettings(),
-      readOnly: true,
+  appRoutes.get('/api/manage/settings', (c) =>
+    Effect.gen(function* () {
+      const managementService = yield* ManagementService;
+
+      return c.json({
+        configuration: yield* managementService.configuration({
+          network: runtime.config.network,
+          riderDefaults: runtime.config.riderDefaults,
+        }),
+        worldSettings: yield* managementService.worldSettings(),
+        readOnly: true,
+      });
     }),
   );
 
   for (const action of ['reload-bots', 'bots'])
-    app.post(`/api/manage/server/${action}`, async (c) =>
-      c.json(
-        await management.serverOperation(
-          c.get('sessionId'),
-          action,
-          await c.req.json(),
-          () => runtime.effects.runPromise(durability.flush()),
-          {
-            reload: async () => {
-              await runtime.world.simulation?.reload();
+    appRoutes.post(`/api/manage/server/${action}`, (c) =>
+      Effect.gen(function* () {
+        const managementService = yield* ManagementService;
+
+        return c.json(
+          yield* managementService.serverOperation(
+            c.get('sessionId'),
+            action,
+            yield* Effect.promise(() => c.req.json()),
+            () => runtime.effects.runPromise(durability.flush()),
+            {
+              reload: async () => {
+                await runtime.world.simulation?.reload();
+              },
+              bots: (user, command) =>
+                runtime.world.simulation?.command(BigInt(user), command, true) ?? 'Bots are not running.',
             },
-            bots: (user, command) =>
-              runtime.world.simulation?.command(BigInt(user), command, true) ?? 'Bots are not running.',
-          },
-        ),
-      ),
+          ),
+        );
+      }),
     );
 
-  app.patch('/api/manage/settings', async (c) => c.json(management.saveWorld(c.get('sessionId'), await c.req.json())));
-  app.get('/api/manage/events', (c) => c.json({ events: management.events() }));
-  app.on(['PATCH', 'DELETE'], '/api/manage/events/:id', async (c) =>
-    c.json(
-      management.editEvent(
-        c.get('sessionId'),
-        Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(c.req.param('id')),
-        c.req.method === 'DELETE' ? 'delete-event' : 'edit-event',
-        await c.req.json(),
-      ),
-    ),
+  appRoutes.patch('/api/manage/settings', (c) =>
+    Effect.gen(function* () {
+      const managementService = yield* ManagementService;
+
+      return c.json(yield* managementService.saveWorld(c.get('sessionId'), yield* Effect.promise(() => c.req.json())));
+    }),
+  );
+  appRoutes.get('/api/manage/events', (c) =>
+    Effect.gen(function* () {
+      const managementService = yield* ManagementService;
+
+      return c.json({ events: yield* managementService.events() });
+    }),
+  );
+  appRoutes.on(['PATCH', 'DELETE'], '/api/manage/events/:id', (c) =>
+    Effect.gen(function* () {
+      const managementService = yield* ManagementService;
+
+      return c.json(
+        yield* managementService.editEvent(
+          c.get('sessionId'),
+          Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(c.req.param('id')),
+          c.req.method === 'DELETE' ? 'delete-event' : 'edit-event',
+          yield* Effect.promise(() => c.req.json()),
+        ),
+      );
+    }),
   );
   const clientRoot = resolve(packageRoot(), '../web/dist/app');
   appRoutes.get('/assets/:file', (c) =>
