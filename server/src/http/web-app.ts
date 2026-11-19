@@ -626,6 +626,8 @@ export function createWebApp(runtime: HttpRuntime) {
     }),
   );
 
+  app.get('/api/manage/server/logs', (c) => c.json({ entries: runtime.world.lifecycle.log.recentEntries() }));
+
   for (const action of ['reload-bots', 'bots'])
     appRoutes.post(`/api/manage/server/${action}`, (c) =>
       Effect.gen(function* () {

@@ -110,6 +110,18 @@ for (const existing of [false, true])
         .getByText('Second Rider', { exact: true })
         .waitFor();
       await page.getByRole('heading', { name: 'Access', exact: true }).waitFor();
+      await page.goto(`${origin}/manage/server`);
+      const logOutput = page.getByRole('region', { name: 'Server log entries' });
+      f.world.lifecycle.log.info('server.test', 'Browser test log entry');
+      assert.equal(await logOutput.count(), 0);
+      await page.getByRole('button', { name: 'View logs' }).click();
+      await logOutput.getByText('Browser test log entry', { exact: false }).waitFor();
+      f.world.lifecycle.log.info('server.test', 'Browser test refreshed entry');
+      await page.getByRole('button', { name: 'Refresh logs' }).click();
+      await logOutput.getByText('Browser test refreshed entry', { exact: false }).waitFor();
+      await page.getByRole('button', { name: 'Hide logs' }).click();
+      await logOutput.waitFor({ state: 'hidden' });
+
       const gamePage = await browser.newPage();
       await gamePage.goto(`http://127.0.0.1:${gameAddress.port}/login/`);
       await gamePage.getByRole('button', { name: /Second Rider/ }).click();

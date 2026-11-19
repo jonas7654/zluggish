@@ -14,7 +14,7 @@ import { PlayerStateSchema } from '#src/protocol/generated/udp-node-msgs_pb';
 import { Simulation } from '#src/world/simulation';
 import { worldTime } from '#src/world/state';
 import { ActivitySchema } from '#src/protocol/generated/activity_pb';
-import { binary, mediumFixture } from '#tests/medium/support';
+import { binary, mediumFixture, mediumWeb } from '#tests/medium/support';
 import { runtimeFixture } from '#tests/support/runtime';
 import { Schema, Effect } from 'effect';
 import { responseStatus } from '#tests/support/html';
@@ -66,6 +66,44 @@ await test('requests without cookies allocate no web sessions, and anonymous wri
   const signedIn = await setup({ Cookie: cookie, 'X-CSRF-Token': csrf, Origin: 'https://local:8080' });
   assert.equal(signedIn.status, 200);
   assert.equal(sessions.sessions.size, 1);
+});
+
+await test('recent server logs are available only to administrators and are never cached', async (t) => {
+  const f = runtimeFixture(t);
+  const service = f.effects.runSync(ManagementService);
+
+  const owner = await f.effects.runPromise(
+    service.setup({
+      mode: 'new',
+      key: f.effects.runSync(service.issueSetupKey())!,
+      username: 'owner',
+      first_name: 'First',
+      last_name: 'Rider',
+      password: 'test-password',
+    }),
+  );
+
+  const rider = await f.accounts.create('Regular Rider', 'test-password', 'rider');
+  const url = '/api/manage/server/logs';
+  const log = f.world.lifecycle.log;
+  log.info('server.test', 'Recent server entry', { token: 'secret-value' });
+
+  const admin = mediumWeb(f, owner);
+
+  assert.equal(await responseStatus(admin.app.request(url)), 401);
+  assert.equal(await responseStatus(mediumWeb(f, rider).request(url)), 403);
+  const response = await admin.request(url);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('Cache-Control'), 'no-store');
+  const { entries } = await response.json();
+  assert.match(entries[0], /Recent server entry/);
+  assert.doesNotMatch(entries[0], /secret-value/);
+
+  log.warn('server.test', 'New server entry');
+  const refreshed = await json(admin.request(url));
+
+  assert.match(refreshed.entries[0], /New server entry/);
+  assert.equal(refreshed.entries[1], entries[0]);
 });
 
 await test('login names match after Unicode normalization, and similar imported names stay ambiguous', async (t) => {

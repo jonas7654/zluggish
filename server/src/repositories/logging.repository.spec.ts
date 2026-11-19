@@ -127,3 +127,28 @@ await test('children share configuration and retain their own context', () => {
   assert.equal(lines.length, 3);
   assert.deepEqual(JSON.parse(lines[2]!).fields, {});
 });
+
+await test('recent entries are bounded, shared with children, and respect the configured level', () => {
+  const log = new LoggingRepository({ format: 'json', sink: () => {} });
+  const child = log.child({ component: 'test' });
+  child.verbose('test.verbose', 'Hidden');
+  assert.deepEqual(log.recentEntries(), []);
+
+  for (let i = 0; i < 200; i++) log.info('test.entry', `Entry ${i}`);
+  child.warn('test.warning', 'Newest');
+  const entries = log.recentEntries();
+  assert.equal(entries.length, 200);
+  assert.equal(JSON.parse(entries[0]!).fields.component, 'test');
+  assert.equal(JSON.parse(entries.at(-1)!).message, 'Entry 1');
+  assert.deepEqual(child.recentEntries(), entries);
+
+  const error = Object.assign(new Error('Failure'), { password: 'secret-value' });
+  log.configure({ format: 'pretty' });
+  log.error('test.error', 'Failure', { error });
+  assert.doesNotMatch(log.recentEntries()[0]!, /secret-value/);
+
+  log.error('test.large', 'Large entry', { error: new Error('x'.repeat(10_000)) });
+  const newest = log.recentEntries()[0]!;
+  assert.ok(newest.length < 4200);
+  assert.match(newest, /\[truncated\]$/);
+});
