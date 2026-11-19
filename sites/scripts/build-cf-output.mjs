@@ -10,7 +10,9 @@ const outputRoot = join(projectRoot, '.cloudflare/output/v0');
 const workerOutput = join(outputRoot, 'workers/default');
 
 const { default: config } = await import(pathToFileURL(join(projectRoot, 'cloudflare.config.ts')).href);
-const resolvedConfig = typeof config === 'function' ? await config({ isPreview: false, mode: undefined }) : config;
+// `--preview` packages a branch Preview for `cf previews deploy --prebuilt`.
+const isPreview = process.argv.includes('--preview');
+const resolvedConfig = typeof config === 'function' ? await config({ isPreview, mode: undefined }) : config;
 
 if (!resolvedConfig.worker) {
   throw new Error('cloudflare.config.ts must define a Worker.');
@@ -33,7 +35,7 @@ await writeFile(
     {
       ...(resolvedConfig.accountId && { accountId: resolvedConfig.accountId }),
       ...(resolvedConfig.complianceRegion && { complianceRegion: resolvedConfig.complianceRegion }),
-      buildContext: { isPreview: false },
+      buildContext: { isPreview },
     },
     null,
     2,

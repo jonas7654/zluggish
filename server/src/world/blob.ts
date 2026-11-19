@@ -107,6 +107,7 @@ export class Blob {
   constructor(
     readonly playerId: bigint,
     readonly index: number,
+    readonly ftp: number,
     readonly config: BlobConfig,
     pool: RiderPool,
     assets: string,
@@ -121,9 +122,11 @@ export class Blob {
     this.roadLimits = roads.roadLimits;
     this.roadWidths = roads.roadWidths;
 
-    for (let i = 0; i < config.riders; i++)
+    for (let i = 0; i < config.riders; i++) {
+      const profile = pool.profile(BigInt(8_500_001 + index * 1000 + generation * 30 + i), {}, config.onlyKitted);
+      profile.ftp = ftp;
       this.riders.push({
-        profile: pool.profile(BigInt(8_500_001 + index * 1000 + generation * 30 + i), {}, config.onlyKitted),
+        profile,
         slot: i,
         gap: 5,
         lateral: 0,
@@ -140,6 +143,8 @@ export class Blob {
         blocked: 0,
         state: null,
       });
+    }
+
     this.scatterPool(this.front, [], 0.5, clamp(config.maxLead, 4, 11));
     this.scatterPool(
       this.tail,
