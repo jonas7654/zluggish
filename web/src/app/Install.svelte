@@ -9,7 +9,8 @@
     navigate,
   }: {
     api: <Body>(url: string) => Promise<Body>;
-    /** `/install` chooses the system; `/install/windows` and `/install/linux` set it up. */
+    /** `/install` sets up this browser's own system, or offers the choice; `/install/choose` always offers it;
+    `/install/windows` and `/install/linux` set up that system. */
     path: string;
     navigate: (path: string) => Promise<void>;
   } = $props();
@@ -21,11 +22,26 @@
     { id: 'linux', name: 'Linux', detail: 'Zwift in Wine, Lutris, Bottles or Steam' },
   ];
 
-  /** The system this browser runs on, marked on its button. */
-  const here: Platform =
-    /Linux/.test(navigator.userAgent) && !/Android/.test(navigator.userAgent) ? 'linux' : 'windows';
+  /** The system this browser runs on. iPadOS reports itself as a Mac with a touch screen. */
+  function detect() {
+    const agent = navigator.userAgent;
 
-  const platform = $derived(systems.find((system) => path === `/install/${system.id}`) ?? null);
+    if (/iPhone|iPad|iPod/.test(agent) || (/Macintosh/.test(agent) && navigator.maxTouchPoints > 1)) return 'ios';
+
+    if (/Android/.test(agent)) return 'android';
+
+    if (/Windows/.test(agent)) return 'windows';
+
+    if (/Macintosh|Mac OS X/.test(agent)) return 'mac';
+
+    return /Linux|X11|CrOS/.test(agent) ? 'linux' : 'other';
+  }
+
+  const here = detect();
+
+  const platform = $derived(
+    systems.find((system) => path === `/install/${system.id}` || (path === '/install' && system.id === here)) ?? null,
+  );
 
   let status = $state<TlsStatus | null>(null);
   let failure = $state('');
@@ -34,8 +50,6 @@
   /** On a server with the shared certificate, the rider confirms the risk before the download unlocks. */
   let accepted = $state(false);
   let address = $state('');
-
-  const loopback = (value: string) => value === 'localhost' || value === '::1' || value.startsWith('127.');
 
   const looksLikeIp = (value: string) =>
     /^(\d{1,3}\.){3}\d{1,3}$/.test(value) || (value.includes(':') && /^[\da-f:.]+$/i.test(value));
@@ -63,9 +77,8 @@
   onMount(async () => {
     try {
       status = await api<TlsStatus>('/api/tls');
-      // The advertised IP, unless it is loopback: then the address this browser reached the web app at.
-      const host = location.hostname.replace(/^\[|\]$/g, '');
-      address = loopback(status.serverAddress) && looksLikeIp(host) && !loopback(host) ? host : status.serverAddress;
+      // The advertised IP as the server is configured, even 127.0.0.1: the web app's own address may differ.
+      address = status.serverAddress;
     } catch (error) {
       failure = error instanceof Error ? error.message : 'The certificate could not be loaded.';
     }
@@ -90,6 +103,16 @@
     <p>
       Ask the server administrator to generate a server certificate. Until then you can set up a computer with the
       shared certificate. After the switch, run the new setup from this page.
+    </p>
+  </section>
+{/if}
+
+{#if status && !platform && here === 'ios'}
+  <section class="panel unsafe" aria-labelledby="install-ios">
+    <h2 id="install-ios">iPhone and iPad are not supported</h2>
+    <p>
+      Zwift on iPhone and iPad cannot be set up to use Zluggish. To ride on this server, set up a Windows or Linux
+      computer instead.
     </p>
   </section>
 {/if}
@@ -119,6 +142,16 @@
     </section>
   {:else}
     <section class="panel" aria-label={`${platform.name} setup steps`}>
+      <p class="switch">
+        Setting up {platform.name}.
+        <a
+          href="/install/choose"
+          onclick={(event) => {
+            event.preventDefault();
+            void navigate('/install/choose');
+          }}>Choose another system</a
+        >
+      </p>
       <ol class="walk">
         <li>
           <h2>Download the setup script</h2>
@@ -211,11 +244,12 @@
       </div>
       <p class="muted">Valid until {day(status.certificate.notAfter)}.</p>
       <p class="manual">
-        To install it by hand, download the certificate as
-        {#if platform.id === 'windows'}<a href="/api/tls/certificate?format=der" download>.cer</a>{:else}<a
-            href="/api/tls/certificate"
-            download>.crt (PEM)</a
-          >{/if}.
+        {#if platform.id === 'windows'}
+          To install it by hand, download the certificate as <a href="/api/tls/certificate?format=der" download>.cer</a>
+          for the Windows certificate store and as <a href="/api/tls/certificate" download>.crt</a> for Zwift's cacert.pem.
+        {:else}
+          To install it by hand, download the certificate as <a href="/api/tls/certificate" download>.crt (PEM)</a>.
+        {/if}
       </p>
     </section>
   {/if}
@@ -389,6 +423,19 @@
   }
 
   /* Step 2: the setup is a real sequence, so the steps carry large orange numbers down a rail. */
+  /* The way out to the other systems stays quiet: most riders are on the system the page picked. */
+  .switch {
+    margin: -0.25rem 0 1.25rem;
+    color: var(--muted);
+    font-size: 0.875rem;
+  }
+  .switch a {
+    color: var(--muted);
+    text-decoration-thickness: 1px;
+  }
+  .switch a:hover {
+    color: var(--text);
+  }
   .walk {
     counter-reset: step;
     margin: 0;

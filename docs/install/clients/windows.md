@@ -11,12 +11,13 @@ This procedure makes Windows and Zwift trust the [server certificate](../certifi
 
 1. Install Zwift, if it is not installed.
 2. Sign in to the Zluggish web app and select **Install** in the menu.
-3. Select **Windows**. On the next page, check the IP address of the server, then select **Download setup script**.
+3. On a Windows computer, **Install** opens the Windows setup. On another device, select **Choose another system**, then **Windows**.
+4. Check the IP address of the server, then select **Download setup script**. The address is `server.advertisedIp` from the server configuration.
 
-   ![The Install page: a Windows button marked This computer, and a Linux button](../../../media/screenshots/webapp-install.png)
+   ![Windows setup in three steps: download the setup script, run it and start Zwift, with a Choose another system link at the top](../../../media/screenshots/webapp-install.png)
 
-4. Open the downloaded `.bat` file. Allow it to make changes when Windows asks. If SmartScreen stops it, select **More info**, then **Run anyway**.
-5. Wait until the window says **Done**.
+5. Open the downloaded `.bat` file. Allow it to make changes when Windows asks. If SmartScreen stops it, select **More info**, then **Run anyway**.
+6. Wait until the window says **Done**.
 
 The script:
 
@@ -30,7 +31,7 @@ To check the certificate, compare the thumbprint that the script shows with the 
 
 ## Set up the client by hand
 
-1. On the **Install** page, download the certificate as `.cer`.
+1. On the **Install** page, under **Check the certificate**, download the certificate as `.cer`.
 2. Open Command Prompt as an administrator, go to the directory with the file and import it:
 
    ```bat

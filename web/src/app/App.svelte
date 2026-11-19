@@ -153,11 +153,7 @@
 
   /** The link beside the title back to the page above this one. */
   const back = $derived(
-    manage && path.startsWith('/manage/users/')
-      ? { href: '/manage', label: 'All users' }
-      : path.startsWith('/install/')
-        ? { href: '/install', label: 'Choose another system' }
-        : undefined,
+    manage && path.startsWith('/manage/users/') ? { href: '/manage', label: 'All users' } : undefined,
   );
 
   const administrator = $derived(user?.role === 'administrator');
