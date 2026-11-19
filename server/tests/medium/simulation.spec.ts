@@ -1,3 +1,8 @@
+import { Effect } from 'effect';
+import { RideCompletionService } from '#src/services/ride-completion.service';
+import { ActivitiesService } from '#src/services/activities.service';
+import { UploadsService } from '#src/services/uploads.service';
+import { RideRecoveryService } from '#src/services/ride-recovery.service';
 import { PlayerProfileSchema } from '#src/protocol/generated/profile_pb';
 import { GhostSchema, PlayerStateSchema } from '#src/protocol/generated/udp-node-msgs_pb';
 import { AssetFiles } from '#src/repositories/files.repository';
@@ -122,8 +127,10 @@ await test('riding, ghost and bookmark loads, blobs, recovery and logout make no
   const simulation = new Simulation(f, () => now);
   t.after(() => simulation.close());
   await simulation.ready;
-  f.services.recovery.start();
-  t.after(() => f.services.recovery.close());
+  f.effects.runSync(RideRecoveryService.use((service) => service.start()));
+  // The fixture disposes the runtime first: the close runs on the service itself.
+  const recovery = f.effects.runSync(RideRecoveryService);
+  t.after(() => Effect.runPromise(recovery.close()));
 
   // From here on every synchronous file call throws and is recorded.
   const calls: string[] = [];
@@ -167,11 +174,11 @@ await test('riding, ghost and bookmark loads, blobs, recovery and logout make no
     assert.equal(simulation.command(id, 'blob 4'), 'Blob settings saved.');
     simulation.command(id, 'bookmark Home');
     await simulation.loadBookmarks(id);
-    await f.services.recovery.checkpoint();
+    await f.effects.runPromise(RideRecoveryService.use((service) => service.checkpoint()));
     await simulation.idle();
     f.world.logout(id);
     await simulation.idle();
-    await f.services.recovery.recordings.idle();
+    await f.effects.runSync(RideRecoveryService).recordings.idle();
   } finally {
     for (const mock of mocks) mock.mock.restore();
     syncBuiltinESMExports();

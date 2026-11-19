@@ -1,3 +1,4 @@
+import { ActivitiesService } from '#src/services/activities.service';
 import { DocumentsService } from '#src/services/documents.service';
 import type { Overrides } from '#src/dtos/settings.dto';
 import type { Types } from 'effect';
@@ -173,7 +174,10 @@ await test('the completion and FIT queues record depth, wait and rejections', as
     startDate: new Date().toISOString(),
   });
 
-  await Promise.all([f.services.activities.saveInTurn(draft, false), f.services.activities.saveInTurn(draft, false)]);
+  await Promise.all([
+    f.effects.runPromise(ActivitiesService.use((service) => service.saveInTurn(draft, false))),
+    f.effects.runPromise(ActivitiesService.use((service) => service.saveInTurn(draft, false))),
+  ]);
   const pool = new FitRepository(1);
   const fit = readFileSync(new URL('../fixtures/ride.fit', import.meta.url));
   const first = pool.chart(fit);

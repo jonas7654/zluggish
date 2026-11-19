@@ -164,7 +164,7 @@ await test('Intervals.icu upload pairs the planned workout and removes only that
   );
 
   const calls = stubFetch(t);
-  await new UploadsService(f).intervals(user.player_id, activityWithFit());
+  await f.effects.runPromise(UploadsService.use((service) => service.intervals(user.player_id, activityWithFit())));
 
   const upload = calls.find((call) => call.url.includes('intervals.icu'));
   assert.ok(upload);
@@ -208,16 +208,16 @@ await test('an expired Strava token is saved before an upload whose result is un
     );
   });
 
-  const uploads = new UploadsService(f);
+  const uploads = f.effects.runSync(UploadsService);
   await assert.rejects(
-    uploads.strava(user.player_id, activityWithFit()),
+    f.effects.runPromise(uploads.strava(user.player_id, activityWithFit())),
     (error) => !(error instanceof DeliveryRefusedError),
   );
   assert.equal(
     f.effects.runSync(DocumentsService.use((service) => service.text(user.player_id, 'strava_token.txt'))),
     '1\nsecret\nnew\nnewer\n9000000000\n',
   );
-  await uploads.runalyze(user.player_id, activityWithFit());
+  await f.effects.runPromise(uploads.runalyze(user.player_id, activityWithFit()));
   assert.ok(calls.some((url) => url.includes('runalyze.com')));
 });
 

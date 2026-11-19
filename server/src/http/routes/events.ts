@@ -1,3 +1,4 @@
+import { EventCatalogService } from '#src/services/event-catalog.service';
 import { effectRoutes } from '#src/http/effect';
 import { EventsService } from '#src/services/events.service';
 import { notificationUpdateSchema } from '#src/dtos/events.dto';
@@ -68,7 +69,7 @@ export function eventRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       const events = yield* eventsService.eventsAt(runtime.assets, limit(c.req.query('limit')));
 
       return c.req.header('Accept')?.includes('application/json')
-        ? c.json(events.map((event) => eventsService.eventJSON(event)))
+        ? c.json(events.map((event) => EventCatalogService.eventJSON(event)))
         : c.body(toBinary(EventsSchema, create(EventsSchema, { events })));
     }),
   );

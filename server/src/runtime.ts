@@ -1,3 +1,6 @@
+import { RideCompletionService } from '#src/services/ride-completion.service';
+import { RideRecoveryService } from '#src/services/ride-recovery.service';
+import { UploadsService } from '#src/services/uploads.service';
 import { RetentionService } from '#src/services/retention.service';
 import { JobsService } from '#src/services/jobs.service';
 import { DurabilityService } from '#src/services/durability.service';
@@ -68,19 +71,24 @@ export async function openRuntime(config: ResolvedConfig, assets: string) {
     });
     resources.defer(() => runtime.effects.runPromise(JobsService.use((service) => service.close())));
     resources.defer(() => simulation.close());
-    resources.defer(() => runtime.services.recovery.close());
+    resources.defer(() => runtime.effects.runPromise(RideRecoveryService.use((service) => service.close())));
     resources.defer(() => world.lifecycle.close());
     resources.defer(
       runtime.effects.runSync(MetricsService.use((service) => service.start(config.logging.metricsIntervalSeconds))),
     );
     await simulation.ready;
     simulation.start();
-    const completionTimer = setInterval(() => runtime.services.rideCompletion.sweep(), 1000);
+
+    const completionTimer = setInterval(
+      () => runtime.effects.runSync(RideCompletionService.use((service) => service.sweep())),
+      1000,
+    );
+
     completionTimer.unref();
     resources.defer(() => clearInterval(completionTimer));
     runtime.effects.runSync(DurabilityService.use((service) => service.start()));
-    runtime.services.recovery.start();
-    runtime.services.uploads.start();
+    runtime.effects.runSync(RideRecoveryService.use((service) => service.start()));
+    runtime.effects.runSync(UploadsService.use((service) => service.start()));
     runtime.effects.runSync(RetentionService.use((service) => service.schedule()));
     runtime.effects.runSync(JobsService.use((service) => service.start()));
     checkpoints.start();

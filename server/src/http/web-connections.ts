@@ -1,3 +1,4 @@
+import { UploadsService } from '#src/services/uploads.service';
 import { WorkoutsService } from '#src/services/workout.service';
 import { FilesService } from '#src/services/files.service';
 import { ProfilesService } from '#src/services/profile.service';
@@ -61,7 +62,8 @@ export function providerFailure(runtime: HttpRuntime, cause: unknown, status: 40
 export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
   const appRoutes = effectRoutes(app, runtime);
 
-  const { management, uploads } = runtime.services;
+  const { management } = runtime.services;
+  const uploads = runtime.effects.runSync(UploadsService);
   const sessions = management.sessions;
 
   // Credentials the key cannot decrypt stay saved, so the rider is asked to enter them again.
@@ -129,6 +131,8 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
   );
   appRoutes.delete('/api/me/connections/:provider', (c) =>
     Effect.gen(function* () {
+      const uploadsService = yield* UploadsService;
+
       const connectionsService = yield* ConnectionsService;
 
       const player = sessions.require(c.get('sessionId')).player_id;
@@ -136,9 +140,9 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
       yield* connectionsService.remove(player, name);
 
       if (name === 'strava') {
-        uploads.disconnect(player, 'strava_token.txt');
-        uploads.disconnect(player, 'strava4_session.txt');
-      } else if (name === 'garmin') uploads.disconnect(player, 'garth/oauth1_token.json');
+        yield* uploadsService.disconnect(player, 'strava_token.txt');
+        yield* uploadsService.disconnect(player, 'strava4_session.txt');
+      } else if (name === 'garmin') yield* uploadsService.disconnect(player, 'garth/oauth1_token.json');
 
       return c.json({ ok: true });
     }),
@@ -146,6 +150,8 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
   // One stored credential, so a rider can drop the session cookie and keep the API, or the reverse.
   appRoutes.delete('/api/me/connections/:provider/:credential', (c) =>
     Effect.gen(function* () {
+      const uploadsService = yield* UploadsService;
+
       const connectionsService = yield* ConnectionsService;
 
       const player = sessions.require(c.get('sessionId')).player_id;
@@ -153,7 +159,7 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
 
       if (name === 'strava/api') yield* connectionsService.remove(player, 'strava');
       else if (name === 'garmin/credentials') yield* connectionsService.remove(player, 'garmin');
-      else uploads.disconnect(player, tokens[name]);
+      else yield* uploadsService.disconnect(player, tokens[name]);
 
       return c.json({ ok: true });
     }),
@@ -270,39 +276,57 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
       return c.json({ message });
     }),
   );
-  app.get('/api/me/uploads', (c) =>
-    c.json({ jobs: uploads.status(sessions.require(c.get('sessionId')).player_id).slice(0, 100) }),
-  );
-  const activityId = NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0));
-  app.get('/api/me/activities/:id/uploads', (c) =>
-    c.json({
-      uploads: uploads.forActivity(
-        sessions.require(c.get('sessionId')).player_id,
-        Schema.decodeUnknownSync(activityId)(c.req.param('id')),
-      ),
+  appRoutes.get('/api/me/uploads', (c) =>
+    Effect.gen(function* () {
+      const uploadsService = yield* UploadsService;
+
+      return c.json({
+        jobs: (yield* uploadsService.status(sessions.require(c.get('sessionId')).player_id)).slice(0, 100),
+      });
     }),
   );
-  app.post('/api/me/activities/:id/uploads', async (c) => {
-    const player = sessions.require(c.get('sessionId')).player_id;
-    const id = Schema.decodeUnknownSync(activityId)(c.req.param('id'));
+  const activityId = NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0));
+  appRoutes.get('/api/me/activities/:id/uploads', (c) =>
+    Effect.gen(function* () {
+      const uploadsService = yield* UploadsService;
 
-    const input = Schema.decodeUnknownSync(
-      Strict({ provider: Schema.Enum(UploadProvider), again: Schema.Boolean.pipe(withDefault(false)) }),
-    )(await c.req.json());
+      return c.json({
+        uploadsService: yield* uploadsService.forActivity(
+          sessions.require(c.get('sessionId')).player_id,
+          Schema.decodeUnknownSync(activityId)(c.req.param('id')),
+        ),
+      });
+    }),
+  );
+  appRoutes.post('/api/me/activities/:id/uploads', (c) =>
+    Effect.gen(function* () {
+      const uploadsService = yield* UploadsService;
 
-    void uploads.request(player, id, input.provider, input.again);
+      const player = sessions.require(c.get('sessionId')).player_id;
+      const id = Schema.decodeUnknownSync(activityId)(c.req.param('id'));
 
-    return c.json({ uploads: uploads.forActivity(player, id) });
-  });
-  app.post('/api/me/uploads/retry', async (c) => {
-    const player = sessions.require(c.get('sessionId')).player_id;
+      const input = Schema.decodeUnknownSync(
+        Strict({ provider: Schema.Enum(UploadProvider), again: Schema.Boolean.pipe(withDefault(false)) }),
+      )(yield* Effect.promise(() => c.req.json()));
 
-    const input = Schema.decodeUnknownSync(Strict({ ambiguous: Schema.Boolean.pipe(withDefault(false)) }))(
-      await c.req.json(),
-    );
+      void (yield* uploadsService.request(player, id, input.provider, input.again));
 
-    void uploads.retry(player, input.ambiguous);
+      return c.json({ uploadsService: yield* uploadsService.forActivity(player, id) });
+    }),
+  );
+  appRoutes.post('/api/me/uploads/retry', (c) =>
+    Effect.gen(function* () {
+      const uploadsService = yield* UploadsService;
 
-    return c.json({ ok: true });
-  });
+      const player = sessions.require(c.get('sessionId')).player_id;
+
+      const input = Schema.decodeUnknownSync(Strict({ ambiguous: Schema.Boolean.pipe(withDefault(false)) }))(
+        yield* Effect.promise(() => c.req.json()),
+      );
+
+      void (yield* uploadsService.retry(player, input.ambiguous));
+
+      return c.json({ ok: true });
+    }),
+  );
 }

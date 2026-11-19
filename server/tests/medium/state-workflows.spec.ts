@@ -1,3 +1,4 @@
+import { ActivitiesService } from '#src/services/activities.service';
 import { JobsService } from '#src/services/jobs.service';
 import { Effect } from 'effect';
 import { ConnectionsService } from '#src/services/connections.service';
@@ -122,15 +123,26 @@ await test('media upload claims serialize requests and deletion during body read
     RecordDataService.use((service) => service.insert('activity', ActivitySchema, activity, ['fit'])),
   );
 
-  const media = f.services.activities.insertActivityMedia(f.rider.player_id, id, 'video/mp4').lastInsertRowid;
-  const issued = f.services.activities.issueMedia(String(media));
+  const media = f.effects.runSync(
+    ActivitiesService.use((service) => service.insertActivityMedia(f.rider.player_id, id, 'video/mp4')),
+  ).lastInsertRowid;
+
+  const issued = f.effects.runSync(ActivitiesService.use((service) => service.issueMedia(String(media))));
   const gate = Promise.withResolvers<ArrayBuffer>();
-  const uploading = f.services.activities.receiveMedia(String(media), issued.token, () => gate.promise);
+
+  const uploading = f.effects.runPromise(
+    ActivitiesService.use((service) => service.receiveMedia(String(media), issued.token, () => gate.promise)),
+  );
+
   await assert.rejects(
-    f.services.activities.receiveMedia(String(media), issued.token, () => Promise.resolve(new ArrayBuffer(1))),
+    f.effects.runPromise(
+      ActivitiesService.use((service) =>
+        service.receiveMedia(String(media), issued.token, () => Promise.resolve(new ArrayBuffer(1))),
+      ),
+    ),
     { status: 403 },
   );
-  f.services.activities.deleteActivity(BigInt(id), f.rider.player_id);
+  f.effects.runSync(ActivitiesService.use((service) => service.deleteActivity(BigInt(id), f.rider.player_id)));
   gate.resolve(new ArrayBuffer(1));
   await assert.rejects(uploading, { status: 404 });
   assert.equal(existsSync(resolve(f.profiles.folder(f.rider.player_id), 'medias', `${media}.mp4`)), false);
@@ -155,15 +167,30 @@ await test('failed media body reads release the claim; successful uploads consum
     ),
   );
 
-  const media = f.services.activities.insertActivityMedia(f.rider.player_id, id, 'video/mp4').lastInsertRowid;
-  const issued = f.services.activities.issueMedia(String(media));
+  const media = f.effects.runSync(
+    ActivitiesService.use((service) => service.insertActivityMedia(f.rider.player_id, id, 'video/mp4')),
+  ).lastInsertRowid;
+
+  const issued = f.effects.runSync(ActivitiesService.use((service) => service.issueMedia(String(media))));
   await assert.rejects(
-    f.services.activities.receiveMedia(String(media), issued.token, () => Promise.reject(new Error('read failed'))),
+    f.effects.runPromise(
+      ActivitiesService.use((service) =>
+        service.receiveMedia(String(media), issued.token, () => Promise.reject(new Error('read failed'))),
+      ),
+    ),
     /read failed/,
   );
-  await f.services.activities.receiveMedia(String(media), issued.token, () => Promise.resolve(new ArrayBuffer(2)));
+  await f.effects.runPromise(
+    ActivitiesService.use((service) =>
+      service.receiveMedia(String(media), issued.token, () => Promise.resolve(new ArrayBuffer(2))),
+    ),
+  );
   await assert.rejects(
-    f.services.activities.receiveMedia(String(media), issued.token, () => Promise.resolve(new ArrayBuffer(1))),
+    f.effects.runPromise(
+      ActivitiesService.use((service) =>
+        service.receiveMedia(String(media), issued.token, () => Promise.resolve(new ArrayBuffer(1))),
+      ),
+    ),
     { status: 403 },
   );
 });
@@ -353,7 +380,7 @@ await test('Strava authorization cannot publish a token after web sign-out', asy
 await test('partially opened runtimes release storage ownership and close is idempotent', async (t) => {
   const f = await mediumFixture(t);
 
-  const fail = t.mock.method(UploadsService.prototype, 'start', () => {
+  const fail = t.mock.method(UploadsRepository.prototype, 'interrupted', () => {
     throw new Error('worker start');
   });
 

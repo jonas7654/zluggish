@@ -1,3 +1,4 @@
+import { RideCompletionService } from '#src/services/ride-completion.service';
 import { DurabilityService } from '#src/services/durability.service';
 import { EventsService } from '#src/services/events.service';
 import { responseStatus } from '#tests/support/html';
@@ -251,7 +252,7 @@ await test('disabled native ride only saves its captured activity and final retr
     revision: rider.revision,
     operation: crypto.randomUUID(),
   });
-  assert.ok(f.services.rideCompletion.permission(rider.player_id));
+  assert.ok(f.effects.runSync(RideCompletionService.use((service) => service.permission(rider.player_id))));
   assert.equal(await responseStatus(f.app.request('/api/profiles/me', { headers: { Authorization: token } })), 401);
   assert.equal(
     await responseStatus(
@@ -291,7 +292,7 @@ await test('disabled native ride only saves its captured activity and final retr
   });
 
   assert.equal(finish.status, 200);
-  assert.equal(f.services.rideCompletion.permission(rider.player_id), null);
+  assert.equal(f.effects.runSync(RideCompletionService.use((service) => service.permission(rider.player_id))), null);
   const changes = f.effects.runSync(DurabilityService.use((service) => service.changes()));
 
   const retry = await f.app.request(path + '?upload-to-strava=true', {

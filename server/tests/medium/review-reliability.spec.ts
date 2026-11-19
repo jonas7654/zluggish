@@ -1,3 +1,4 @@
+import { ActivitiesService } from '#src/services/activities.service';
 import { makeAppRuntime } from '#src/layers';
 import { DocumentsService } from '#src/services/documents.service';
 import { validateConfig } from '#src/config/index';
@@ -45,7 +46,9 @@ await test('deleting a queued activity while another upload is sending prevents 
     });
 
     const { id } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await response.json());
-    f.services.activities.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }));
+    f.effects.runSync(
+      ActivitiesService.use((service) => service.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }))),
+    );
     ids.push(id);
   }
 
@@ -65,7 +68,7 @@ await test('deleting a queued activity while another upload is sending prevents 
   delivery.emit('release');
   await draining;
   assert.equal(uploads.mock.callCount(), 1);
-  assert.deepEqual(f.services.uploads.status(f.rider.player_id), [
+  assert.deepEqual(f.effects.runSync(UploadsService.use((service) => service.status(f.rider.player_id))), [
     { activity_id: ids[0], provider: 'runalyze', state: 'sent', last_error: null },
   ]);
 });
@@ -146,31 +149,32 @@ await test('reopened delivery queues mark interrupted sends ambiguous and honor 
   });
 
   const { id } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await response.json());
-  f.services.activities.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }));
+  f.effects.runSync(
+    ActivitiesService.use((service) => service.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }))),
+  );
   f.accounts.db.exec("UPDATE activity_upload SET state='sending'");
   f.accounts.close();
   const reopened = new AccountsService(f.accounts.storage);
   const context = { ...f, accounts: reopened, settings: reopened.repositories.settingsRepository };
   const effects = makeAppRuntime(context);
   Object.assign(context, { effects, bridge: effects });
-  const queue = new UploadsService(context);
+  const queue = effects.runSync(UploadsService);
   const jobs = effects.runSync(JobsService);
-  queue.registerJobs(jobs);
 
   // Windows cannot remove the fixture directory while the reopened SQLite handle is live.
   // Scoped cleanup runs before runtimeFixture's after hook, including on assertion failure.
   try {
-    queue.start();
+    effects.runSync(queue.start());
     await effects.runPromise(jobs.drain());
-    assert.equal(queue.status(f.rider.player_id)[0]?.state, 'ambiguous');
-    await queue.retry(f.rider.player_id);
-    assert.equal(queue.status(f.rider.player_id)[0]?.state, 'ambiguous');
-    await queue.retry(f.other.player_id, true);
-    assert.equal(queue.status(f.rider.player_id)[0]?.state, 'ambiguous');
-    assert.deepEqual(queue.status(f.other.player_id), []);
+    assert.equal(effects.runSync(queue.status(f.rider.player_id))[0]?.state, 'ambiguous');
+    await effects.runPromise(queue.retry(f.rider.player_id));
+    assert.equal(effects.runSync(queue.status(f.rider.player_id))[0]?.state, 'ambiguous');
+    await effects.runPromise(queue.retry(f.other.player_id, true));
+    assert.equal(effects.runSync(queue.status(f.rider.player_id))[0]?.state, 'ambiguous');
+    assert.deepEqual(effects.runSync(queue.status(f.other.player_id)), []);
     reopened.repositories.riderDocuments.remove(f.rider.player_id, 'runalyze_token.txt');
-    await queue.retry(f.rider.player_id, true);
-    assert.equal(queue.status(f.rider.player_id)[0]?.state, 'cancelled');
+    await effects.runPromise(queue.retry(f.rider.player_id, true));
+    assert.equal(effects.runSync(queue.status(f.rider.player_id))[0]?.state, 'cancelled');
   } finally {
     try {
       await effects.runPromise(jobs.close());
@@ -216,7 +220,7 @@ await test('charts retain running records with no power and intermittent sensor 
   ];
 
   for (const record of records) encoder.onMesg(Schema.decodeUnknownSync(Schema.Finite)(Profile.MesgNum.RECORD), record);
-  const chart = f.services.activities.activityChart(encoder.close());
+  const chart = f.effects.runSync(ActivitiesService.use((service) => service.activityChart(encoder.close())));
   assert.deepEqual(chart.timeInSec, [0, 1, 2]);
   assert.deepEqual(chart.distanceInCm, [0, 300, 600]);
   assert.deepEqual(chart.powerInWatts, [0, 0, 0]);
@@ -259,7 +263,10 @@ await test('repeated finalization keeps one streak update and deliveries retry o
 
   await f.effects.runPromise(JobsService.use((service) => service.drain()));
   assert.equal(delivered, 1);
-  assert.equal(f.services.uploads.status(f.rider.player_id)[0]?.state, 'failed');
+  assert.equal(
+    f.effects.runSync(UploadsService.use((service) => service.status(f.rider.player_id)))[0]?.state,
+    'failed',
+  );
   const streaks = await decode(await f.request('/api/fitness/streaks'), StreaksSchema);
   assert.equal(streaks.curStreakDistance, 3000);
   assert.equal(f.accounts.db.prepare('SELECT count(*) AS n FROM power_curve').get()?.n, 1);
@@ -267,7 +274,7 @@ await test('repeated finalization keeps one streak update and deliveries retry o
   assert.equal(retried.status, 200);
   await f.effects.runPromise(JobsService.use((service) => service.drain()));
   assert.equal(delivered, 2);
-  assert.equal(f.services.uploads.status(f.rider.player_id)[0]?.state, 'sent');
+  assert.equal(f.effects.runSync(UploadsService.use((service) => service.status(f.rider.player_id)))[0]?.state, 'sent');
 
   const changed = await f.request(path, {
     method: 'PUT',
@@ -329,7 +336,7 @@ await test('charts keep records without optional sensors and power curves includ
       chart.powerInWatts,
       powers.map((power = 0) => power),
     );
-    f.services.activities.savePowerCurve(f.rider.player_id, bytes);
+    f.effects.runSync(ActivitiesService.use((service) => service.savePowerCurve(f.rider.player_id, bytes)));
     assert.equal(f.accounts.db.prepare('SELECT power FROM power_curve ORDER BY id DESC LIMIT 1').get()?.power, best);
   }
 });

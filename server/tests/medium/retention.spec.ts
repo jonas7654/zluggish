@@ -1,3 +1,4 @@
+import { ActivitiesService } from '#src/services/activities.service';
 import { JobsService } from '#src/services/jobs.service';
 import { DocumentsService } from '#src/services/documents.service';
 import { validateConfig } from '#src/config/index';
@@ -45,7 +46,9 @@ async function storage(t: TestContext) {
   });
 
   const { id } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await response.json());
-  f.services.activities.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }));
+  f.effects.runSync(
+    ActivitiesService.use((service) => service.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }))),
+  );
   await f.effects.runPromise(JobsService.use((service) => service.drain()));
 
   const root = f.config.storageDir;
@@ -223,12 +226,18 @@ await test('a media row is ready only after its file is durable', async (t) => {
   );
 
   await assert.rejects(
-    f.services.activities.saveImage(f.rider.player_id, String(id), new Uint8Array([1])),
+    f.effects.runPromise(
+      ActivitiesService.use((service) => service.saveImage(f.rider.player_id, String(id), new Uint8Array([1]))),
+    ),
     /disk full/,
   );
   failing.mock.restore();
   assert.equal(f.accounts.db.prepare('SELECT state FROM activity_image').get()?.state, 'failed');
-  const image = await f.services.activities.saveImage(f.rider.player_id, String(id), new Uint8Array([1]));
+
+  const image = await f.effects.runPromise(
+    ActivitiesService.use((service) => service.saveImage(f.rider.player_id, String(id), new Uint8Array([1]))),
+  );
+
   assert.equal(f.accounts.db.prepare('SELECT state FROM activity_image WHERE id=?').get(image)?.state, 'ready');
   assert.equal(
     new AssetFiles().existsSync(resolve(f.profiles.folder(f.rider.player_id), 'images', `${image}.jpg`)),

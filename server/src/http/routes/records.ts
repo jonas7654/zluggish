@@ -469,7 +469,9 @@ export function recordRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
               playerType: profile.playerType,
               firstName: profile.firstName,
               lastName: profile.lastName,
-              avatarUrl: filesService.exists(resolve(yield* profilesService.folder(playerId), 'avatarLarge.jpg'))
+              avatarUrl: (yield* filesService.exists(
+                resolve(yield* profilesService.folder(playerId), 'avatarLarge.jpg'),
+              ))
                 ? `https://us-or-rly101.zwift.com/download/${playerId}/avatarLarge.jpg`
                 : '',
             }),

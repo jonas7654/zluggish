@@ -1,3 +1,4 @@
+import { ActivitiesService } from '#src/services/activities.service';
 import { makeAppRuntime } from '#src/layers';
 import { DocumentsService } from '#src/services/documents.service';
 import { decodeOwned } from '#src/schema';
@@ -45,7 +46,9 @@ async function backedUp(t: TestContext) {
   });
 
   const { id } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await response.json());
-  f.services.activities.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }));
+  f.effects.runSync(
+    ActivitiesService.use((service) => service.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }))),
+  );
   const backup = mkdtempSync(resolve(tmpdir(), 'zluggish-backup-'));
   t.after(() => rmSync(backup, { recursive: true, force: true }));
   backupStorage(f.config.storageDir, backup, null);
@@ -58,9 +61,8 @@ function reopen(cleanup: (() => Promise<void>)[], f: Awaited<ReturnType<typeof m
   const context = { ...f, accounts, settings: accounts.repositories.settingsRepository };
   const effects = makeAppRuntime(context);
   Object.assign(context, { effects, bridge: effects });
-  const uploads = new UploadsService(context);
+  const uploads = effects.runSync(UploadsService);
   const jobs = effects.runSync(JobsService);
-  uploads.registerJobs(jobs);
   cleanup.push(async () => {
     await effects.runPromise(jobs.close());
     await effects.dispose();
@@ -75,15 +77,15 @@ await test('a restored backup sends no delivery that was sent after the backup',
   const sends = t.mock.method(globalThis, 'fetch', () => Promise.resolve(new Response(null, { status: 200 })));
   await f.effects.runPromise(JobsService.use((service) => service.drain()));
   assert.equal(sends.mock.callCount(), 1);
-  assert.equal(f.services.uploads.status(f.rider.player_id)[0]?.state, 'sent');
+  assert.equal(f.effects.runSync(UploadsService.use((service) => service.status(f.rider.player_id)))[0]?.state, 'sent');
   f.accounts.close();
 
   restoreStorage(f.config.storageDir, backup, null);
   const restored = reopen(cleanup, f);
-  restored.uploads.start();
+  restored.effects.runSync(restored.uploads.start());
   restored.effects.runSync(restored.jobs.start());
   await restored.effects.runPromise(restored.jobs.drain());
-  assert.equal(restored.uploads.status(f.rider.player_id)[0]?.state, 'pending');
+  assert.equal(restored.effects.runSync(restored.uploads.status(f.rider.player_id))[0]?.state, 'pending');
   assert.equal(sends.mock.callCount(), 1, 'the upload pause stops the restored delivery');
   assert.equal(restored.accounts.repositories.systemFlagsRepository.get('uploads.paused')?.startsWith('restore'), true);
 
@@ -158,5 +160,5 @@ for (const step of ['marked', 'prepared', 'published', 'copied'] as const)
     restored.effects.runSync(restored.jobs.start());
     await restored.effects.runPromise(restored.jobs.drain());
     assert.equal(sends.mock.callCount(), 0);
-    assert.equal(restored.uploads.status(f.rider.player_id)[0]?.state, 'pending');
+    assert.equal(restored.effects.runSync(restored.uploads.status(f.rider.player_id))[0]?.state, 'pending');
   });

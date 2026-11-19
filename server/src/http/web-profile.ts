@@ -1,3 +1,5 @@
+import { UploadsService } from '#src/services/uploads.service';
+import { ActivitiesService } from '#src/services/activities.service';
 import { ImportsService } from '#src/services/profile-import.service';
 import { ConnectionsService } from '#src/services/connections.service';
 import { IntegrationsService } from '#src/services/integrations.service';
@@ -86,7 +88,9 @@ export function webProfileRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
       const { user } = context(c);
 
       return c.json({
-        filenames: Object.values(DownloadFile).filter((name) => documentsService.has(user.player_id, name)),
+        filenames: yield* Effect.filter(Object.values(DownloadFile), (name) =>
+          documentsService.has(user.player_id, name),
+        ),
       });
     }),
   );
@@ -108,6 +112,8 @@ export function webProfileRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
   );
   appRoutes.post('/api/me/power-curves', (c) =>
     Effect.gen(function* () {
+      const activitiesService = yield* ActivitiesService;
+
       const integrationsService = yield* IntegrationsService;
 
       const { user } = context(c);
@@ -116,7 +122,7 @@ export function webProfileRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
         yield* Effect.promise(() => c.req.json()),
       );
 
-      if (input.create) runtime.services.activities.rebuildPowerCurves(user.player_id);
+      if (input.create) yield* activitiesService.rebuildPowerCurves(user.player_id);
       else yield* integrationsService.deletePowerCurve(user.player_id);
 
       return c.json({ message: input.create ? 'Power curves rebuild queued.' : 'Power curves deleted.' });
@@ -227,7 +233,9 @@ export function webProfileRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
   );
   appRoutes.delete('/api/me/zwift', (c) => {
     const { user } = context(c);
-    runtime.services.uploads.disconnect(user.player_id, 'zwift_credentials.bin');
+    runtime.effects.runSync(
+      UploadsService.use((service) => service.disconnect(user.player_id, 'zwift_credentials.bin')),
+    );
 
     return connection(c);
   });

@@ -1,3 +1,5 @@
+import { RideRecoveryService } from '#src/services/ride-recovery.service';
+import { UploadsService } from '#src/services/uploads.service';
 import { JobsService } from '#src/services/jobs.service';
 import { DurabilityService } from '#src/services/durability.service';
 import { ConnectionsService } from '#src/services/connections.service';
@@ -237,9 +239,9 @@ checkpoints.start();
 
 runtime.effects.runSync(DurabilityService.use((service) => service.start()));
 
-runtime.services.recovery.start();
+runtime.effects.runSync(RideRecoveryService.use((service) => service.start()));
 
-runtime.services.uploads.start();
+runtime.effects.runSync(UploadsService.use((service) => service.start()));
 
 runtime.effects.runSync(JobsService.use((service) => service.start(250)));
 
@@ -347,7 +349,7 @@ await simulation.close();
 
 await runtime.effects.runPromise(JobsService.use((service) => service.close()));
 
-await runtime.services.recovery.close();
+await runtime.effects.runPromise(RideRecoveryService.use((service) => service.close()));
 
 await runtime.effects.runPromise(DurabilityService.use((service) => service.close()));
 

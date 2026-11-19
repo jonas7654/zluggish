@@ -33,6 +33,7 @@ function resolveRiderSettings(defaults: RiderSettings, overrides: Overrides) {
 const make = Effect.gen(function* () {
   const context = yield* RuntimeContext;
   const repositories = context.accounts.repositories;
+  const uploadsService = yield* UploadsService;
 
   return {
     revision: Effect.fn('SettingsService.revision')(function* (id: number) {
@@ -46,7 +47,7 @@ const make = Effect.gen(function* () {
     /** A settings change can withdraw consent to a provider: pending deliveries follow. */
     save: Effect.fn('SettingsService.save')(function* (...args: Parameters<SettingsStore['save']>) {
       repositories.settingsRepository.save(...args);
-      new UploadsService(context).revoke(args[0]);
+      yield* uploadsService.revoke(args[0]);
     }),
 
     import: Effect.fn('SettingsService.import')(function* (...args: Parameters<SettingsStore['import']>) {

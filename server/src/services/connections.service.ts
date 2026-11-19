@@ -7,6 +7,7 @@ import { UploadsService } from '#src/services/uploads.service';
 const make = Effect.gen(function* () {
   const context = yield* RuntimeContext;
   const repositories = context.accounts.repositories;
+  const uploadsService = yield* UploadsService;
 
   const has = Effect.fn('ConnectionsService.has')(function* (...args: Parameters<Connections['has']>) {
     return repositories.connectionsRepository.has(...args);
@@ -40,7 +41,7 @@ const make = Effect.gen(function* () {
 
   const remove = Effect.fn('ConnectionsService.remove')(function* (...args: Parameters<Connections['remove']>) {
     repositories.connectionsRepository.remove(...args);
-    new UploadsService(context).revoke(args[0]);
+    yield* uploadsService.revoke(args[0]);
   });
 
   return { has, read, inspect, save, remove };

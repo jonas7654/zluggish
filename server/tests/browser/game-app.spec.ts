@@ -1,3 +1,4 @@
+import { UploadsService } from '#src/services/uploads.service';
 import { WorkoutsService } from '#src/services/workout.service';
 import { Effect, Schema } from 'effect';
 import { IntegrationsService } from '#src/services/integrations.service';
@@ -265,11 +266,11 @@ await test('web upload list polls while uploads run, pauses while hidden and ret
   const rider = await f.accounts.create('Uploading Rider', 'test-password');
   let state = 'pending';
 
-  const status = t.mock.method(f.services.uploads, 'status', () => [
+  const status = t.mock.method(f.effects.runSync(UploadsService), 'status', () => [
     { activity_id: 1, provider: 'strava', state, last_error: null },
   ]);
 
-  const retry = t.mock.method(f.services.uploads, 'retry', () => Promise.resolve());
+  const retry = t.mock.method(f.effects.runSync(UploadsService), 'retry', () => Promise.resolve());
   const context = await f.browser.newContext();
   const page = await context.newPage();
   await page.clock.install();

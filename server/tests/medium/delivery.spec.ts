@@ -1,3 +1,5 @@
+import { RideCompletionService } from '#src/services/ride-completion.service';
+import { ActivitiesService } from '#src/services/activities.service';
 import { JobsService } from '#src/services/jobs.service';
 import { ConnectionsService } from '#src/services/connections.service';
 import { DocumentsService } from '#src/services/documents.service';
@@ -36,7 +38,9 @@ async function completed(f: Awaited<ReturnType<typeof mediumFixture>>) {
   });
 
   const { id } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await response.json());
-  f.services.activities.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }));
+  f.effects.runSync(
+    ActivitiesService.use((service) => service.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }))),
+  );
 
   return id;
 }
@@ -58,7 +62,10 @@ for (const [outcome, response, state] of [
     await completed(f);
     const sends = t.mock.method(globalThis, 'fetch', response);
     await f.effects.runPromise(JobsService.use((service) => service.drain()));
-    assert.equal(f.services.uploads.status(f.rider.player_id)[0]?.state, state);
+    assert.equal(
+      f.effects.runSync(UploadsService.use((service) => service.status(f.rider.player_id)))[0]?.state,
+      state,
+    );
     await f.effects.runPromise(JobsService.use((service) => service.drain()));
     assert.equal(sends.mock.callCount(), 1);
   });
@@ -71,15 +78,18 @@ await test('a stop during each delivery state never sends a delivery twice', asy
 
   // Stopped while sending: the restart records an unknown result and does not send.
   f.accounts.db.prepare("UPDATE activity_upload SET state='sending', attempt='lost' WHERE activity_id=?").run(id);
-  f.services.uploads.start();
+  f.effects.runSync(UploadsService.use((service) => service.start()));
   await f.effects.runPromise(JobsService.use((service) => service.drain()));
-  assert.equal(f.services.uploads.status(f.rider.player_id)[0]?.state, 'ambiguous');
+  assert.equal(
+    f.effects.runSync(UploadsService.use((service) => service.status(f.rider.player_id)))[0]?.state,
+    'ambiguous',
+  );
   assert.equal(sends.mock.callCount(), 0);
 
   // Stopped while pending: the queued job sends once after the restart.
   f.accounts.db.prepare("UPDATE activity_upload SET state='pending' WHERE activity_id=?").run(id);
   f.accounts.repositories.jobsRepository.enqueue('delivery', { activityId: id, provider: 'runalyze' });
-  f.services.uploads.start();
+  f.effects.runSync(UploadsService.use((service) => service.start()));
   await f.effects.runPromise(JobsService.use((service) => service.drain()));
   assert.equal(sends.mock.callCount(), 1);
 
@@ -87,7 +97,7 @@ await test('a stop during each delivery state never sends a delivery twice', asy
   for (const final of ['sent', 'failed']) {
     f.accounts.db.prepare('UPDATE activity_upload SET state=? WHERE activity_id=?').run(final, id);
     f.accounts.repositories.jobsRepository.enqueue('delivery', { activityId: id, provider: 'runalyze' });
-    f.services.uploads.start();
+    f.effects.runSync(UploadsService.use((service) => service.start()));
     await f.effects.runPromise(JobsService.use((service) => service.drain()));
   }
 
@@ -99,23 +109,25 @@ await test('a rider uploads a finished activity on request, and uploads it again
   const player = f.rider.player_id;
   const id = await completed(f);
   const sends = t.mock.method(globalThis, 'fetch', () => Promise.resolve(new Response(null, { status: 200 })));
-  const uploads = f.services.uploads;
+  const uploads = f.effects.runSync(UploadsService);
 
   // Nothing was connected when the activity finished, so it has no deliveries yet.
-  assert.deepEqual(uploads.forActivity(player, id), []);
-  assert.throws(() => uploads.request(player, id, 'runalyze', false), { status: 409 });
+  assert.deepEqual(f.effects.runSync(uploads.forActivity(player, id)), []);
+  assert.throws(() => f.effects.runPromise(uploads.request(player, id, 'runalyze', false)), { status: 409 });
 
   f.effects.runSync(DocumentsService.use((service) => service.put(player, 'runalyze_token.txt', 'token')));
-  assert.deepEqual(uploads.forActivity(player, id), [{ provider: 'runalyze', state: null, error: null }]);
-  assert.throws(() => uploads.request(f.other.player_id, id, 'runalyze', false), { status: 404 });
+  assert.deepEqual(f.effects.runSync(uploads.forActivity(player, id)), [
+    { provider: 'runalyze', state: null, error: null },
+  ]);
+  assert.throws(() => f.effects.runPromise(uploads.request(f.other.player_id, id, 'runalyze', false)), { status: 404 });
 
-  await uploads.request(player, id, 'runalyze', false);
-  assert.equal(uploads.forActivity(player, id)[0]?.state, 'sent');
-  assert.throws(() => uploads.request(player, id, 'runalyze', false), { status: 409 });
+  await f.effects.runPromise(uploads.request(player, id, 'runalyze', false));
+  assert.equal(f.effects.runSync(uploads.forActivity(player, id))[0]?.state, 'sent');
+  assert.throws(() => f.effects.runPromise(uploads.request(player, id, 'runalyze', false)), { status: 409 });
   assert.equal(sends.mock.callCount(), 1);
 
-  await uploads.request(player, id, 'runalyze', true);
-  assert.equal(uploads.forActivity(player, id)[0]?.state, 'sent');
+  await f.effects.runPromise(uploads.request(player, id, 'runalyze', true));
+  assert.equal(f.effects.runSync(uploads.forActivity(player, id))[0]?.state, 'sent');
   assert.equal(sends.mock.callCount(), 2);
 });
 
@@ -128,15 +140,21 @@ await test('finished activities without completion records upload, while unfinis
   f.effects.runSync(DocumentsService.use((service) => service.put(player, 'runalyze_token.txt', 'token')));
   const sends = t.mock.method(globalThis, 'fetch', () => Promise.resolve(new Response(null, { status: 200 })));
 
-  await f.services.uploads.request(player, id, 'runalyze', false);
-  assert.equal(f.services.uploads.forActivity(player, id)[0]?.state, 'sent');
+  await f.effects.runPromise(UploadsService.use((service) => service.request(player, id, 'runalyze', false)));
+  assert.equal(f.effects.runSync(UploadsService.use((service) => service.forActivity(player, id)))[0]?.state, 'sent');
   assert.equal(sends.mock.callCount(), 1);
   assert.equal(f.accounts.repositories.completionRepository.get(BigInt(id)), null);
 
   f.accounts.db.prepare('UPDATE activity SET end_date=NULL WHERE id=?').run(id);
-  assert.throws(() => f.services.uploads.request(player, id, 'runalyze', true), { status: 409 });
+  assert.throws(
+    () => f.effects.runPromise(UploadsService.use((service) => service.request(player, id, 'runalyze', true))),
+    { status: 409 },
+  );
   f.accounts.db.prepare('UPDATE activity SET end_date=?, fit=NULL WHERE id=?').run(new Date().toISOString(), id);
-  assert.throws(() => f.services.uploads.request(player, id, 'runalyze', true), { status: 409 });
+  assert.throws(
+    () => f.effects.runPromise(UploadsService.use((service) => service.request(player, id, 'runalyze', true))),
+    { status: 409 },
+  );
   assert.equal(sends.mock.callCount(), 1);
 });
 
@@ -165,8 +183,8 @@ await test('a partial Zwift delivery keeps its remote activity and a retry uploa
   const record = f.accounts.db.prepare('SELECT state, remote_id, step FROM activity_upload').get();
   assert.deepEqual({ ...record }, { state: 'ambiguous', remote_id: '77', step: 'created' });
 
-  await f.services.uploads.retry(f.rider.player_id, true);
-  assert.equal(f.services.uploads.status(f.rider.player_id)[0]?.state, 'sent');
+  await f.effects.runPromise(UploadsService.use((service) => service.retry(f.rider.player_id, true)));
+  assert.equal(f.effects.runSync(UploadsService.use((service) => service.status(f.rider.player_id)))[0]?.state, 'sent');
   assert.deepEqual(
     calls.filter((call) => !call.endsWith('/profiles/me')),
     ['POST /api/profiles/555/activities', 'PUT /api/profiles/555/activities/77', 'PUT /api/profiles/555/activities/77'],
@@ -191,7 +209,7 @@ await test('deleting every FIT export breaks neither details, charts nor deliver
   rmSync(resolve(f.config.storageDir, 'activities'), { recursive: true });
 
   f.accounts.db.exec("UPDATE activity_upload SET state='failed'");
-  await f.services.uploads.retry(f.rider.player_id);
+  await f.effects.runPromise(UploadsService.use((service) => service.retry(f.rider.player_id)));
   assert.equal(delivered.length, 2);
   assert.deepEqual(Buffer.from(delivered[1] ?? []), fit);
 
@@ -278,28 +296,28 @@ for (const [provider, setup] of [
       const f = await mediumFixture(t);
       setup(f);
       t.mock.method(globalThis, 'fetch', response);
-      const uploads = new UploadsService(f);
-      assert.equal(await outcome(() => uploads[provider](f.rider.player_id, activity)), expected);
+      const uploads = f.effects.runSync(UploadsService);
+      assert.equal(await outcome(() => f.effects.runPromise(uploads[provider](f.rider.player_id, activity))), expected);
     });
 
 await test('every provider refuses a delivery without credentials, before any request', async (t) => {
   const f = await mediumFixture(t);
   const sends = t.mock.method(globalThis, 'fetch', status(200));
-  const uploads = new UploadsService(f);
+  const uploads = f.effects.runSync(UploadsService);
   const player = f.rider.player_id;
 
   for (const send of [
-    () => uploads.runalyze(player, activity),
-    () => uploads.intervals(player, activity),
-    () => uploads.strava(player, activity),
-    () => uploads.freeStrava(player, activity, []),
-    () => uploads.garmin(player, activity),
-    () => uploads.zwift(player, activity),
+    () => f.effects.runPromise(uploads.runalyze(player, activity)),
+    () => f.effects.runPromise(uploads.intervals(player, activity)),
+    () => f.effects.runPromise(uploads.strava(player, activity)),
+    () => f.effects.runPromise(uploads.freeStrava(player, activity, [])),
+    () => f.effects.runPromise(uploads.garmin(player, activity)),
+    () => f.effects.runPromise(uploads.zwift(player, activity)),
   ])
     assert.equal(await outcome(send), 'failed');
 
   f.effects.runSync(ConnectionsService.use((service) => service.save(player, 'intervals', ['not-a-number', 'key'])));
-  assert.equal(await outcome(() => uploads.intervals(player, activity)), 'failed');
+  assert.equal(await outcome(() => f.effects.runPromise(uploads.intervals(player, activity))), 'failed');
   assert.equal(sends.mock.callCount(), 0);
 });
 
@@ -309,7 +327,12 @@ await test('strava: a failed token refresh happens before the upload and is refu
     DocumentsService.use((service) => service.put(f.rider.player_id, 'strava_token.txt', '1\nsecret\na\nr\n1\n')),
   );
   const calls = t.mock.method(globalThis, 'fetch', status(400));
-  assert.equal(await outcome(() => new UploadsService(f).strava(f.rider.player_id, activity)), 'failed');
+  assert.equal(
+    await outcome(() =>
+      f.effects.runPromise(UploadsService.use((service) => service.strava(f.rider.player_id, activity))),
+    ),
+    'failed',
+  );
   assert.equal(calls.mock.callCount(), 1, 'only the refresh request');
 });
 
@@ -341,7 +364,12 @@ for (const [step, expected] of [
       return offline();
     });
 
-    assert.equal(await outcome(() => new UploadsService(f).freeStrava(f.rider.player_id, activity, [])), expected);
+    assert.equal(
+      await outcome(() =>
+        f.effects.runPromise(UploadsService.use((service) => service.freeStrava(f.rider.player_id, activity, []))),
+      ),
+      expected,
+    );
   });
 
 for (const [error, expected] of [
@@ -379,7 +407,12 @@ for (const [error, expected] of [
       ),
     );
     t.mock.method(Garmin.prototype, 'importActivity', () => Promise.reject(error));
-    assert.equal(await outcome(() => new UploadsService(f).garmin(f.rider.player_id, activity)), expected);
+    assert.equal(
+      await outcome(() =>
+        f.effects.runPromise(UploadsService.use((service) => service.garmin(f.rider.player_id, activity))),
+      ),
+      expected,
+    );
   });
 
 for (const [step, expected, creates] of [
@@ -415,6 +448,11 @@ for (const [step, expected, creates] of [
       return step === 'the upload is rejected' ? status(400)() : status(200)();
     });
 
-    assert.equal(await outcome(() => new UploadsService(f).zwift(f.rider.player_id, activity)), expected);
+    assert.equal(
+      await outcome(() =>
+        f.effects.runPromise(UploadsService.use((service) => service.zwift(f.rider.player_id, activity))),
+      ),
+      expected,
+    );
     assert.equal(posts, creates);
   });

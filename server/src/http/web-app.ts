@@ -1,3 +1,4 @@
+import { ActivitiesService } from '#src/services/activities.service';
 import { DurabilityService } from '#src/services/durability.service';
 import { FilesService } from '#src/services/files.service';
 import { effectRoutes } from '#src/http/effect';
@@ -36,7 +37,8 @@ function sameOrigin(origin: string | undefined, url: string, publicUrl: string |
 export function createWebApp(runtime: HttpRuntime) {
   const app = new Hono<WebEnv>();
   const appRoutes = effectRoutes(app, runtime);
-  const { management, accounts, activities } = runtime.services;
+  const { management, accounts } = runtime.services;
+  const activities = runtime.effects.runSync(ActivitiesService);
   const durability = runtime.effects.runSync(DurabilityService);
   const { sessions } = management;
   const attempts = new Map<string, { count: number; until: number }>();
@@ -231,15 +233,19 @@ export function createWebApp(runtime: HttpRuntime) {
   webProfileRoutes(app, runtime);
 
   const activityId = Schema.String.check(Schema.isPattern(/^\d{1,19}$/));
-  app.get('/api/me/activities', (c) => {
-    const page = Schema.decodeUnknownSync(
-      NumberFromInput.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0), Schema.isLessThanOrEqualTo(1_000_000)),
-    )(c.req.query('page') ?? '0');
+  appRoutes.get('/api/me/activities', (c) =>
+    Effect.gen(function* () {
+      const activitiesService = yield* ActivitiesService;
 
-    const rows = activities.own(sessions.require(c.get('sessionId')).player_id, undefined, page);
+      const page = Schema.decodeUnknownSync(
+        NumberFromInput.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0), Schema.isLessThanOrEqualTo(1_000_000)),
+      )(c.req.query('page') ?? '0');
 
-    return c.json({ activities: rows.slice(0, 20), hasMore: rows.length > 20 });
-  });
+      const rows = yield* activitiesService.own(sessions.require(c.get('sessionId')).player_id, undefined, page);
+
+      return c.json({ activitiesService: rows.slice(0, 20), hasMore: rows.length > 20 });
+    }),
+  );
   appRoutes.get('/api/me/climbs', (c) =>
     Effect.gen(function* () {
       const recordsService = yield* RecordsService;
@@ -273,41 +279,53 @@ export function createWebApp(runtime: HttpRuntime) {
       return c.json({ climbs, total: all.length });
     }),
   );
-  app.get('/api/me/activities/:id', (c) =>
-    c.json(
-      activities.ownDetail(
+  appRoutes.get('/api/me/activities/:id', (c) =>
+    Effect.gen(function* () {
+      const activitiesService = yield* ActivitiesService;
+
+      return c.json(
+        yield* activitiesService.ownDetail(
+          sessions.require(c.get('sessionId')).player_id,
+          Schema.decodeUnknownSync(activityId)(c.req.param('id')),
+        ),
+      );
+    }),
+  );
+  appRoutes.get('/api/me/activities/:id/fit', (c) =>
+    Effect.gen(function* () {
+      const activitiesService = yield* ActivitiesService;
+
+      const { fit, filename } = yield* activitiesService.ownFit(
         sessions.require(c.get('sessionId')).player_id,
         Schema.decodeUnknownSync(activityId)(c.req.param('id')),
-      ),
-    ),
+      );
+
+      return c.body(new Uint8Array(fit), 200, {
+        'Content-Type': 'application/vnd.ant.fit',
+        'Content-Disposition': `attachment; filename="${filename}"`,
+      });
+    }),
   );
-  app.get('/api/me/activities/:id/fit', (c) => {
-    const { fit, filename } = activities.ownFit(
-      sessions.require(c.get('sessionId')).player_id,
-      Schema.decodeUnknownSync(activityId)(c.req.param('id')),
-    );
+  appRoutes.get('/api/me/activities/:id/images/:image', (c) =>
+    Effect.gen(function* () {
+      const activitiesService = yield* ActivitiesService;
 
-    return c.body(new Uint8Array(fit), 200, {
-      'Content-Type': 'application/vnd.ant.fit',
-      'Content-Disposition': `attachment; filename="${filename}"`,
-    });
-  });
-  app.get('/api/me/activities/:id/images/:image', (c) => {
-    const id = Schema.decodeUnknownSync(activityId)(c.req.param('id'));
+      const id = Schema.decodeUnknownSync(activityId)(c.req.param('id'));
 
-    const image = Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(
-      c.req.param('image'),
-    );
+      const image = Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(
+        c.req.param('image'),
+      );
 
-    const jpg = activities.ownImage(sessions.require(c.get('sessionId')).player_id, id, image);
+      const jpg = yield* activitiesService.ownImage(sessions.require(c.get('sessionId')).player_id, id, image);
 
-    return c.body(jpg, 200, {
-      'Content-Type': 'image/jpeg',
-      ...(c.req.query('download') !== undefined && {
-        'Content-Disposition': `attachment; filename="${id}-${image}.jpg"`,
-      }),
-    });
-  });
+      return c.body(jpg, 200, {
+        'Content-Type': 'image/jpeg',
+        ...(c.req.query('download') !== undefined && {
+          'Content-Disposition': `attachment; filename="${id}-${image}.jpg"`,
+        }),
+      });
+    }),
+  );
   app.use('/api/manage/*', async (c, next) => {
     sessions.require(c.get('sessionId'), true);
     await next();

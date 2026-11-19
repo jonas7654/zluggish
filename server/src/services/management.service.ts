@@ -15,7 +15,7 @@ import {
 } from '#src/dtos/management.dto';
 import { UploadsService } from '#src/services/uploads.service';
 import type { JsonValue } from '#src/dtos/management.dto';
-import { Schema } from 'effect';
+import { Effect, Schema } from 'effect';
 import type { RideCompletionService } from '#src/services/ride-completion.service';
 import type { RepositoryContext } from '#src/context';
 import type { User } from '#src/repositories/accounts.repository';
@@ -47,7 +47,7 @@ export class ManagementService extends BaseService {
 
   constructor(
     private readonly context: RepositoryContext,
-    private readonly completion: RideCompletionService,
+    private readonly completion: RideCompletionService['Service'],
   ) {
     super(context.accounts.repositories);
     this.store = new ManagementRepository(context.accounts.db);
@@ -241,7 +241,7 @@ export class ManagementService extends BaseService {
         throw new ApplicationError({ status: 401, message: 'Session changed.' });
       this.store.update(user.player_id, { pass_hash: hash });
     });
-    this.completion.cancel(user.player_id);
+    Effect.runSync(this.completion.cancel(user.player_id));
   }
 
   private fingerprint(value: JsonValue) {
@@ -284,7 +284,7 @@ export class ManagementService extends BaseService {
         ? await this.passwordTask(() => this.cryptoRepository.hashPassword(input.password!))
         : undefined;
 
-    let permission: ReturnType<RideCompletionService['capture']> = null;
+    let permission: Effect.Success<ReturnType<RideCompletionService['Service']['capture']>> = null;
     let committed = false;
 
     const result = this.store.transaction(() => {
@@ -316,7 +316,7 @@ export class ManagementService extends BaseService {
       )
         throw new ApplicationError({ status: 409, message: 'Keep at least one enabled administrator.' });
 
-      if (action === 'disable') permission = this.completion.capture(targetId);
+      if (action === 'disable') permission = Effect.runSync(this.completion.capture(targetId));
 
       const values =
         action === 'password' && hash
@@ -346,8 +346,8 @@ export class ManagementService extends BaseService {
     });
 
     if (committed) {
-      if (action === 'disable') this.completion.grant(targetId, permission);
-      else this.completion.cancel(targetId);
+      if (action === 'disable') Effect.runSync(this.completion.grant(targetId, permission));
+      else Effect.runSync(this.completion.cancel(targetId));
     }
 
     return result;
@@ -515,7 +515,7 @@ export class ManagementService extends BaseService {
       }
 
       this.context.settings.save(player, input.overrides, input.revision);
-      new UploadsService(this.context).revoke(player);
+      this.context.bridge!.runSync(UploadsService.use((uploads) => uploads.revoke(player)));
       const after = this.settings(player);
       this.store.record(actor.player_id, input.operation, 'settings', player, fingerprint, after);
 

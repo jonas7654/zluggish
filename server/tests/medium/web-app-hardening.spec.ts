@@ -1,3 +1,4 @@
+import { ActivitiesService } from '#src/services/activities.service';
 import { JobsService } from '#src/services/jobs.service';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -281,13 +282,21 @@ await test('imported activities without completion records rebuild missing chart
     .run(f.rider.player_id, 'Imported ride', fit);
 
   assert.equal(f.accounts.db.prepare('SELECT count(*) AS n FROM activity_completion').get()?.n, 0);
-  const pending = f.services.activities.ownDetail(f.rider.player_id, String(id));
+
+  const pending = f.effects.runSync(
+    ActivitiesService.use((service) => service.ownDetail(f.rider.player_id, String(id))),
+  );
+
   assert.equal(pending.chartPending, true);
   // Repeated detail requests must share the same pending chart job.
-  f.services.activities.ownDetail(f.rider.player_id, String(id));
+  f.effects.runSync(ActivitiesService.use((service) => service.ownDetail(f.rider.player_id, String(id))));
   assert.equal(f.accounts.db.prepare("SELECT count(*) AS n FROM job WHERE type='chart'").get()?.n, 1);
   await f.effects.runPromise(JobsService.use((service) => service.drain()));
-  const detail = f.services.activities.ownDetail(f.rider.player_id, String(id));
+
+  const detail = f.effects.runSync(
+    ActivitiesService.use((service) => service.ownDetail(f.rider.player_id, String(id))),
+  );
+
   assert.equal(detail.chartPending, false);
   assert.ok(detail.chart.timeInSec.length > 0);
 });
@@ -312,7 +321,9 @@ await test('web app lists an activity whose Strava ids exceed 32 bits', async (t
   });
 
   const { id } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await posted.json());
-  f.services.activities.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }));
+  f.effects.runSync(
+    ActivitiesService.use((service) => service.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }))),
+  );
   const { id: session } = f.services.management.sessions.create(f.accounts.identityOf(f.rider));
 
   const list = await web.request('http://local:8080/api/me/activities', {
@@ -349,8 +360,15 @@ await test('riders list, inspect and download only their own activities in the w
   });
 
   const { id } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await posted.json());
-  f.services.activities.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }));
-  const image = await f.services.activities.saveImage(f.rider.player_id, String(id), new Uint8Array([0xff, 0xd8, 1]));
+  f.effects.runSync(
+    ActivitiesService.use((service) => service.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }))),
+  );
+
+  const image = await f.effects.runPromise(
+    ActivitiesService.use((service) =>
+      service.saveImage(f.rider.player_id, String(id), new Uint8Array([0xff, 0xd8, 1])),
+    ),
+  );
 
   const as = (rider: typeof f.rider) => {
     const { id: session } = f.services.management.sessions.create(f.accounts.identityOf(rider));

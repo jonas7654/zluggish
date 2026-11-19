@@ -1,3 +1,4 @@
+import { ActivitiesService } from '#src/services/activities.service';
 import { JobsService } from '#src/services/jobs.service';
 import { Effect } from 'effect';
 import { WorkoutsService } from '#src/services/workout.service';
@@ -263,7 +264,7 @@ async function avatar(browser: Browser, [sky, sun, hills]: [string, string, stri
 
 // Connected services with fictional credentials, and the latest rides delivered to them.
 function connect(f: Fixture, player: number) {
-  const { activities } = f.services;
+  const activities = f.effects.runSync(ActivitiesService);
   const connections = f.effects.runSync(ConnectionsService);
   const documents = f.effects.runSync(DocumentsService);
   f.effects.runSync(connections.save(player, 'strava', ['184203', 'not-a-real-strava-secret']));
@@ -277,7 +278,7 @@ function connect(f: Fixture, player: number) {
     "INSERT INTO activity_upload (activity_id, provider, state, updated_at) VALUES (?, ?, 'sent', ?)",
   );
 
-  for (const activity of activities.own(player).slice(0, 3))
+  for (const activity of f.effects.runSync(activities.own(player)).slice(0, 3))
     for (const provider of ['strava', 'garmin', 'intervals']) upload.run(Number(activity.id), provider, Date.now());
 }
 

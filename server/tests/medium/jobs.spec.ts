@@ -1,3 +1,4 @@
+import { ActivitiesService } from '#src/services/activities.service';
 import { RuntimeContext } from '#src/context';
 import { DocumentsService } from '#src/services/documents.service';
 import { immediate } from '#src/db/transaction';
@@ -42,7 +43,9 @@ async function completed(f: Awaited<ReturnType<typeof mediumFixture>>) {
   });
 
   const { id } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await response.json());
-  f.services.activities.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }));
+  f.effects.runSync(
+    ActivitiesService.use((service) => service.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }))),
+  );
 
   return id;
 }
@@ -137,7 +140,7 @@ await test('a delivery lease expiry does not authorize a second send', async (t)
   });
 
   const jobs = jobRunner(f);
-  new UploadsService(f).registerJobs(jobs);
+  f.effects.runSync(UploadsService.use((uploads) => uploads.registerJobs(jobs)));
 
   const first = repository.claim('delivery', 50);
   assert.ok(first);
@@ -146,7 +149,10 @@ await test('a delivery lease expiry does not authorize a second send', async (t)
   // The send follows a durable flush, which can take more than one tick on slow file systems.
   await sent.promise;
   assert.equal(sends.mock.callCount(), 1);
-  assert.equal(f.services.uploads.status(f.rider.player_id)[0]?.state, 'sending');
+  assert.equal(
+    f.effects.runSync(UploadsService.use((service) => service.status(f.rider.player_id)))[0]?.state,
+    'sending',
+  );
 
   // The lease expires during the request: a replacement claim must not send again.
   await new Promise((resolve) => setTimeout(resolve, 60));
@@ -154,12 +160,15 @@ await test('a delivery lease expiry does not authorize a second send', async (t)
   assert.ok(second);
   await Effect.runPromise(jobs.run(second));
   assert.equal(sends.mock.callCount(), 1);
-  assert.equal(f.services.uploads.status(f.rider.player_id)[0]?.state, 'ambiguous');
+  assert.equal(
+    f.effects.runSync(UploadsService.use((service) => service.status(f.rider.player_id)))[0]?.state,
+    'ambiguous',
+  );
 
   // The first attempt then learns the provider accepted it: that result is recorded.
   gate.resolve(new Response(null, { status: 200 }));
   await sending;
-  assert.equal(f.services.uploads.status(f.rider.player_id)[0]?.state, 'sent');
+  assert.equal(f.effects.runSync(UploadsService.use((service) => service.status(f.rider.player_id)))[0]?.state, 'sent');
   assert.equal(sends.mock.callCount(), 1);
   assert.equal(id > 0, true);
 });

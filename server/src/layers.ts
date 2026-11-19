@@ -25,11 +25,16 @@ import { JobsService } from '#src/services/jobs.service';
 import { ImportsService } from '#src/services/profile-import.service';
 import { DurabilityService } from '#src/services/durability.service';
 import { RetentionService } from '#src/services/retention.service';
+import { UploadsService } from '#src/services/uploads.service';
+import { ActivitiesService } from '#src/services/activities.service';
+import { RideRecoveryService } from '#src/services/ride-recovery.service';
+import { RideCompletionService } from '#src/services/ride-completion.service';
 import { Layer, ManagedRuntime } from 'effect';
 
 /** Services that use only repositories. */
 const foundationLayer = Layer.mergeAll(
   StreakService.layer,
+  WorkoutsService.layer,
   JobsService.layer,
   ImportsService.layer,
   DurabilityService.layer,
@@ -42,10 +47,15 @@ const foundationLayer = Layer.mergeAll(
   DocumentsService.layer,
 );
 
+/** Uploads, which the account and activity services below cancel and query. */
+const uploadsLayer = UploadsService.layer.pipe(Layer.provideMerge(foundationLayer));
+
 /** Every application service, built from the runtime context. Each tier may use the ones below it. */
 export const servicesLayer = Layer.mergeAll(
-  WorkoutsService.layer,
   ProfilesService.layer,
+  ActivitiesService.layer,
+  RideRecoveryService.layer,
+  RideCompletionService.layer,
   RetentionService.layer,
   ConnectionsService.layer,
   IntegrationsService.layer,
@@ -58,13 +68,17 @@ export const servicesLayer = Layer.mergeAll(
   GoalService.layer,
   SettingsService.layer,
   RecordsService.layer,
-).pipe(Layer.provideMerge(foundationLayer));
+).pipe(Layer.provideMerge(uploadsLayer));
 
 /** Every service an application effect may use. Listed rather than inferred: the runtime context
 refers to the runtime, so an inferred type would be circular.
 */
 export type AppServices =
   | RuntimeContext
+  | UploadsService
+  | ActivitiesService
+  | RideRecoveryService
+  | RideCompletionService
   | JobsService
   | ImportsService
   | DurabilityService

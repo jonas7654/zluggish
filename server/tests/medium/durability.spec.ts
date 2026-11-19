@@ -1,3 +1,5 @@
+import { UploadsService } from '#src/services/uploads.service';
+import { ActivitiesService } from '#src/services/activities.service';
 import { JobsService } from '#src/services/jobs.service';
 import { DurabilityService } from '#src/services/durability.service';
 import { DocumentsService } from '#src/services/documents.service';
@@ -73,7 +75,10 @@ await test('a delivery flushes its sending state before the provider request', a
   const flush = DurabilityRepository.prototype.flush;
 
   t.mock.method(DurabilityRepository.prototype, 'flush', function (this: DurabilityRepository) {
-    if (f.accounts.db.isOpen) order.push(`flush:${f.services.uploads.status(f.rider.player_id)[0]?.state ?? 'none'}`);
+    if (f.accounts.db.isOpen)
+      order.push(
+        `flush:${f.effects.runSync(UploadsService.use((service) => service.status(f.rider.player_id)))[0]?.state ?? 'none'}`,
+      );
 
     return flush.call(this);
   });
@@ -99,7 +104,9 @@ await test('a delivery flushes its sending state before the provider request', a
   });
 
   const { id } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await response.json());
-  f.services.activities.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }));
+  f.effects.runSync(
+    ActivitiesService.use((service) => service.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }))),
+  );
   order.length = 0;
   await f.effects.runPromise(JobsService.use((service) => service.drain()));
   assert.deepEqual(order.slice(0, 2), ['flush:sending', 'send']);

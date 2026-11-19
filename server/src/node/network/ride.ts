@@ -1,3 +1,4 @@
+import { RideCompletionService } from '#src/services/ride-completion.service';
 import { DocumentsService } from '#src/services/documents.service';
 import type { Runtime } from '#src/http/runtime';
 import type { InitializationVector } from '#src/node/network/packet';
@@ -56,7 +57,7 @@ export function startRideListeners(runtime: Runtime) {
       relay.acceptUdp(decoded.iv.connection, decoded.fields.connection, decoded.fields.sequence);
       world.lifecycle.connected(id);
 
-      runtime.services.rideCompletion.touch(Number(id));
+      runtime.effects.runSync(RideCompletionService.use((service) => service.touch(Number(id))));
 
       if (incoming.state) world.receive(id, incoming.state);
 
@@ -141,14 +142,19 @@ export function startRideListeners(runtime: Runtime) {
 
             const rider = runtime.accounts.get(id);
 
-            if (!rider || (!rider.enabled && !runtime.services.rideCompletion.relay(id)))
+            if (
+              !rider ||
+              (!rider.enabled && !runtime.effects.runSync(RideCompletionService.use((service) => service.relay(id))))
+            )
               throw new Error('Unknown rider');
 
             // The stored relay key lets a restarted server accept the existing session.
             const current = world.relays.get(playerId);
 
             if (current && rider.enabled) {
-              runtime.services.rideCompletion.persistRelay(id, current.key, rider.auth_version);
+              runtime.effects.runSync(
+                RideCompletionService.use((service) => service.persistRelay(id, current.key, rider.auth_version)),
+              );
             } else {
               const key = runtime.effects.runSync(
                 DocumentsService.use((documents) => documents.get(id, 'encryption_key.bin')),
@@ -181,9 +187,12 @@ export function startRideListeners(runtime: Runtime) {
           if (incoming.playerId !== playerId) throw new Error('Mismatched relay identity');
           const account = runtime.accounts.get(Number(playerId));
 
-          if (!account?.enabled && !runtime.services.rideCompletion.relay(Number(playerId)))
+          if (
+            !account?.enabled &&
+            !runtime.effects.runSync(RideCompletionService.use((service) => service.relay(Number(playerId))))
+          )
             throw new Error('Relay revoked');
-          runtime.services.rideCompletion.touch(Number(playerId));
+          runtime.effects.runSync(RideCompletionService.use((service) => service.touch(Number(playerId))));
           world.lifecycle.connected(playerId);
           const hello = first || decoded.fields.connection !== undefined;
 

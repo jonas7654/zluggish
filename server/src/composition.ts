@@ -12,22 +12,13 @@ export function createServices(context: RepositoryContext) {
   context.world.lifecycle.log = logging.child({ component: 'server' });
   context.world.lifecycle.intervalSeconds = context.config.logging.rideProgressIntervalSeconds;
 
-  const rideCompletion = new RideCompletionService(context);
-  context.accounts.onRevoke = (id) => rideCompletion.cancel(id);
+  const rideCompletion = context.bridge!.runSync(RideCompletionService);
 
   const services = {
-    rideCompletion,
     accounts: context.accounts,
     management: new ManagementService(context, rideCompletion),
     sessions: context.sessions,
-    uploads: new UploadsService(context),
-    activities: new ActivitiesService(context),
-    recovery: new RideRecoveryService(context),
   };
-
-  const jobs = context.bridge!.runSync(JobsService);
-  services.activities.registerJobs(jobs);
-  services.uploads.registerJobs(jobs);
 
   return services;
 }

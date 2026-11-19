@@ -1,3 +1,5 @@
+import { UploadsService } from '#src/services/uploads.service';
+import { ActivitiesService } from '#src/services/activities.service';
 import { FitnessService } from '#src/services/fitness.service';
 import { StorageService } from '#src/services/storage.service';
 import { RecordsService } from '#src/services/records.service';
@@ -81,12 +83,13 @@ await test('the main queries use an index on several years of history', async (t
 
   const rider = riders[0];
   assert.ok(rider);
-  const services = f.services;
-  services.activities.recentActivities(rider.player_id, rider.player_id);
-  services.activities.activityFeed(null, null, 0, rider.player_id, 50);
-  services.activities.activityFeed(rider.player_id, '1000', 0, rider.player_id, 50);
-  services.activities.activityById('100');
-  services.activities.findActivity(100n, rider.player_id);
+  f.effects.runSync(ActivitiesService.use((service) => service.recentActivities(rider.player_id, rider.player_id)));
+  f.effects.runSync(ActivitiesService.use((service) => service.activityFeed(null, null, 0, rider.player_id, 50)));
+  f.effects.runSync(
+    ActivitiesService.use((service) => service.activityFeed(rider.player_id, '1000', 0, rider.player_id, 50)),
+  );
+  f.effects.runSync(ActivitiesService.use((service) => service.activityById('100')));
+  f.effects.runSync(ActivitiesService.use((service) => service.findActivity(100n, rider.player_id)));
   f.effects.runSync(
     Effect.gen(function* () {
       const records = yield* RecordsService;
@@ -104,7 +107,7 @@ await test('the main queries use an index on several years of history', async (t
       yield* fitness.powerCurve(rider.player_id, 'all', 90);
     }),
   );
-  services.uploads.status(rider.player_id);
+  f.effects.runSync(UploadsService.use((service) => service.status(rider.player_id)));
   f.accounts.repositories.uploadsRepository.waiting();
   f.accounts.repositories.jobsRepository.ready();
   f.effects.runSync(StorageService.use((storage) => storage.list(rider.player_id, 'customworkouts')));

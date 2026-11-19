@@ -1,5 +1,5 @@
+import { RuntimeContext } from '#src/context';
 import { activityMediaSchema } from '#src/dtos/activities.dto';
-import { type RepositoryContext } from '#src/context';
 import { ApplicationError } from '#src/errors';
 import { ActivitySchema, FitnessPrivacy, type Activity } from '#src/protocol/generated/activity_pb';
 import { ActivityPrivacyType, Sport, StreaksSchema } from '#src/protocol/generated/profile_pb';
@@ -7,9 +7,9 @@ import { GhostSchema, WA_TYPE, WorldAttributeSchema } from '#src/protocol/genera
 import { ActivitiesRepository } from '#src/repositories/activities.repository';
 import { immediate } from '#src/db/transaction';
 import { Metric, metrics } from '#src/repositories/metrics.repository';
-import { BaseService } from '#src/services/base.service';
 import type { RunningJob } from '#src/repositories/jobs.repository';
-import type { JobHandler, JobsService } from '#src/services/jobs.service';
+import { JobsService } from '#src/services/jobs.service';
+import type { JobHandler } from '#src/services/jobs.service';
 import type { JobType } from '#src/enum';
 import { FitService } from '#src/services/fit.service';
 import { SettingsService } from '#src/services/settings.service';
@@ -18,7 +18,7 @@ import { UploadsService } from '#src/services/uploads.service';
 import { course, worldTime } from '#src/world/state';
 import { clearField, clone, create, toBinary } from '@bufbuild/protobuf';
 import { dirname, resolve } from 'node:path';
-import { Effect, Option, Schema } from 'effect';
+import { Context, Effect, Layer, Option, Schema } from 'effect';
 
 /** Comma-separated identifiers in a job payload. */
 function identifiers(job: RunningJob, key: string) {
@@ -29,19 +29,72 @@ function ids(rows: readonly { id: number }[]) {
   return rows.map((row) => row.id).join(',');
 }
 
-export class ActivitiesService extends BaseService {
-  private readonly mediaTokens = new Map<string, { token: Buffer; expires: number; status: 'issued' | 'receiving' }>();
+function withoutFit(activity: Activity) {
+  const stripped = clone(ActivitySchema, activity);
+  clearField(stripped, ActivitySchema.field.fit);
 
-  issueMedia(id: string) {
-    for (const [key, entry] of this.mediaTokens) if (entry.expires < Date.now()) this.mediaTokens.delete(key);
+  return stripped;
+}
+
+/** The owner sees every activity; other riders see public ones. */
+function visible(activity: Activity, viewer: number) {
+  return (
+    activity.playerId === BigInt(viewer) ||
+    (!activity.privateActivity && activity.privacy === ActivityPrivacyType.PUBLIC)
+  );
+}
+
+function fitnessVisible(activity: Activity, viewer: number) {
+  return (
+    visible(activity, viewer) &&
+    (activity.playerId === BigInt(viewer) || activity.fitnessPrivacy !== FitnessPrivacy.HIDE_SENSITIVE_DATA)
+  );
+}
+
+/** The activity as viewer may see it: a public summary hides sensitive fitness data. */
+function forViewer(activity: Activity, viewer: number) {
+  if (!visible(activity, viewer)) throw new ApplicationError({ status: 404 });
+
+  if (fitnessVisible(activity, viewer)) return activity;
+
+  // Construct a public summary: unknown/future protobuf fields must not leak either.
+  return create(ActivitySchema, {
+    id: activity.id,
+    playerId: activity.playerId,
+    courseId: activity.courseId,
+    name: activity.name,
+    startDate: activity.startDate,
+    endDate: activity.endDate,
+    distanceInMeters: activity.distanceInMeters,
+    totalElevation: activity.totalElevation,
+    sport: activity.sport,
+    date: activity.date,
+    privacy: activity.privacy,
+    fitnessPrivacy: activity.fitnessPrivacy,
+    movingTimeInMs: activity.movingTimeInMs,
+  });
+}
+
+const make = Effect.gen(function* () {
+  const context = yield* RuntimeContext;
+  const repositories = context.accounts.repositories;
+  const uploadsService = yield* UploadsService;
+  const streakService = yield* StreakService;
+  const fitService = yield* FitService;
+  const jobs = yield* JobsService;
+
+  const mediaTokens = new Map<string, { token: Buffer; expires: number; status: 'issued' | 'receiving' }>();
+
+  function issueMedia(id: string) {
+    for (const [key, entry] of mediaTokens) if (entry.expires < Date.now()) mediaTokens.delete(key);
 
     const entry = {
-      token: this.cryptoRepository.randomBytes(32),
+      token: repositories.cryptoRepository.randomBytes(32),
       expires: Date.now() + 900_000,
       status: 'issued' as const,
     };
 
-    this.mediaTokens.set(id, entry);
+    mediaTokens.set(id, entry);
 
     return entry;
   }
@@ -49,62 +102,59 @@ export class ActivitiesService extends BaseService {
   /** issued -> receiving -> consumed; a failed write releases the claim for retry.
   Validate again after reading the body: deleting the activity must not recreate its media.
   */
-  async receiveMedia(id: string, token: Buffer, read: () => Promise<ArrayBuffer>) {
-    const entry = this.mediaTokens.get(id);
+  async function receiveMedia(id: string, token: Buffer, read: () => Promise<ArrayBuffer>) {
+    const entry = mediaTokens.get(id);
 
     if (
       !entry ||
       entry.status !== 'issued' ||
       entry.expires < Date.now() ||
       token.length !== entry.token.length ||
-      !this.cryptoRepository.timingSafeEqual(token, entry.token)
+      !repositories.cryptoRepository.timingSafeEqual(token, entry.token)
     )
       throw new ApplicationError({ status: 403 });
     entry.status = 'receiving';
 
     try {
-      if (!this.activitiesRepository.findActivityMedia(id)) throw new ApplicationError({ status: 404 });
+      if (!repositories.activitiesRepository.findActivityMedia(id)) throw new ApplicationError({ status: 404 });
       const bytes = new Uint8Array(await read());
 
-      if (this.mediaTokens.get(id) !== entry || entry.expires < Date.now()) throw new ApplicationError({ status: 403 });
-      const row = Schema.decodeUnknownOption(activityMediaSchema)(this.activitiesRepository.findActivityMedia(id));
+      if (mediaTokens.get(id) !== entry || entry.expires < Date.now()) throw new ApplicationError({ status: 403 });
+
+      const row = Schema.decodeUnknownOption(activityMediaSchema)(
+        repositories.activitiesRepository.findActivityMedia(id),
+      );
 
       if (Option.isNone(row)) throw new ApplicationError({ status: 404 });
       const extension = row.value.content_type.includes('quicktime') ? 'mov' : 'mp4';
-      const path = resolve(this.context.profiles.folder(row.value.player_id), 'medias', `${id}.${extension}`);
-      await this.filesRepository.writeDurableAsync(path, bytes, true);
+      const path = resolve(context.profiles.folder(row.value.player_id), 'medias', `${id}.${extension}`);
+      await repositories.filesRepository.writeDurableAsync(path, bytes, true);
 
       // The file is durable before the row is ready. The activity can be deleted while
       // the write runs: then the file is removed, not kept as an orphan.
-      if (!this.activitiesRepository.mediaState('activity_media', id, 'ready')) {
-        await this.filesRepository.removeAsync(path);
+      if (!repositories.activitiesRepository.mediaState('activity_media', id, 'ready')) {
+        await repositories.filesRepository.removeAsync(path);
         throw new ApplicationError({ status: 404 });
       }
 
-      this.mediaTokens.delete(id);
+      mediaTokens.delete(id);
     } catch (error) {
-      if (this.mediaTokens.get(id) === entry) entry.status = 'issued';
+      if (mediaTokens.get(id) === entry) entry.status = 'issued';
       throw error;
     }
-  }
-
-  constructor(private readonly context: RepositoryContext) {
-    super(context.accounts.repositories);
   }
 
   /** A completed activity is immutable: the same save returns the existing result;
   a changed payload or FIT payload is a conflict.
   */
-  finalized(activity: Activity) {
-    const saved = this.completionRepository.get(activity.id);
+  function finalized(activity: Activity) {
+    const saved = repositories.completionRepository.get(activity.id);
 
     if (!saved) return false;
-    const stored = this.activitiesRepository.fit(activity.id)?.fit ?? new Uint8Array();
+    const stored = repositories.activitiesRepository.fit(activity.id)?.fit ?? new Uint8Array();
 
     if (
-      !Buffer.from(saved.payload).equals(
-        Buffer.from(toBinary(ActivitySchema, ActivitiesService.withoutFit(activity))),
-      ) ||
+      !Buffer.from(saved.payload).equals(Buffer.from(toBinary(ActivitySchema, withoutFit(activity)))) ||
       !Buffer.from(stored).equals(Buffer.from(activity.fit))
     )
       throw new ApplicationError({ status: 409, message: 'Completed activities cannot be replaced.' });
@@ -112,53 +162,46 @@ export class ActivitiesService extends BaseService {
     return true;
   }
 
-  static withoutFit(activity: Activity) {
-    const stripped = clone(ActivitySchema, activity);
-    clearField(stripped, ActivitySchema.field.fit);
+  let turn = Promise.resolve();
 
-    return stripped;
-  }
-
-  private turn = Promise.resolve();
-
-  private queued = 0;
+  let queuedSaves = 0;
 
   /** Saves from requests run one per event-loop turn: a group of riders that finish
   together cannot hold the main thread for the whole group.
   */
-  saveInTurn(activity: Activity, finish: boolean, validate: () => boolean | void = () => {}) {
+  function saveInTurn(activity: Activity, finish: boolean, validate: () => boolean | void = () => {}) {
     const queued = performance.now();
-    metrics.record(Metric.QueueDepth, ++this.queued);
+    metrics.record(Metric.QueueDepth, ++queuedSaves);
 
-    const result = this.turn
+    const result = turn
       .then(() => new Promise<void>((resolve) => setImmediate(resolve)))
       .then(() => {
-        this.queued--;
+        queuedSaves--;
         metrics.record(Metric.QueueWait, performance.now() - queued);
 
         if (validate() === false) return 'unchanged';
 
-        return this.save(activity, finish);
+        return save(activity, finish);
       });
 
-    this.turn = result.then(() => {}).catch(() => {});
+    turn = result.then(() => {}).catch(() => {});
 
     return result;
   }
 
   /** Draft edits, durable completion and discard are distinct from ending a ride. */
-  save(activity: Activity, finish: boolean) {
-    if (this.finalized(activity)) return 'unchanged';
+  function save(activity: Activity, finish: boolean) {
+    if (finalized(activity)) return 'unchanged';
 
     if (!finish) {
-      this.protobufRepository.update('activity', activity.id, ActivitySchema, activity, ['fit']);
+      repositories.protobufRepository.update('activity', activity.id, ActivitySchema, activity, ['fit']);
 
       return 'updated';
     }
 
     if (activity.distanceInMeters < 1) {
-      this.deleteActivity(activity.id, Number(activity.playerId));
-      this.context.world.lifecycle.log.info('activity.discarded', 'Activity discarded', {
+      deleteActivity(activity.id, Number(activity.playerId));
+      context.world.lifecycle.log.info('activity.discarded', 'Activity discarded', {
         playerId: Number(activity.playerId),
         activityId: activity.id,
       });
@@ -166,16 +209,16 @@ export class ActivitiesService extends BaseService {
       return 'discarded';
     }
 
-    this.finalize(activity);
+    finalize(activity);
 
     return 'completed';
   }
 
-  finalize(activity: Activity) {
+  function finalize(activity: Activity) {
     try {
-      if (!this.complete(activity)) return;
+      if (!complete(activity)) return;
     } catch (error) {
-      this.context.world.lifecycle.log.error('activity.save_failed', 'Activity save failed', {
+      context.world.lifecycle.log.error('activity.save_failed', 'Activity save failed', {
         playerId: activity.playerId,
         activityId: activity.id,
         recoverable: true,
@@ -184,7 +227,7 @@ export class ActivitiesService extends BaseService {
       throw error;
     }
 
-    this.context.world.lifecycle.log.info('activity.saved', 'Activity saved', {
+    context.world.lifecycle.log.info('activity.saved', 'Activity saved', {
       playerId: activity.playerId,
       activityId: activity.id,
     });
@@ -194,51 +237,45 @@ export class ActivitiesService extends BaseService {
   completion record, delivery records and the jobs that publish optional artifacts.
   Provider requests, FIT processing and file writes run after the commit.
   */
-  private complete(activity: Activity) {
+  function complete(activity: Activity) {
     const player = Number(activity.playerId);
     const id = Number(activity.id);
-    const history = this.context.world.histories.get(activity.playerId) ?? [];
+    const history = context.world.histories.get(activity.playerId) ?? [];
 
-    const settings = SettingsService.resolveRiderSettings(
-      this.context.config.riderDefaults,
-      this.context.settings.read(player),
-    );
+    const settings = SettingsService.resolveRiderSettings(context.config.riderDefaults, context.settings.read(player));
 
-    const providers = new UploadsService(this.context).configured(player);
+    const providers = Effect.runSync(uploadsService.configured(player));
     const progresses = activity.sport === Sport.CYCLING && activity.distanceInMeters >= 2000;
 
-    const committed = immediate(this.repositories.db, () => {
+    const committed = immediate(repositories.db, () => {
       // A concurrent finalization committed first: return its result unchanged.
-      if (this.finalized(activity)) return null;
-      this.protobufRepository.update('activity', activity.id, ActivitySchema, activity, ['fit']);
-      this.activitiesRepository.setFit(activity.id, activity.fit);
+      if (finalized(activity)) return null;
+      repositories.protobufRepository.update('activity', activity.id, ActivitySchema, activity, ['fit']);
+      repositories.activitiesRepository.setFit(activity.id, activity.fit);
 
       const advanced = progresses
-        ? StreakService.advancedStreak(
-            this.context.bridge!.runSync(StreakService.use((streaks) => streaks.streaksFor(player))),
-            activity,
-          )
+        ? StreakService.advancedStreak(Effect.runSync(streakService.streaksFor(player)), activity)
         : null;
 
-      if (advanced) this.streakRepository.saveStreaks(player, advanced);
+      if (advanced) repositories.streakRepository.saveStreaks(player, advanced);
       const snapshot = advanced ? toBinary(StreaksSchema, advanced) : null;
 
-      this.completionRepository.insert(
+      repositories.completionRepository.insert(
         activity.id,
         player,
-        toBinary(ActivitySchema, ActivitiesService.withoutFit(activity)),
+        toBinary(ActivitySchema, withoutFit(activity)),
         snapshot,
       );
 
       for (const provider of providers)
-        if (this.uploadsRepository.insert(id, provider))
-          this.jobsRepository.enqueue('delivery', { activityId: id, provider });
+        if (repositories.uploadsRepository.insert(id, provider))
+          repositories.jobsRepository.enqueue('delivery', { activityId: id, provider });
 
       if (activity.fit.length > 0) {
-        this.jobsRepository.enqueue('power_curve', { activityId: id });
-        this.jobsRepository.enqueue('fit_export', { activityId: id });
-        const file = Number(this.activitiesRepository.insertActivityFile(activity.id).lastInsertRowid);
-        this.jobsRepository.enqueue('chart', { activityId: id, fileId: file });
+        repositories.jobsRepository.enqueue('power_curve', { activityId: id });
+        repositories.jobsRepository.enqueue('fit_export', { activityId: id });
+        const file = Number(repositories.activitiesRepository.insertActivityFile(activity.id).lastInsertRowid);
+        repositories.jobsRepository.enqueue('chart', { activityId: id, fileId: file });
       }
 
       return { streak: snapshot };
@@ -251,10 +288,10 @@ export class ActivitiesService extends BaseService {
     const state = history.at(-1);
 
     if (state && settings.ghosts.enabled)
-      void this.filesRepository
+      void repositories.filesRepository
         .writeDurableAsync(
           resolve(
-            this.context.profiles.folder(player),
+            context.profiles.folder(player),
             'ghosts',
             String(course(state)),
             ...(state.route
@@ -266,14 +303,14 @@ export class ActivitiesService extends BaseService {
           true,
         )
         .catch(() => {
-          this.context.world.lifecycle.log.warn('activity.ghost_unavailable', 'Ghost recording not saved', {
+          context.world.lifecycle.log.warn('activity.ghost_unavailable', 'Ghost recording not saved', {
             activityId: activity.id,
             playerId: activity.playerId,
           });
         });
 
     if (committed.streak)
-      this.context.world.enqueue(
+      context.world.enqueue(
         create(WorldAttributeSchema, {
           serverRealm: 1n,
           waType: WA_TYPE.PLAYER_FITNESS_METRICS_UPDATED,
@@ -287,140 +324,103 @@ export class ActivitiesService extends BaseService {
     return true;
   }
 
-  findActivity(...values: Parameters<ActivitiesRepository['findActivity']>) {
-    return this.activitiesRepository.findActivity(...values);
+  function findActivity(...values: Parameters<ActivitiesRepository['findActivity']>) {
+    return repositories.activitiesRepository.findActivity(...values);
   }
 
   /** The rows go in one transaction with a cleanup job; the job removes the files.
   Historical streak and power-curve contributions stay.
   */
-  deleteActivity(id: bigint, player: number) {
-    immediate(this.repositories.db, () => {
-      if (!this.activitiesRepository.findActivity(id, player)) throw new ApplicationError({ status: 404 });
+  function deleteActivity(id: bigint, player: number) {
+    immediate(repositories.db, () => {
+      if (!repositories.activitiesRepository.findActivity(id, player)) throw new ApplicationError({ status: 404 });
 
       const payload = {
         activityId: Number(id),
         playerId: player,
         charts: ids(
           Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ id: Schema.Finite })))(
-            this.activitiesRepository.listActivityFile(id),
+            repositories.activitiesRepository.listActivityFile(id),
           ),
         ),
         images: ids(
           Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ id: Schema.Finite })))(
-            this.activitiesRepository.listActivityImage(player, id),
+            repositories.activitiesRepository.listActivityImage(player, id),
           ),
         ),
         media: ids(
           Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ id: Schema.Finite })))(
-            this.activitiesRepository.listActivityMedia(player, id),
+            repositories.activitiesRepository.listActivityMedia(player, id),
           ),
         ),
       };
 
-      this.activitiesRepository.deleteActivityData(id, player);
-      this.jobsRepository.enqueue('artifact_cleanup', payload);
+      repositories.activitiesRepository.deleteActivityData(id, player);
+      repositories.jobsRepository.enqueue('artifact_cleanup', payload);
     });
   }
 
-  visible(activity: Activity, viewer: number) {
-    return (
-      activity.playerId === BigInt(viewer) ||
-      (!activity.privateActivity && activity.privacy === ActivityPrivacyType.PUBLIC)
-    );
+  function findActivityFile(...values: Parameters<ActivitiesRepository['findActivityFile']>) {
+    return repositories.activitiesRepository.findActivityFile(...values);
   }
 
-  fitnessVisible(activity: Activity, viewer: number) {
-    return (
-      this.visible(activity, viewer) &&
-      (activity.playerId === BigInt(viewer) || activity.fitnessPrivacy !== FitnessPrivacy.HIDE_SENSITIVE_DATA)
-    );
+  function insertActivityFile(...values: Parameters<ActivitiesRepository['insertActivityFile']>) {
+    return repositories.activitiesRepository.insertActivityFile(...values);
   }
 
-  forViewer(activity: Activity, viewer: number) {
-    if (!this.visible(activity, viewer)) throw new ApplicationError({ status: 404 });
-
-    if (this.fitnessVisible(activity, viewer)) return activity;
-
-    // Construct a public summary: unknown/future protobuf fields must not leak either.
-    return create(ActivitySchema, {
-      id: activity.id,
-      playerId: activity.playerId,
-      courseId: activity.courseId,
-      name: activity.name,
-      startDate: activity.startDate,
-      endDate: activity.endDate,
-      distanceInMeters: activity.distanceInMeters,
-      totalElevation: activity.totalElevation,
-      sport: activity.sport,
-      date: activity.date,
-      privacy: activity.privacy,
-      fitnessPrivacy: activity.fitnessPrivacy,
-      movingTimeInMs: activity.movingTimeInMs,
-    });
-  }
-
-  findActivityFile(...values: Parameters<ActivitiesRepository['findActivityFile']>) {
-    return this.activitiesRepository.findActivityFile(...values);
-  }
-
-  insertActivityFile(...values: Parameters<ActivitiesRepository['insertActivityFile']>) {
-    return this.activitiesRepository.insertActivityFile(...values);
-  }
-
-  findOwnedActivityFile(...values: Parameters<ActivitiesRepository['findOwnedActivityFile']>) {
-    return this.activitiesRepository.findOwnedActivityFile(...values);
+  function findOwnedActivityFile(...values: Parameters<ActivitiesRepository['findOwnedActivityFile']>) {
+    return repositories.activitiesRepository.findOwnedActivityFile(...values);
   }
 
   /** Reserve the row, write the file durably, then mark the row ready. */
-  async saveImage(player: number, activity: string, jpg: Uint8Array) {
-    const id = Number(this.activitiesRepository.insertActivityImage(player, activity).lastInsertRowid);
-    const path = resolve(this.context.profiles.folder(player), 'images', `${id}.jpg`);
+  async function saveImage(player: number, activity: string, jpg: Uint8Array) {
+    const id = Number(repositories.activitiesRepository.insertActivityImage(player, activity).lastInsertRowid);
+    const path = resolve(context.profiles.folder(player), 'images', `${id}.jpg`);
 
     try {
-      await this.filesRepository.writeDurableAsync(path, jpg, true);
+      await repositories.filesRepository.writeDurableAsync(path, jpg, true);
     } catch (error) {
-      this.activitiesRepository.mediaState('activity_image', id, 'failed');
+      repositories.activitiesRepository.mediaState('activity_image', id, 'failed');
       throw error;
     }
 
-    if (!this.activitiesRepository.mediaState('activity_image', id, 'ready')) {
-      await this.filesRepository.removeAsync(path);
+    if (!repositories.activitiesRepository.mediaState('activity_image', id, 'ready')) {
+      await repositories.filesRepository.removeAsync(path);
       throw new ApplicationError({ status: 404 });
     }
 
     return id;
   }
 
-  insertActivityMedia(...values: Parameters<ActivitiesRepository['insertActivityMedia']>) {
-    return this.activitiesRepository.insertActivityMedia(...values);
+  function insertActivityMedia(...values: Parameters<ActivitiesRepository['insertActivityMedia']>) {
+    return repositories.activitiesRepository.insertActivityMedia(...values);
   }
 
-  findActivityMedia(...values: Parameters<ActivitiesRepository['findActivityMedia']>) {
-    return this.activitiesRepository.findActivityMedia(...values);
+  function findActivityMedia(...values: Parameters<ActivitiesRepository['findActivityMedia']>) {
+    return repositories.activitiesRepository.findActivityMedia(...values);
   }
 
-  photos(player: number, activity: bigint) {
-    const folder = this.context.profiles.folder(player);
+  function photos(player: number, activity: bigint) {
+    const folder = context.profiles.folder(player);
 
     const paths = [];
 
     for (const row of Schema.decodeUnknownSync(
       Schema.Array(Schema.Struct({ id: Schema.Finite, state: Schema.String })),
-    )(this.activitiesRepository.listActivityImage(player, activity)))
+    )(repositories.activitiesRepository.listActivityImage(player, activity)))
       if (row.state === 'ready') paths.push(resolve(folder, 'images', `${row.id}.jpg`));
 
     for (const row of Schema.decodeUnknownSync(
       Schema.Array(Schema.Struct({ id: Schema.Finite, content_type: Schema.String, state: Schema.String })),
-    )(this.activitiesRepository.listActivityMedia(player, activity)))
+    )(repositories.activitiesRepository.listActivityMedia(player, activity)))
       if (row.state === 'ready')
         paths.push(resolve(folder, 'medias', `${row.id}.${row.content_type.includes('quicktime') ? 'mov' : 'mp4'}`));
 
-    return paths.filter((path) => this.filesRepository.existsSync(path));
+    return paths.filter((path) => repositories.filesRepository.existsSync(path));
   }
 
-  companion(activity: Activity, details = false) {
-    const profile = this.context.profiles.get(Number(activity.playerId));
+  function companion(activity: Activity, details = false) {
+    const profile = context.profiles.get(Number(activity.playerId));
 
     const moving = Date.parse(activity.endDate) - Date.parse(activity.startDate);
 
@@ -469,9 +469,9 @@ export class ActivitiesService extends BaseService {
   }
 
   /** A rider's own activities for the web app. The rider owns them, so fitness privacy does not apply. */
-  own(player: number, id?: string, page?: number) {
-    return this.activitiesRepository.ownActivities(player, id, page).map((row) => {
-      const activity = this.protobufRepository.decode(ActivitySchema, row);
+  function own(player: number, id?: string, page?: number) {
+    return repositories.activitiesRepository.ownActivities(player, id, page).map((row) => {
+      const activity = repositories.protobufRepository.decode(ActivitySchema, row);
       const elapsed = Date.parse(activity.endDate) - Date.parse(activity.startDate);
 
       return {
@@ -502,28 +502,28 @@ export class ActivitiesService extends BaseService {
   }
 
   /** One own activity with its ready images and chart. The chart is null while its job runs. */
-  ownDetail(player: number, id: string) {
-    const [activity] = this.own(player, id);
+  function ownDetail(player: number, id: string) {
+    const [activity] = own(player, id);
 
     if (!activity) throw new ApplicationError({ status: 404, message: 'Activity not found.' });
 
     const images = Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ id: Schema.Finite, state: Schema.String })))(
-      this.activitiesRepository.listActivityImage(player, id),
+      repositories.activitiesRepository.listActivityImage(player, id),
     )
       .filter((row) => row.state === 'ready')
       .map((row) => row.id);
 
-    const fileId = activity.fit ? this.chartFile(BigInt(id)) : null;
+    const fileId = activity.fit ? chartFile(BigInt(id)) : null;
 
     const chart =
-      fileId === null ? null : JSON.parse(this.filesRepository.readFileSync(this.chartPath(fileId), 'utf8'));
+      fileId === null ? null : JSON.parse(repositories.filesRepository.readFileSync(chartPath(fileId), 'utf8'));
 
     return { ...activity, imageIds: images, chart, chartPending: activity.fit && chart === null };
   }
 
   /** The canonical FIT payload of an own activity, with a filename safe for a download header. */
-  ownFit(player: number, id: string) {
-    const stored = this.activitiesRepository.fit(id);
+  function ownFit(player: number, id: string) {
+    const stored = repositories.activitiesRepository.fit(id);
 
     if (!stored?.fit || stored.player !== player)
       throw new ApplicationError({ status: 404, message: 'FIT file not found.' });
@@ -540,106 +540,106 @@ export class ActivitiesService extends BaseService {
   }
 
   /** A ready image of an own activity. */
-  ownImage(player: number, activity: string, image: number) {
+  function ownImage(player: number, activity: string, image: number) {
     const ready = Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ id: Schema.Finite, state: Schema.String })))(
-      this.activitiesRepository.listActivityImage(player, activity),
+      repositories.activitiesRepository.listActivityImage(player, activity),
     ).some((row) => row.id === image && row.state === 'ready');
 
-    const path = resolve(this.context.profiles.folder(player), 'images', `${image}.jpg`);
+    const path = resolve(context.profiles.folder(player), 'images', `${image}.jpg`);
 
-    if (!ready || !this.filesRepository.existsSync(path))
+    if (!ready || !repositories.filesRepository.existsSync(path))
       throw new ApplicationError({ status: 404, message: 'Image not found.' });
 
-    return this.filesRepository.readFileSync(path);
+    return repositories.filesRepository.readFileSync(path);
   }
 
-  recentActivities(...values: Parameters<ActivitiesRepository['recentActivities']>) {
-    return this.activitiesRepository.recentActivities(...values);
+  function recentActivities(...values: Parameters<ActivitiesRepository['recentActivities']>) {
+    return repositories.activitiesRepository.recentActivities(...values);
   }
 
-  activityById(...values: Parameters<ActivitiesRepository['activityById']>) {
-    return this.activitiesRepository.activityById(...values);
+  function activityById(...values: Parameters<ActivitiesRepository['activityById']>) {
+    return repositories.activitiesRepository.activityById(...values);
   }
 
-  activityFeed(...values: Parameters<ActivitiesRepository['activityFeed']>) {
-    return this.activitiesRepository.activityFeed(...values);
+  function activityFeed(...values: Parameters<ActivitiesRepository['activityFeed']>) {
+    return repositories.activitiesRepository.activityFeed(...values);
   }
 
-  activityChart(...args: Parameters<typeof FitService.activityChart>) {
+  function activityChart(...args: Parameters<typeof FitService.activityChart>) {
     return FitService.activityChart(...args);
   }
 
-  chart(bytes: Uint8Array) {
+  function chartNow(bytes: Uint8Array) {
     return FitService.chart(bytes);
   }
 
-  savePowerCurve(id: number, bytes: Uint8Array) {
-    this.context.bridge!.runSync(FitService.use((fit) => fit.savePowerCurve(id, bytes)));
+  function savePowerCurve(id: number, bytes: Uint8Array) {
+    Effect.runSync(fitService.savePowerCurve(id, bytes));
   }
 
-  updateStreaks(id: number, activity: Activity) {
-    this.context.bridge!.runSync(StreakService.use((streaks) => streaks.updateStreaks(id, activity)));
+  function updateStreaks(id: number, activity: Activity) {
+    Effect.runSync(streakService.updateStreaks(id, activity));
   }
 
   /** Recreate a rider's power curves from canonical FIT payloads, as jobs. */
-  rebuildPowerCurves(player: number) {
-    immediate(this.repositories.db, () => {
-      this.fitnessRepository.deletePowerCurve(player);
+  function rebuildPowerCurves(player: number) {
+    immediate(repositories.db, () => {
+      repositories.fitnessRepository.deletePowerCurve(player);
 
-      for (const activity of this.activitiesRepository.withFit(player))
-        this.jobsRepository.enqueue('power_curve', { activityId: activity });
+      for (const activity of repositories.activitiesRepository.withFit(player))
+        repositories.jobsRepository.enqueue('power_curve', { activityId: activity });
     });
   }
 
   /** The chart of a completed activity, or null while its job runs. */
-  chartFile(activity: bigint) {
-    const row = this.activitiesRepository.findActivityFile(activity);
+  function chartFile(activity: bigint) {
+    const row = repositories.activitiesRepository.findActivityFile(activity);
     const fileId = row ? Schema.decodeUnknownSync(Schema.Finite)(row.id) : null;
 
-    if (fileId !== null && this.filesRepository.existsSync(this.chartPath(fileId))) return fileId;
+    if (fileId !== null && repositories.filesRepository.existsSync(chartPath(fileId))) return fileId;
 
     // Imported activities can have a canonical FIT payload without a completion record.
-    if (!this.activitiesRepository.fit(activity)?.fit?.length) return null;
+    if (!repositories.activitiesRepository.fit(activity)?.fit?.length) return null;
 
-    immediate(this.repositories.db, () => {
-      const id = fileId ?? Number(this.activitiesRepository.insertActivityFile(activity).lastInsertRowid);
-      this.jobsRepository.enqueueOnce('chart', { activityId: Number(activity), fileId: id });
+    immediate(repositories.db, () => {
+      const id = fileId ?? Number(repositories.activitiesRepository.insertActivityFile(activity).lastInsertRowid);
+      repositories.jobsRepository.enqueueOnce('chart', { activityId: Number(activity), fileId: id });
     });
 
     return null;
   }
 
-  chartPath(fileId: number) {
-    return resolve(this.context.config.storageDir, 'activities', String(fileId));
+  function chartPath(fileId: number) {
+    return resolve(context.config.storageDir, 'activities', String(fileId));
   }
 
-  exportPath(player: number, activity: number, filename: string) {
+  function exportPath(player: number, activity: number, filename: string) {
     const name =
       filename
         .normalize('NFKD')
         .replaceAll(/[^\w. -]/g, '_')
         .replace(/^\.+/, '') || 'activity.fit';
 
-    return resolve(this.context.profiles.folder(player), 'fit', `${activity} - ${name}`);
+    return resolve(context.profiles.folder(player), 'fit', `${activity} - ${name}`);
   }
 
   /** Write a job result to an attempt-specific path. Only the current claim publishes
   it, and only while its activity exists.
   */
-  private async publish(job: RunningJob, path: string, data: string | Uint8Array, exists: () => boolean) {
+  async function publish(job: RunningJob, path: string, data: string | Uint8Array, exists: () => boolean) {
     const attempt = `${path}.${job.claim.token}.tmp`;
-    await this.filesRepository.writeDurableAsync(attempt, data, true);
+    await repositories.filesRepository.writeDurableAsync(attempt, data, true);
 
     const published = job.commit(() => {
-      if (exists()) this.filesRepository.renameSync(attempt, path);
+      if (exists()) repositories.filesRepository.renameSync(attempt, path);
     });
 
-    await this.filesRepository.removeAsync(attempt);
+    await repositories.filesRepository.removeAsync(attempt);
 
-    if (published) await this.filesRepository.syncDirectoryAsync(dirname(path));
+    if (published) await repositories.filesRepository.syncDirectoryAsync(dirname(path));
   }
 
-  registerJobs(jobs: JobsService['Service']) {
+  function registerJobs() {
     const register = (type: JobType, handler: Omit<JobHandler, 'run'> & { run: (job: RunningJob) => Promise<void> }) =>
       Effect.runSync(jobs.register(type, { ...handler, run: (job) => Effect.promise(() => handler.run(job)) }));
 
@@ -649,16 +649,16 @@ export class ActivitiesService extends BaseService {
       timeoutMs: 60_000,
       run: async (job) => {
         const id = job.number('activityId');
-        const stored = this.activitiesRepository.fit(id);
+        const stored = repositories.activitiesRepository.fit(id);
 
         if (!stored?.fit || stored.player === null) return;
         const player = stored.player;
         const curve = await FitService.powerBests(stored.fit);
 
         job.commit(() => {
-          if (!this.activitiesRepository.findActivity(id, player)) return;
-          this.fitnessRepository.deleteActivityPowerCurve(id);
-          this.context.bridge!.runSync(FitService.use((fit) => fit.insertPowerBests(player, curve, id)));
+          if (!repositories.activitiesRepository.findActivity(id, player)) return;
+          repositories.fitnessRepository.deleteActivityPowerCurve(id);
+          Effect.runSync(fitService.insertPowerBests(player, curve, id));
         });
       },
     });
@@ -669,16 +669,16 @@ export class ActivitiesService extends BaseService {
       timeoutMs: 60_000,
       run: async (job) => {
         const id = job.number('activityId');
-        const stored = this.activitiesRepository.fit(id);
+        const stored = repositories.activitiesRepository.fit(id);
 
         if (!stored?.fit || stored.player === null) return;
         const player = stored.player;
 
-        await this.publish(
+        await publish(
           job,
-          this.exportPath(player, id, stored.filename),
+          exportPath(player, id, stored.filename),
           stored.fit,
-          () => !!this.activitiesRepository.findActivity(id, player),
+          () => !!repositories.activitiesRepository.findActivity(id, player),
         );
       },
     });
@@ -690,16 +690,16 @@ export class ActivitiesService extends BaseService {
       run: async (job) => {
         const id = job.number('activityId');
         const fileId = job.number('fileId');
-        const stored = this.activitiesRepository.fit(id);
+        const stored = repositories.activitiesRepository.fit(id);
 
         if (!stored?.fit) return;
         const chart = await FitService.chart(stored.fit);
 
-        await this.publish(
+        await publish(
           job,
-          this.chartPath(fileId),
+          chartPath(fileId),
           JSON.stringify(chart),
-          () => !!this.activitiesRepository.findOwnedActivityFile(fileId, id),
+          () => !!repositories.activitiesRepository.findOwnedActivityFile(fileId, id),
         );
       },
     });
@@ -711,11 +711,11 @@ export class ActivitiesService extends BaseService {
       run: async (job) => {
         const activity = job.number('activityId');
         const player = job.number('playerId');
-        const folder = this.context.profiles.folder(player);
-        const exports = await this.filesRepository.entriesAsync(resolve(folder, 'fit'));
+        const folder = context.profiles.folder(player);
+        const exports = await repositories.filesRepository.entriesAsync(resolve(folder, 'fit'));
 
         const paths = [
-          ...identifiers(job, 'charts').map((id) => this.chartPath(Number(id))),
+          ...identifiers(job, 'charts').map((id) => chartPath(Number(id))),
           ...identifiers(job, 'images').map((id) => resolve(folder, 'images', `${id}.jpg`)),
           ...identifiers(job, 'media').flatMap((id) => [
             resolve(folder, 'medias', `${id}.mp4`),
@@ -726,7 +726,7 @@ export class ActivitiesService extends BaseService {
             .map((entry) => resolve(folder, 'fit', entry.name)),
         ];
 
-        await Promise.all(paths.map((path) => this.filesRepository.removeAsync(path)));
+        await Promise.all(paths.map((path) => repositories.filesRepository.removeAsync(path)));
       },
     });
 
@@ -738,19 +738,209 @@ export class ActivitiesService extends BaseService {
       timeoutMs: 30_000,
       run: async (job) => {
         const id = job.number('activityId');
-        const saved = this.completionRepository.get(BigInt(id));
+        const saved = repositories.completionRepository.get(BigInt(id));
 
         if (!saved) return;
-        const providers = new UploadsService(this.context).configured(saved.player_id);
+        const providers = Effect.runSync(uploadsService.configured(saved.player_id));
 
         job.commit(() => {
           for (const provider of providers)
-            if (this.uploadsRepository.insert(id, provider))
-              this.jobsRepository.enqueue('delivery', { activityId: id, provider });
+            if (repositories.uploadsRepository.insert(id, provider))
+              repositories.jobsRepository.enqueue('delivery', { activityId: id, provider });
         });
 
         await Promise.resolve();
       },
     });
   }
+
+  registerJobs();
+
+  return {
+    issueMedia: Effect.fn('ActivitiesService.issueMedia')(function* (id: string) {
+      return issueMedia(id);
+    }),
+    /** issued -> receiving -> consumed; a failed write releases the claim for retry.
+  Validate again after reading the body: deleting the activity must not recreate its media.
+  */
+    receiveMedia: Effect.fn('ActivitiesService.receiveMedia')(function* (
+      id: string,
+      token: Buffer,
+      read: () => Promise<ArrayBuffer>,
+    ) {
+      return yield* Effect.promise(() => receiveMedia(id, token, read));
+    }),
+    /** A completed activity is immutable: the same save returns the existing result;
+  a changed payload or FIT payload is a conflict.
+  */
+    finalized: Effect.fn('ActivitiesService.finalized')(function* (activity: Activity) {
+      return finalized(activity);
+    }),
+    /** Saves from requests run one per event-loop turn: a group of riders that finish
+  together cannot hold the main thread for the whole group.
+  */
+    saveInTurn: Effect.fn('ActivitiesService.saveInTurn')(function* (
+      activity: Activity,
+      finish: boolean,
+      validate: () => boolean | void = () => {},
+    ) {
+      return yield* Effect.promise(() => saveInTurn(activity, finish, validate));
+    }),
+    /** Draft edits, durable completion and discard are distinct from ending a ride. */
+    save: Effect.fn('ActivitiesService.save')(function* (activity: Activity, finish: boolean) {
+      return save(activity, finish);
+    }),
+
+    finalize: Effect.fn('ActivitiesService.finalize')(function* (activity: Activity) {
+      return finalize(activity);
+    }),
+
+    findActivity: Effect.fn('ActivitiesService.findActivity')(function* (
+      ...values: Parameters<ActivitiesRepository['findActivity']>
+    ) {
+      return findActivity(...values);
+    }),
+    /** The rows go in one transaction with a cleanup job; the job removes the files.
+  Historical streak and power-curve contributions stay.
+  */
+    deleteActivity: Effect.fn('ActivitiesService.deleteActivity')(function* (id: bigint, player: number) {
+      return deleteActivity(id, player);
+    }),
+
+    visible: Effect.fn('ActivitiesService.visible')(function* (activity: Activity, viewer: number) {
+      return visible(activity, viewer);
+    }),
+
+    fitnessVisible: Effect.fn('ActivitiesService.fitnessVisible')(function* (activity: Activity, viewer: number) {
+      return fitnessVisible(activity, viewer);
+    }),
+
+    forViewer: Effect.fn('ActivitiesService.forViewer')(function* (activity: Activity, viewer: number) {
+      return forViewer(activity, viewer);
+    }),
+
+    findActivityFile: Effect.fn('ActivitiesService.findActivityFile')(function* (
+      ...values: Parameters<ActivitiesRepository['findActivityFile']>
+    ) {
+      return findActivityFile(...values);
+    }),
+
+    insertActivityFile: Effect.fn('ActivitiesService.insertActivityFile')(function* (
+      ...values: Parameters<ActivitiesRepository['insertActivityFile']>
+    ) {
+      return insertActivityFile(...values);
+    }),
+
+    findOwnedActivityFile: Effect.fn('ActivitiesService.findOwnedActivityFile')(function* (
+      ...values: Parameters<ActivitiesRepository['findOwnedActivityFile']>
+    ) {
+      return findOwnedActivityFile(...values);
+    }),
+    /** Reserve the row, write the file durably, then mark the row ready. */
+    saveImage: Effect.fn('ActivitiesService.saveImage')(function* (player: number, activity: string, jpg: Uint8Array) {
+      return yield* Effect.promise(() => saveImage(player, activity, jpg));
+    }),
+
+    insertActivityMedia: Effect.fn('ActivitiesService.insertActivityMedia')(function* (
+      ...values: Parameters<ActivitiesRepository['insertActivityMedia']>
+    ) {
+      return insertActivityMedia(...values);
+    }),
+
+    findActivityMedia: Effect.fn('ActivitiesService.findActivityMedia')(function* (
+      ...values: Parameters<ActivitiesRepository['findActivityMedia']>
+    ) {
+      return findActivityMedia(...values);
+    }),
+
+    photos: Effect.fn('ActivitiesService.photos')(function* (player: number, activity: bigint) {
+      return photos(player, activity);
+    }),
+
+    companion: Effect.fn('ActivitiesService.companion')(function* (activity: Activity, details = false) {
+      return companion(activity, details);
+    }),
+    /** A rider's own activities for the web app. The rider owns them, so fitness privacy does not apply. */
+    own: Effect.fn('ActivitiesService.own')(function* (player: number, id?: string, page?: number) {
+      return own(player, id, page);
+    }),
+    /** One own activity with its ready images and chart. The chart is null while its job runs. */
+    ownDetail: Effect.fn('ActivitiesService.ownDetail')(function* (player: number, id: string) {
+      return ownDetail(player, id);
+    }),
+    /** The canonical FIT payload of an own activity, with a filename safe for a download header. */
+    ownFit: Effect.fn('ActivitiesService.ownFit')(function* (player: number, id: string) {
+      return ownFit(player, id);
+    }),
+    /** A ready image of an own activity. */
+    ownImage: Effect.fn('ActivitiesService.ownImage')(function* (player: number, activity: string, image: number) {
+      return ownImage(player, activity, image);
+    }),
+
+    recentActivities: Effect.fn('ActivitiesService.recentActivities')(function* (
+      ...values: Parameters<ActivitiesRepository['recentActivities']>
+    ) {
+      return recentActivities(...values);
+    }),
+
+    activityById: Effect.fn('ActivitiesService.activityById')(function* (
+      ...values: Parameters<ActivitiesRepository['activityById']>
+    ) {
+      return activityById(...values);
+    }),
+
+    activityFeed: Effect.fn('ActivitiesService.activityFeed')(function* (
+      ...values: Parameters<ActivitiesRepository['activityFeed']>
+    ) {
+      return activityFeed(...values);
+    }),
+
+    activityChart: Effect.fn('ActivitiesService.activityChart')(function* (
+      ...args: Parameters<typeof FitService.activityChart>
+    ) {
+      return activityChart(...args);
+    }),
+
+    chart: Effect.fn('ActivitiesService.chart')(function* (bytes: Uint8Array) {
+      return yield* Effect.promise(() => chartNow(bytes));
+    }),
+
+    savePowerCurve: Effect.fn('ActivitiesService.savePowerCurve')(function* (id: number, bytes: Uint8Array) {
+      return savePowerCurve(id, bytes);
+    }),
+
+    updateStreaks: Effect.fn('ActivitiesService.updateStreaks')(function* (id: number, activity: Activity) {
+      return updateStreaks(id, activity);
+    }),
+    /** Recreate a rider's power curves from canonical FIT payloads, as jobs. */
+    rebuildPowerCurves: Effect.fn('ActivitiesService.rebuildPowerCurves')(function* (player: number) {
+      return rebuildPowerCurves(player);
+    }),
+    /** The chart of a completed activity, or null while its job runs. */
+    chartFile: Effect.fn('ActivitiesService.chartFile')(function* (activity: bigint) {
+      return chartFile(activity);
+    }),
+
+    chartPath: Effect.fn('ActivitiesService.chartPath')(function* (fileId: number) {
+      return chartPath(fileId);
+    }),
+
+    exportPath: Effect.fn('ActivitiesService.exportPath')(function* (
+      player: number,
+      activity: number,
+      filename: string,
+    ) {
+      return exportPath(player, activity, filename);
+    }),
+  };
+});
+
+export class ActivitiesService extends Context.Service<ActivitiesService, Effect.Success<typeof make>>()(
+  'zluggish/ActivitiesService',
+) {
+  static readonly layer = Layer.effect(ActivitiesService, make);
+  static readonly visible = visible;
+  static readonly fitnessVisible = fitnessVisible;
+  static readonly forViewer = forViewer;
+  static readonly withoutFit = withoutFit;
 }
