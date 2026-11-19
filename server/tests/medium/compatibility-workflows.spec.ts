@@ -1,3 +1,4 @@
+import { DocumentsService } from '#src/services/documents.service';
 import { LoginRequestSchema, LoginResponseSchema } from '#src/protocol/generated/login_pb';
 import { AchievementsSchema, PlayerProfileSchema, StreaksSchema } from '#src/protocol/generated/profile_pb';
 import { UserStorageSchema } from '#src/protocol/generated/user_storage_pb';
@@ -28,9 +29,13 @@ await test('all rider state files stage, cancel, publish and recover with durabl
   const old = toBinary(StreaksSchema, create(StreaksSchema, { curStreak: 1 }));
 
   const streaks = () =>
-    fromBinary(StreaksSchema, f.services.documents.get(user.player_id, 'streaks.bin') ?? new Uint8Array());
+    fromBinary(
+      StreaksSchema,
+      f.effects.runSync(DocumentsService.use((service) => service.get(user.player_id, 'streaks.bin'))) ??
+        new Uint8Array(),
+    );
 
-  f.services.documents.put(user.player_id, 'streaks.bin', old);
+  f.effects.runSync(DocumentsService.use((service) => service.put(user.player_id, 'streaks.bin', old)));
   const canceled = imports.prepare(user, files);
   imports.cancel(user, canceled);
   assert.equal(streaks().curStreak, 1);
@@ -56,7 +61,9 @@ await test('all rider state files stage, cancel, publish and recover with durabl
   const manifest = imports.inspect(fresh, repeated);
   imports.publish(fresh, repeated, false);
   assert.equal(streaks().curStreak, 1);
-  f.services.documents.put(user.player_id, 'streaks.bin', files['streaks.bin']);
+  f.effects.runSync(
+    DocumentsService.use((service) => service.put(user.player_id, 'streaks.bin', files['streaks.bin'])),
+  );
   mkdirSync(folder);
   new AssetFiles().writeDurable(resolve(folder, 'streaks.bin'), old);
   new AssetFiles().writeDurable(resolve(folder, 'manifest.json'), JSON.stringify(manifest));
@@ -78,11 +85,17 @@ await test('web restore accepts empty protobuf state and waits for review before
   assert.equal(response.status, 200);
   const { review } = await response.json();
   assert.ok(review.stage);
-  assert.equal(f.services.documents.has(user.player_id, 'streaks.bin'), false);
+  assert.equal(f.effects.runSync(DocumentsService.use((service) => service.has(user.player_id, 'streaks.bin'))), false);
   const published = await web.request('/api/me/import/confirm', 'POST', { stage: review.stage, confirmSource: true });
   assert.equal(published.status, 200);
-  assert.equal(f.services.documents.get(user.player_id, 'streaks.bin')?.length, 0);
-  assert.equal(f.services.documents.get(user.player_id, 'user_storage.bin')?.length, 0);
+  assert.equal(
+    f.effects.runSync(DocumentsService.use((service) => service.get(user.player_id, 'streaks.bin')))?.length,
+    0,
+  );
+  assert.equal(
+    f.effects.runSync(DocumentsService.use((service) => service.get(user.player_id, 'user_storage.bin')))?.length,
+    0,
+  );
 });
 
 await test('Zwift connection encrypts secrets and official downloads stage a rider-preserving import', async (t) => {
@@ -101,9 +114,9 @@ await test('Zwift connection encrypts secrets and official downloads stage a rid
   const connections = f.accounts.repositories.connectionsRepository;
   assert.deepEqual(connections.read(user.player_id, 'zwift'), ['official@example.test', 'super-secret']);
   assert.equal(
-    Buffer.from(f.services.documents.get(user.player_id, 'zwift_credentials.bin') ?? []).includes(
-      Buffer.from('super-secret'),
-    ),
+    Buffer.from(
+      f.effects.runSync(DocumentsService.use((service) => service.get(user.player_id, 'zwift_credentials.bin'))) ?? [],
+    ).includes(Buffer.from('super-secret')),
     false,
   );
   assert.equal(f.settings.read(user.player_id)['uploads.zwift.enabled'], true);

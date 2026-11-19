@@ -50,6 +50,7 @@ export async function openRuntime(config: ResolvedConfig, assets: string) {
     };
 
     const effects = makeAppRuntime(context);
+    context.effects = effects;
     resources.defer(() => effects.dispose());
     const runtime: Runtime = Object.assign(context, { services: createServices(context), effects });
 

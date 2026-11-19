@@ -16,6 +16,9 @@ export interface RepositoryContext {
   profiles: Profiles;
   assets: string;
   tokens: { access: string; refresh: string; id: string };
+  /** Bridge for services not yet built as Effect services: runs application effects. Set once the
+  runtime exists. */
+  effects?: import('#src/layers').AppRuntime;
 }
 
 /** The runtime context as an Effect service. Services read the parts they need from it. */

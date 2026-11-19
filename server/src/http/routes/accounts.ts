@@ -1,3 +1,4 @@
+import { ProfilesService } from '#src/services/profile.service';
 import { effectRoutes } from '#src/http/effect';
 import { RecordsService } from '#src/services/records.service';
 import { calendarLabels, mapChoices } from '#src/http/game/calendar';
@@ -207,7 +208,10 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
               user: {
                 initials: `${user.first_name.charAt(0)}${user.last_name.charAt(0)}`.toUpperCase(),
                 photo: runtime.services.files.exists(
-                  resolve(runtime.services.profiles.folder(user.player_id), 'avatarLarge.jpg'),
+                  resolve(
+                    runtime.effects.runSync(ProfilesService.use((service) => service.folder(user.player_id))),
+                    'avatarLarge.jpg',
+                  ),
                 )
                   ? `/download/${user.player_id}/avatarLarge.jpg`
                   : null,

@@ -1,3 +1,4 @@
+import { DocumentsService } from '#src/services/documents.service';
 import { validateConfig } from '#src/config/index';
 import { ActivitySchema } from '#src/protocol/generated/activity_pb';
 import { AssetFiles } from '#src/repositories/files.repository';
@@ -24,7 +25,7 @@ function write(path: string, data = 'data', ageMs = 0) {
 /** A rider with one completed activity and every kind of retention candidate. */
 async function storage(t: TestContext) {
   const f = await mediumFixture(t);
-  f.services.documents.put(f.rider.player_id, 'runalyze_token.txt', 'token');
+  f.effects.runSync(DocumentsService.use((service) => service.put(f.rider.player_id, 'runalyze_token.txt', 'token')));
   t.mock.method(globalThis, 'fetch', () => Promise.resolve(new Response(null, { status: 200 })));
 
   const data = {

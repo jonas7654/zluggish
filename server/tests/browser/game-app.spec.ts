@@ -1,3 +1,6 @@
+import { Effect, Schema } from 'effect';
+import { IntegrationsService } from '#src/services/integrations.service';
+import { ConnectionsService } from '#src/services/connections.service';
 import { runtimeFixture } from '#tests/support/runtime';
 import { createWebApp } from '#src/http/web-app';
 import { serve } from '@hono/node-server';
@@ -7,7 +10,6 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { test } from 'node:test';
 import type { TestContext } from 'node:test';
-import { Schema } from 'effect';
 import { create, toBinary } from '@bufbuild/protobuf';
 import { PlayerProfileSchema } from '#src/protocol/generated/profile_pb';
 import type { User } from '#src/repositories/accounts.repository';
@@ -202,8 +204,9 @@ await test('import review requires source confirmation and cancel bypasses valid
 await test('web connections keep saved secrets, show Garmin MFA and run workout sync and session tests', async (t) => {
   const f = await browserFixture(t);
   const rider = await f.accounts.create('Connected Rider', 'test-password');
-  t.mock.method(f.services.integrations, 'authorizeGarminSession', () => Promise.resolve('mfa' as const));
-  t.mock.method(f.services.integrations, 'checkSession', () => Promise.resolve(true));
+  const integrations = f.effects.runSync(IntegrationsService);
+  t.mock.method(integrations, 'authorizeGarminSession', () => Effect.succeed('mfa' as const));
+  t.mock.method(integrations, 'checkSession', () => Effect.succeed(true));
   t.mock.method(f.services.workouts, 'sync', () => Promise.resolve('Synced 2 Intervals.icu workouts.'));
   const context = await f.browser.newContext();
   const page = await context.newPage();
@@ -219,7 +222,10 @@ await test('web connections keep saved secrets, show Garmin MFA and run workout 
   await strava.getByLabel('Client ID').fill('456');
   await strava.getByRole('button', { name: 'Save credentials' }).click();
   await page.getByText('Credentials saved.', { exact: true }).waitFor();
-  assert.deepEqual(f.services.connections.read(rider.player_id, 'strava'), ['456', 'private-client-secret']);
+  assert.deepEqual(f.effects.runSync(ConnectionsService.use((service) => service.read(rider.player_id, 'strava'))), [
+    '456',
+    'private-client-secret',
+  ]);
 
   await page.getByLabel('Upload method').selectOption('free');
   await page.getByText('Upload method saved.', { exact: true }).waitFor();

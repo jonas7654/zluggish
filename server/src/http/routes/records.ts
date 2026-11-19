@@ -1,3 +1,5 @@
+import { ProfilesService } from '#src/services/profile.service';
+import { DocumentsService } from '#src/services/documents.service';
 import { RecordDataService } from '#src/services/record-data.service';
 import { effectRoutes } from '#src/http/effect';
 import { RecordsService } from '#src/services/records.service';
@@ -362,48 +364,54 @@ export function recordRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     }),
   );
 
-  const documents = runtime.services.documents;
+  appRoutes.get('/api/achievement/route-completion-achievements', (c) =>
+    Effect.gen(function* () {
+      const documentsService = yield* DocumentsService;
 
-  app.get('/api/achievement/route-completion-achievements', (c) => {
-    const user = authenticated(c);
+      const user = authenticated(c);
 
-    const response = fromJsonString(
-      LoadPlayerRouteCompletionAchievementsResponseSchema,
-      runtime.services.files.read(resolve(runtime.assets, 'data/route_completion_achievement.txt'), 'utf8'),
-    );
+      const response = fromJsonString(
+        LoadPlayerRouteCompletionAchievementsResponseSchema,
+        runtime.services.files.read(resolve(runtime.assets, 'data/route_completion_achievement.txt'), 'utf8'),
+      );
 
-    const stored = documents.get(user.player_id, 'route_completion_achievements.bin');
+      const stored = yield* documentsService.get(user.player_id, 'route_completion_achievements.bin');
 
-    const unlocked = stored ? fromBinary(RouteCompletionAchievementUnlockRequestSchema, stored).achievementUuids : [];
+      const unlocked = stored ? fromBinary(RouteCompletionAchievementUnlockRequestSchema, stored).achievementUuids : [];
 
-    for (const achievement of response.achievements)
-      if (unlocked.includes(achievement.achievementUuid)) achievement.unlocked = true;
+      for (const achievement of response.achievements)
+        if (unlocked.includes(achievement.achievementUuid)) achievement.unlocked = true;
 
-    return c.body(toBinary(LoadPlayerRouteCompletionAchievementsResponseSchema, response));
-  });
-  app.post('/api/achievement/route-completion-achievement-unlocks', async (c) => {
-    const user = authenticated(c);
+      return c.body(toBinary(LoadPlayerRouteCompletionAchievementsResponseSchema, response));
+    }),
+  );
+  appRoutes.post('/api/achievement/route-completion-achievement-unlocks', (c) =>
+    Effect.gen(function* () {
+      const documentsService = yield* DocumentsService;
 
-    const incoming = parseProtobuf(
-      RouteCompletionAchievementUnlockRequestSchema,
-      new Uint8Array(await c.req.arrayBuffer()),
-    );
+      const user = authenticated(c);
 
-    const stored = documents.get(user.player_id, 'route_completion_achievements.bin');
+      const incoming = parseProtobuf(
+        RouteCompletionAchievementUnlockRequestSchema,
+        new Uint8Array(yield* Effect.promise(() => c.req.arrayBuffer())),
+      );
 
-    const old = stored
-      ? fromBinary(RouteCompletionAchievementUnlockRequestSchema, stored)
-      : create(RouteCompletionAchievementUnlockRequestSchema);
+      const stored = yield* documentsService.get(user.player_id, 'route_completion_achievements.bin');
 
-    old.achievementUuids = [...new Set([...old.achievementUuids, ...incoming.achievementUuids])];
-    documents.put(
-      user.player_id,
-      'route_completion_achievements.bin',
-      toBinary(RouteCompletionAchievementUnlockRequestSchema, old),
-    );
+      const old = stored
+        ? fromBinary(RouteCompletionAchievementUnlockRequestSchema, stored)
+        : create(RouteCompletionAchievementUnlockRequestSchema);
 
-    return c.body(null, 202);
-  });
+      old.achievementUuids = [...new Set([...old.achievementUuids, ...incoming.achievementUuids])];
+      yield* documentsService.put(
+        user.player_id,
+        'route_completion_achievements.bin',
+        toBinary(RouteCompletionAchievementUnlockRequestSchema, old),
+      );
+
+      return c.body(null, 202);
+    }),
+  );
   app.post('/api/race-results', async (c) => {
     const user = authenticated(c);
 
@@ -424,6 +432,8 @@ export function recordRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
   });
   appRoutes.get('/api/race-results/summary', (c) =>
     Effect.gen(function* () {
+      const profilesService = yield* ProfilesService;
+
       const recordsService = yield* RecordsService;
 
       authenticated(c);
@@ -435,51 +445,53 @@ export function recordRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
         Number((a.activityData?.worldTime ?? 0n) - (b.activityData?.worldTime ?? 0n)),
       );
 
-      const entries = sorted.map(([playerId, result], index) => {
-        const profile = runtime.services.profiles.get(playerId);
+      const entries = yield* Effect.forEach(sorted, ([playerId, result], index) =>
+        Effect.gen(function* () {
+          const profile = yield* profilesService.get(playerId);
 
-        const entry = create(RaceResultEntrySchema, {
-          playerId: BigInt(playerId),
-          eventSubgroupId: id,
-          position: index + 1,
-          eventId: id,
-          activityData: result.activityData ? { ...result.activityData } : undefined,
-          powerData: result.powerData,
-          sensorData: result.sensorData,
-          profileData: create(RaceResultEntryProfileDataSchema, {
-            weightInGrams: profile.weightInGrams,
-            heightInCentimeters: Math.floor(profile.heightInMillimeters / 10),
-            gender: profile.isMale ? 1 : 2,
-            playerType: profile.playerType,
-            firstName: profile.firstName,
-            lastName: profile.lastName,
-            avatarUrl: runtime.services.files.exists(
-              resolve(runtime.services.profiles.folder(playerId), 'avatarLarge.jpg'),
-            )
-              ? `https://us-or-rly101.zwift.com/download/${playerId}/avatarLarge.jpg`
-              : '',
-          }),
-        });
+          const entry = create(RaceResultEntrySchema, {
+            playerId: BigInt(playerId),
+            eventSubgroupId: id,
+            position: index + 1,
+            eventId: id,
+            activityData: result.activityData ? { ...result.activityData } : undefined,
+            powerData: result.powerData,
+            sensorData: result.sensorData,
+            profileData: create(RaceResultEntryProfileDataSchema, {
+              weightInGrams: profile.weightInGrams,
+              heightInCentimeters: Math.floor(profile.heightInMillimeters / 10),
+              gender: profile.isMale ? 1 : 2,
+              playerType: profile.playerType,
+              firstName: profile.firstName,
+              lastName: profile.lastName,
+              avatarUrl: runtime.services.files.exists(
+                resolve(yield* profilesService.folder(playerId), 'avatarLarge.jpg'),
+              )
+                ? `https://us-or-rly101.zwift.com/download/${playerId}/avatarLarge.jpg`
+                : '',
+            }),
+          });
 
-        if (entry.activityData) {
-          entry.activityData.time = entry.activityData.worldTime + 1_414_016_074_397n;
+          if (entry.activityData) {
+            entry.activityData.time = entry.activityData.worldTime + 1_414_016_074_397n;
 
-          if (meetup) {
-            const { eventStart } = Schema.decodeUnknownSync(meetupStartSchema)(
-              JSON.parse(Schema.decodeUnknownSync(Schema.String)(meetup.json)),
+            if (meetup) {
+              const { eventStart } = Schema.decodeUnknownSync(meetupStartSchema)(
+                JSON.parse(Schema.decodeUnknownSync(Schema.String)(meetup.json)),
+              );
+
+              entry.activityData.elapsedMs = entry.activityData.time - BigInt(Date.parse(eventStart));
+            }
+
+            entry.time = entry.activityData.time;
+            entry.distanceToLeader = Number(
+              entry.activityData.worldTime - (sorted[0]?.[1].activityData?.worldTime ?? 0n),
             );
-
-            entry.activityData.elapsedMs = entry.activityData.time - BigInt(Date.parse(eventStart));
           }
 
-          entry.time = entry.activityData.time;
-          entry.distanceToLeader = Number(
-            entry.activityData.worldTime - (sorted[0]?.[1].activityData?.worldTime ?? 0n),
-          );
-        }
-
-        return clone(RaceResultEntrySchema, entry);
-      });
+          return clone(RaceResultEntrySchema, entry);
+        }),
+      );
 
       return c.body(
         toBinary(

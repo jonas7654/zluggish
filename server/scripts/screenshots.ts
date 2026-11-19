@@ -1,3 +1,5 @@
+import { ConnectionsService } from '#src/services/connections.service';
+import { DocumentsService } from '#src/services/documents.service';
 /**
 Captures the README screenshots from a throwaway server seeded with fictional riders.
 
@@ -258,12 +260,14 @@ async function avatar(browser: Browser, [sky, sun, hills]: [string, string, stri
 
 // Connected services with fictional credentials, and the latest rides delivered to them.
 function connect(f: Fixture, player: number) {
-  const { connections, documents, activities } = f.services;
-  connections.save(player, 'strava', ['184203', 'not-a-real-strava-secret']);
-  documents.put(player, 'strava_token.txt', 'not-a-real-token');
-  connections.save(player, 'garmin', ['maja@example.com', 'not-a-real-garmin-password']);
-  documents.put(player, 'garth/oauth1_token.json', '{}');
-  connections.save(player, 'intervals', ['5551234', 'not-a-real-intervals-key']);
+  const { activities } = f.services;
+  const connections = f.effects.runSync(ConnectionsService);
+  const documents = f.effects.runSync(DocumentsService);
+  f.effects.runSync(connections.save(player, 'strava', ['184203', 'not-a-real-strava-secret']));
+  f.effects.runSync(documents.put(player, 'strava_token.txt', 'not-a-real-token'));
+  f.effects.runSync(connections.save(player, 'garmin', ['maja@example.com', 'not-a-real-garmin-password']));
+  f.effects.runSync(documents.put(player, 'garth/oauth1_token.json', '{}'));
+  f.effects.runSync(connections.save(player, 'intervals', ['5551234', 'not-a-real-intervals-key']));
   f.settings.save(player, { 'workouts.trainingpeaks.bridgeFolder': '/srv/trainingpeaks' });
 
   const upload = f.accounts.db.prepare(

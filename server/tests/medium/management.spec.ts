@@ -1,3 +1,4 @@
+import { EventsService } from '#src/services/events.service';
 import { responseStatus } from '#tests/support/html';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -371,15 +372,15 @@ await test('world settings and administrator event changes use revisions and dur
     workoutHash: 0,
   };
 
-  const id = f.services.events.createMeetup(owner, input);
-  const event = f.services.events.read(String(id));
+  const id = f.effects.runSync(EventsService.use((service) => service.createMeetup(owner, input)));
+  const event = f.effects.runSync(EventsService.use((service) => service.read(String(id))));
   const edit = { operation: crypto.randomUUID(), revision: event.updateDate, changes: { description: 'After' } };
   service.editEvent(opened.id, id, 'edit-event', edit);
-  assert.equal(f.services.events.read(String(id)).description, 'After');
+  assert.equal(f.effects.runSync(EventsService.use((service) => service.read(String(id)))).description, 'After');
   assert.deepEqual(service.editEvent(opened.id, id, 'edit-event', edit), { id, action: 'edit-event' });
-  const current = f.services.events.read(String(id));
+  const current = f.effects.runSync(EventsService.use((service) => service.read(String(id))));
   service.editEvent(opened.id, id, 'delete-event', { operation: crypto.randomUUID(), revision: current.updateDate });
-  assert.throws(() => f.services.events.read(String(id)));
+  assert.throws(() => f.effects.runSync(EventsService.use((service) => service.read(String(id)))));
 });
 
 await test('backup and restore preserve complete setup, operation results and the fingerprint key', async (t) => {

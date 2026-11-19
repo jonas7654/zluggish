@@ -1,3 +1,4 @@
+import { EventsService } from '#src/services/events.service';
 import { storedSchema, type MeetupInput } from '#src/dtos/meetup.dto';
 import {
   PlayerJoinedEventSchema,
@@ -81,7 +82,10 @@ await test('meetup rescheduling reconciles expired, retained, removed and newly 
   await counts(2);
   const removed = await f.request('/api/notifications', {}, f.other);
   assert.deepEqual(await removed.json(), []);
-  assert.equal(f.services.events.notificationsForPlayer(f.other.player_id).length, 0);
+  assert.equal(
+    f.effects.runSync(EventsService.use((service) => service.notificationsForPlayer(f.other.player_id))).length,
+    0,
+  );
 
   for (const rider of [retained, added]) {
     const notifications = await f.request('/api/notifications', {}, rider);

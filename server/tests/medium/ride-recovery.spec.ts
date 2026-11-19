@@ -1,3 +1,4 @@
+import { DocumentsService } from '#src/services/documents.service';
 import { ActivitySchema } from '#src/protocol/generated/activity_pb';
 import { GhostSchema, PlayerStateSchema } from '#src/protocol/generated/udp-node-msgs_pb';
 import { RideRecoveryService } from '#src/services/ride-recovery.service';
@@ -124,7 +125,7 @@ await test('a recording on another course or past the resume window is discarded
 
 await test('a connection end neither completes nor uploads a ride, and keeps the recording', async (t) => {
   const { f, id, path } = await riding(t);
-  f.services.documents.put(f.rider.player_id, 'runalyze_token.txt', 'token');
+  f.effects.runSync(DocumentsService.use((service) => service.put(f.rider.player_id, 'runalyze_token.txt', 'token')));
   ride(f.world, id, 0, 5);
   await f.services.recovery.checkpoint();
   f.world.logout(id, 'inactivity_timeout');

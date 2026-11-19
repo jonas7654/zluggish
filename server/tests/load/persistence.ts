@@ -1,3 +1,4 @@
+import { ConnectionsService } from '#src/services/connections.service';
 import { SettingsService } from '#src/services/settings.service';
 // Repeatable persistence and riding-latency load test. Run with `pnpm test:load`.
 // It drives the riding path in process, finishes a group of riders at once while
@@ -161,7 +162,8 @@ const context = {
   tokens,
 };
 
-const runtime = Object.assign(context, { services: createServices(context), effects: makeAppRuntime(context) });
+const effects = makeAppRuntime(context);
+const runtime = Object.assign(context, { effects, services: createServices(context) });
 const app = createGameApp({ gameInfo: '{}', gameInfoHash: '0', variants: '{}' }, runtime);
 const providerCalls = { started: 0, finished: 0 };
 
@@ -188,7 +190,9 @@ for (let index = 0; index < riders; index++) {
   const rider = await accounts.create(`Load Rider ${index}`, '');
   const id = BigInt(rider.player_id);
   runtime.effects.runSync(SettingsService.use((service) => service.save(rider.player_id, { 'ghosts.enabled': true })));
-  runtime.services.connections.save(rider.player_id, 'intervals', ['1', 'key']);
+  runtime.effects.runSync(
+    ConnectionsService.use((service) => service.save(rider.player_id, 'intervals', ['1', 'key'])),
+  );
 
   for (let file = 0; file < ghostFiles; file++) {
     const folder = resolve(runtime.profiles.folder(rider.player_id), 'ghosts', '6', '10');

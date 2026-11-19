@@ -1,3 +1,7 @@
+import { Effect } from 'effect';
+import { IntegrationsService } from '#src/services/integrations.service';
+import { ConnectionsService } from '#src/services/connections.service';
+import { DocumentsService } from '#src/services/documents.service';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createWebApp } from '#src/http/web-app';
@@ -52,8 +56,11 @@ await test('web connections require web authentication and CSRF, isolate riders 
   assert.ok(!body.includes('private-password'));
   assert.ok(!body.includes('private-cookie'));
   assert.equal(JSON.parse(body).strava.cookie, true);
-  assert.deepEqual(f.services.connections.read(f.rider.player_id, 'garmin'), ['12345', 'private-password']);
-  assert.equal(f.services.connections.read(f.other.player_id, 'garmin'), null);
+  assert.deepEqual(f.effects.runSync(ConnectionsService.use((service) => service.read(f.rider.player_id, 'garmin'))), [
+    '12345',
+    'private-password',
+  ]);
+  assert.equal(f.effects.runSync(ConnectionsService.use((service) => service.read(f.other.player_id, 'garmin'))), null);
   const authorizationResponse = await request('/api/me/connections/strava/authorize', 'POST', {});
   const authorization = await authorizationResponse.json();
   const url = new URL(authorization.url);
@@ -65,8 +72,11 @@ await test('web connections require web authentication and CSRF, isolate riders 
     403,
   );
   assert.equal(await responseStatus(request('/api/me/connections/strava', 'DELETE')), 200);
-  assert.equal(f.services.documents.has(f.rider.player_id, 'strava4_session.txt'), false);
-  assert.equal(f.services.connections.has(f.rider.player_id, 'strava'), false);
+  assert.equal(
+    f.effects.runSync(DocumentsService.use((service) => service.has(f.rider.player_id, 'strava4_session.txt'))),
+    false,
+  );
+  assert.equal(f.effects.runSync(ConnectionsService.use((service) => service.has(f.rider.player_id, 'strava'))), false);
   f.services.management.sessions.end(owner.id);
   assert.equal(await responseStatus(request('/api/me/connections')), 401);
 });
@@ -75,7 +85,9 @@ await test('web Strava authorization consumes state and rejects a completion aft
   const f = await mediumFixture(t);
   const app = createWebApp(f);
   const owner = f.services.management.sessions.create(f.accounts.identityOf(f.rider));
-  f.services.connections.save(f.rider.player_id, 'strava', ['client', 'secret']);
+  f.effects.runSync(
+    ConnectionsService.use((service) => service.save(f.rider.player_id, 'strava', ['client', 'secret'])),
+  );
 
   const post = (data: Record<string, string>) =>
     app.request('https://web.example/api/me/connections/strava/authorize', {
@@ -112,7 +124,10 @@ await test('web Strava authorization consumes state and rejects a completion aft
   f.services.management.sessions.end(owner.id);
   release.resolve();
   assert.equal(await responseStatus(pending), 400);
-  assert.equal(f.services.documents.has(f.rider.player_id, 'strava_token.txt'), false);
+  assert.equal(
+    f.effects.runSync(DocumentsService.use((service) => service.has(f.rider.player_id, 'strava_token.txt'))),
+    false,
+  );
 });
 
 await test('web uploads, workout sync and Strava session tests stay with the signed-in user', async (t) => {
@@ -156,8 +171,10 @@ await test('web uploads, workout sync and Strava session tests stay with the sig
   );
 
   assert.equal(await responseStatus(web.request('/api/me/connections/strava/test', 'POST', {})), 400);
-  f.services.documents.put(f.rider.player_id, 'strava4_session.txt', 'session-cookie\nignored');
-  const check = t.mock.method(f.services.integrations, 'checkSession', () => Promise.resolve(false));
+  f.effects.runSync(
+    DocumentsService.use((service) => service.put(f.rider.player_id, 'strava4_session.txt', 'session-cookie\nignored')),
+  );
+  const check = t.mock.method(f.effects.runSync(IntegrationsService), 'checkSession', () => Effect.succeed(false));
   const tested = await web.request('/api/me/connections/strava/test', 'POST', {});
   assert.deepEqual(await tested.json(), { valid: false });
   assert.equal(check.mock.calls[0]?.arguments[0], 'session-cookie');
@@ -166,12 +183,15 @@ await test('web uploads, workout sync and Strava session tests stay with the sig
   const rotateCookie = check.mock.calls[0]?.arguments[1];
   assert.ok(rotateCookie);
   rotateCookie('rotated-cookie');
-  assert.equal(f.services.documents.text(f.rider.player_id, 'strava4_session.txt'), 'rotated-cookie');
-  check.mock.mockImplementation(() => Promise.reject(new Error('offline')));
+  assert.equal(
+    f.effects.runSync(DocumentsService.use((service) => service.text(f.rider.player_id, 'strava4_session.txt'))),
+    'rotated-cookie',
+  );
+  check.mock.mockImplementation(() => Effect.die(new Error('offline')));
   assert.equal(await responseStatus(web.request('/api/me/connections/strava/test', 'POST', {})), 503);
 
   // With both providers configured, the one the user syncs becomes the game's provider.
-  f.services.connections.save(f.rider.player_id, 'intervals', ['42', 'key']);
+  f.effects.runSync(ConnectionsService.use((service) => service.save(f.rider.player_id, 'intervals', ['42', 'key'])));
   f.settings.save(f.rider.player_id, { 'workouts.trainingpeaks.bridgeFolder': '/missing-folder' });
   assert.equal(f.services.workouts.provider(f.rider.player_id), 'intervals-icu');
   const synced = await web.request('/api/me/workouts/sync', 'POST', { provider: 'trainingpeaks' });
@@ -185,7 +205,8 @@ await test('web riders remove one stored credential and keep the rest', async (t
   const f = await mediumFixture(t);
   const app = createWebApp(f);
   const owner = f.services.management.sessions.create(f.accounts.identityOf(f.rider));
-  const { documents, connections } = f.services;
+  const connections = f.effects.runSync(ConnectionsService);
+  const documents = f.effects.runSync(DocumentsService);
 
   const remove = (path: string, csrf = owner.session.csrf) =>
     responseStatus(
@@ -201,21 +222,21 @@ await test('web riders remove one stored credential and keep the rest', async (t
     );
 
   for (const rider of [f.rider, f.other]) {
-    connections.save(rider.player_id, 'strava', ['12345', 'client-secret']);
-    connections.save(rider.player_id, 'garmin', ['athlete', 'password']);
-    documents.put(rider.player_id, 'strava_token.txt', 'token');
-    documents.put(rider.player_id, 'strava4_session.txt', 'cookie');
-    documents.put(rider.player_id, 'garth/oauth1_token.json', '{}');
-    documents.put(rider.player_id, 'garth/oauth2_token.json', '{}');
+    f.effects.runSync(connections.save(rider.player_id, 'strava', ['12345', 'client-secret']));
+    f.effects.runSync(connections.save(rider.player_id, 'garmin', ['athlete', 'password']));
+    f.effects.runSync(documents.put(rider.player_id, 'strava_token.txt', 'token'));
+    f.effects.runSync(documents.put(rider.player_id, 'strava4_session.txt', 'cookie'));
+    f.effects.runSync(documents.put(rider.player_id, 'garth/oauth1_token.json', '{}'));
+    f.effects.runSync(documents.put(rider.player_id, 'garth/oauth2_token.json', '{}'));
   }
 
   const stored = () => [
-    connections.has(f.rider.player_id, 'strava'),
-    documents.has(f.rider.player_id, 'strava_token.txt'),
-    documents.has(f.rider.player_id, 'strava4_session.txt'),
-    connections.has(f.rider.player_id, 'garmin'),
-    documents.has(f.rider.player_id, 'garth/oauth1_token.json'),
-    documents.has(f.rider.player_id, 'garth/oauth2_token.json'),
+    f.effects.runSync(connections.has(f.rider.player_id, 'strava')),
+    f.effects.runSync(documents.has(f.rider.player_id, 'strava_token.txt')),
+    f.effects.runSync(documents.has(f.rider.player_id, 'strava4_session.txt')),
+    f.effects.runSync(connections.has(f.rider.player_id, 'garmin')),
+    f.effects.runSync(documents.has(f.rider.player_id, 'garth/oauth1_token.json')),
+    f.effects.runSync(documents.has(f.rider.player_id, 'garth/oauth2_token.json')),
   ];
 
   assert.equal(await remove('strava/cookie', 'wrong'), 403);
@@ -232,9 +253,9 @@ await test('web riders remove one stored credential and keep the rest', async (t
   assert.equal(await remove('strava/encryption_key'), 400);
 
   // The other rider keeps every credential.
-  assert.equal(connections.has(f.other.player_id, 'strava'), true);
-  assert.equal(documents.has(f.other.player_id, 'strava4_session.txt'), true);
-  assert.equal(documents.has(f.other.player_id, 'garth/oauth2_token.json'), true);
+  assert.equal(f.effects.runSync(connections.has(f.other.player_id, 'strava')), true);
+  assert.equal(f.effects.runSync(documents.has(f.other.player_id, 'strava4_session.txt')), true);
+  assert.equal(f.effects.runSync(documents.has(f.other.player_id, 'garth/oauth2_token.json')), true);
 });
 
 await test('unexpected web failures are logged with their stack trace', async (t) => {
@@ -243,7 +264,7 @@ await test('unexpected web failures are logged with their stack trace', async (t
   const owner = f.services.management.sessions.create(f.accounts.identityOf(f.rider));
   const error = t.mock.method(f.world.lifecycle.log, 'error', () => {});
 
-  t.mock.method(f.services.connections, 'inspect', () => {
+  t.mock.method(f.effects.runSync(ConnectionsService), 'inspect', () => {
     throw new Error('connections unreadable');
   });
 
@@ -267,10 +288,14 @@ await test('credentials written with another key ask the rider to enter them aga
   const crypto = new CryptoRepository();
   const warn = t.mock.method(f.world.lifecycle.log, 'warn', () => {});
 
-  f.services.documents.put(
-    f.rider.player_id,
-    'garmin_credentials.bin',
-    crypto.encryptCredentials(crypto.randomBytes(32), ['athlete', 'old-password']),
+  f.effects.runSync(
+    DocumentsService.use((service) =>
+      service.put(
+        f.rider.player_id,
+        'garmin_credentials.bin',
+        crypto.encryptCredentials(crypto.randomBytes(32), ['athlete', 'old-password']),
+      ),
+    ),
   );
 
   const request = (path: string, method = 'GET', data?: Record<string, string>) =>
@@ -307,7 +332,10 @@ await test('credentials written with another key ask the rider to enter them aga
     await responseStatus(request('/api/me/connections/garmin', 'PUT', { username: 'athlete', secret: 'new' })),
     200,
   );
-  assert.deepEqual(f.services.connections.read(f.rider.player_id, 'garmin'), ['athlete', 'new']);
+  assert.deepEqual(f.effects.runSync(ConnectionsService.use((service) => service.read(f.rider.player_id, 'garmin'))), [
+    'athlete',
+    'new',
+  ]);
   const fixed = await request('/api/me/connections');
   const repaired = await fixed.json();
 

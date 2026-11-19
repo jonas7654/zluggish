@@ -1,3 +1,4 @@
+import { DocumentsService } from '#src/services/documents.service';
 import { validateConfig } from '#src/config/index';
 import { decodePacket, encodePacket, FrameDecoder } from '#src/node/network/packet';
 import { startRideListeners } from '#src/node/network/ride';
@@ -251,7 +252,7 @@ await test(
     assert.equal(phone.zcLocalIp, '127.0.0.2');
     assert.equal(phone.zcLocalPort, 21_588);
     assert.deepEqual(phone.zcKey, Buffer.from(secret, 'base64'));
-    assert.ok(f.services.documents.has(user.player_id, 'encryption_key.bin'));
+    assert.ok(f.effects.runSync(DocumentsService.use((service) => service.has(user.player_id, 'encryption_key.bin'))));
     const udp = createSocket('udp4');
     t.after(() => udp.close());
 
@@ -407,7 +408,8 @@ await test('activity create, save and restart preserve ownership, FIT bytes and 
 
   const streaks = fromBinary(
     StreaksSchema,
-    f.services.documents.get(user.player_id, 'streaks.bin') ?? new Uint8Array(),
+    f.effects.runSync(DocumentsService.use((service) => service.get(user.player_id, 'streaks.bin'))) ??
+      new Uint8Array(),
   );
 
   assert.equal(streaks.curStreakDistance, 3000);

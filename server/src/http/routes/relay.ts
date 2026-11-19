@@ -1,3 +1,6 @@
+import { ProfilesService } from '#src/services/profile.service';
+import { effectRoutes } from '#src/http/effect';
+import { DocumentsService } from '#src/services/documents.service';
 import { eventFeedSchema } from '#src/dtos/relay.dto';
 import { parseProtobuf } from '#src/http/protobuf';
 import { authenticated, peerAddress } from '#src/http/routes/accounts';
@@ -25,84 +28,95 @@ import { create, fromJsonString, toBinary, toJsonString } from '@bufbuild/protob
 import type { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { resolve } from 'node:path';
-import { Schema } from 'effect';
+import { Effect, Schema } from 'effect';
 import { NumberFromInput } from '#src/schema';
 
 export function relayRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
-  app.post('/api/users/login', async (c) => {
-    const user = authenticated(c);
+  const appRoutes = effectRoutes(app, runtime);
 
-    const request = parseProtobuf(LoginRequestSchema, new Uint8Array(await c.req.arrayBuffer()));
+  appRoutes.post('/api/users/login', (c) =>
+    Effect.gen(function* () {
+      const profilesService = yield* ProfilesService;
 
-    if (runtime.world.active(user.player_id)) throw new HTTPException(409);
+      const documentsService = yield* DocumentsService;
 
-    if (![16, 24, 32].includes(request.key.length)) throw new HTTPException(400);
+      const user = authenticated(c);
 
-    if (c.req.header('User-Agent')?.toLowerCase().includes('android'))
-      await runtime.services.workouts.syncWorkoutsAutomatically(user.player_id, true);
+      const request = parseProtobuf(
+        LoginRequestSchema,
+        new Uint8Array(yield* Effect.promise(() => c.req.arrayBuffer())),
+      );
 
-    if (!runtime.services.accounts.identity(runtime.services.accounts.identityOf(user))) throw new HTTPException(401);
-    runtime.world.login(BigInt(user.player_id), request.key);
+      if (runtime.world.active(user.player_id)) throw new HTTPException(409);
 
-    const imported = runtime.services.documents.text(user.player_id, 'economy_config.txt');
+      if (![16, 24, 32].includes(request.key.length)) throw new HTTPException(400);
 
-    const economy = fromJsonString(
-      EconomyConfigSchema,
-      imported ?? runtime.services.files.read(resolve(runtime.assets, 'data/economy_config.txt'), 'utf8'),
-    );
+      if (c.req.header('User-Agent')?.toLowerCase().includes('android'))
+        yield* Effect.promise(() => runtime.services.workouts.syncWorkoutsAutomatically(user.player_id, true));
 
-    if (imported === null) {
-      const profile = runtime.services.profiles.get(user.player_id);
-      const currentLevel = Math.floor(profile.achievementLevel / 100);
+      if (!runtime.services.accounts.identity(runtime.services.accounts.identityOf(user))) throw new HTTPException(401);
+      runtime.world.login(BigInt(user.player_id), request.key);
 
-      const levels = economy.cyclingLevels.filter((level) => level.level >= currentLevel);
+      const imported = yield* documentsService.text(user.player_id, 'economy_config.txt');
 
-      const first = levels[0];
-      const next = levels[1];
+      const economy = fromJsonString(
+        EconomyConfigSchema,
+        imported ?? runtime.services.files.read(resolve(runtime.assets, 'data/economy_config.txt'), 'utf8'),
+      );
 
-      if (first && next && profile.totalXp > next.xp) {
-        const offset = profile.totalXp - first.xp;
+      if (imported === null) {
+        const profile = yield* profilesService.get(user.player_id);
+        const currentLevel = Math.floor(profile.achievementLevel / 100);
 
-        const transitionEnd = levels.findLast((level) => level.xp <= profile.totalXp)?.level ?? currentLevel;
+        const levels = economy.cyclingLevels.filter((level) => level.level >= currentLevel);
 
-        for (const level of economy.cyclingLevels) if (level.level >= currentLevel) level.xp += offset;
+        const first = levels[0];
+        const next = levels[1];
 
-        if (transitionEnd > currentLevel) {
-          economy.transitionStart = currentLevel;
-          economy.transitionEnd = transitionEnd;
+        if (first && next && profile.totalXp > next.xp) {
+          const offset = profile.totalXp - first.xp;
+
+          const transitionEnd = levels.findLast((level) => level.xp <= profile.totalXp)?.level ?? currentLevel;
+
+          for (const level of economy.cyclingLevels) if (level.level >= currentLevel) level.xp += offset;
+
+          if (transitionEnd > currentLevel) {
+            economy.transitionStart = currentLevel;
+            economy.transitionEnd = transitionEnd;
+          }
+        } else if (first && profile.totalXp < first.xp) {
+          const offset = first.xp - profile.totalXp;
+
+          for (const level of economy.cyclingLevels)
+            if (level.level <= currentLevel) level.xp = Math.max(0, level.xp - offset);
         }
-      } else if (first && profile.totalXp < first.xp) {
-        const offset = first.xp - profile.totalXp;
 
-        for (const level of economy.cyclingLevels)
-          if (level.level <= currentLevel) level.xp = Math.max(0, level.xp - offset);
+        yield* documentsService.put(user.player_id, 'economy_config.txt', toJsonString(EconomyConfigSchema, economy));
       }
 
-      runtime.services.documents.put(user.player_id, 'economy_config.txt', toJsonString(EconomyConfigSchema, economy));
-    }
+      const peer = peerAddress(c);
 
-    const peer = peerAddress(c);
+      const ip = peer === '127.0.0.1' || peer === '::1' ? peer : runtime.config.server.advertisedIp;
 
-    const ip = peer === '127.0.0.1' || peer === '::1' ? peer : runtime.config.server.advertisedIp;
-
-    const response = create(LoginResponseSchema, {
-      sessionState: 'abc',
-      info: {
-        relayUrl: 'https://us-or-rly101.zwift.com/relay',
-        time: BigInt(Math.floor(Date.now() / 1000)),
-        apis: {
-          todaysplanUrl: 'https://whats.todaysplan.com.au',
-          trainingpeaksUrl: 'https://api.trainingpeaks.com',
+      const response = create(LoginResponseSchema, {
+        sessionState: 'abc',
+        info: {
+          relayUrl: 'https://us-or-rly101.zwift.com/relay',
+          time: BigInt(Math.floor(Date.now() / 1000)),
+          apis: {
+            todaysplanUrl: 'https://whats.todaysplan.com.au',
+            trainingpeaksUrl: 'https://api.trainingpeaks.com',
+          },
+          nodes: { nodes: [{ ip, port: runtime.config.network.tcp.port }] },
         },
-        nodes: { nodes: [{ ip, port: runtime.config.network.tcp.port }] },
-      },
-      relaySessionId: user.player_id,
-      expiration: 70,
-      economyConfig: economy,
-    });
+        relaySessionId: user.player_id,
+        expiration: 70,
+        economyConfig: economy,
+      });
 
-    return c.body(toBinary(LoginResponseSchema, response));
-  });
+      return c.body(toBinary(LoginResponseSchema, response));
+    }),
+  );
   app.post('/api/users/logout', (c) => {
     runtime.world.logout(BigInt(authenticated(c).player_id));
 
@@ -334,7 +348,7 @@ export function relayRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
           firstName: '',
           lastName: bookmark,
         })
-      : runtime.services.profiles.get(Number(state.id));
+      : runtime.effects.runSync(ProfilesService.use((service) => service.get(Number(state.id))));
 
     return create(DropInPlayerSchema, {
       id: state.id,
@@ -397,7 +411,7 @@ export function relayRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       currentDateTime: Math.floor(Date.now() / 1000),
       currentWorldTime: Number(worldTime()),
       friendsInWorld: [...runtime.world.online].map(([id, state]) => {
-        const profile = runtime.services.profiles.get(Number(id));
+        const profile = runtime.effects.runSync(ProfilesService.use((service) => service.get(Number(id))));
 
         return {
           playerId: Number(id),

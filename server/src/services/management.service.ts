@@ -633,8 +633,8 @@ export class ManagementService extends BaseService {
       return JSON.parse(prior.result!);
     }
 
-    const events = new EventsService(this.context);
-    const event = events.read(String(eventId));
+    const effects = this.context.effects!;
+    const event = effects.runSync(EventsService.use((events) => events.read(String(eventId))));
 
     if (event.updateDate !== input.revision)
       throw new ApplicationError({ status: 409, message: 'Event changed. Reload and review.' });
@@ -645,8 +645,13 @@ export class ManagementService extends BaseService {
       this.store.record(actor.player_id, input.operation, action, eventId, fingerprint, result);
     };
 
-    if (action === 'delete-event') events.deleteMeetup(event, commit);
-    else events.updateMeetup(event, decodeMeetupInput({ ...event, ...input.changes }), commit);
+    effects.runSync(
+      EventsService.use((events) =>
+        action === 'delete-event'
+          ? events.deleteMeetup(event, commit)
+          : events.updateMeetup(event, decodeMeetupInput({ ...event, ...input.changes }), commit),
+      ),
+    );
 
     return result;
   }

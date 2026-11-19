@@ -1,29 +1,30 @@
-import type { RepositoryContext } from '#src/context';
+import { Context, Effect, Layer } from 'effect';
+import { RuntimeContext } from '#src/context';
 import { UnreadableCredentialsError } from '#src/errors';
 import type { Connections } from '#src/repositories/connections.repository';
-import { BaseService } from '#src/services/base.service';
 import { UploadsService } from '#src/services/uploads.service';
 
-export class ConnectionsService extends BaseService {
-  constructor(private readonly context: RepositoryContext) {
-    super(context.accounts.repositories);
-  }
+const make = Effect.gen(function* () {
+  const context = yield* RuntimeContext;
+  const repositories = context.accounts.repositories;
 
-  has(...args: Parameters<Connections['has']>) {
-    return this.connectionsRepository.has(...args);
-  }
+  const has = Effect.fn('ConnectionsService.has')(function* (...args: Parameters<Connections['has']>) {
+    return repositories.connectionsRepository.has(...args);
+  });
 
-  read(...args: Parameters<Connections['read']>) {
-    return this.connectionsRepository.read(...args);
-  }
+  const read = Effect.fn('ConnectionsService.read')(function* (...args: Parameters<Connections['read']>) {
+    return repositories.connectionsRepository.read(...args);
+  });
 
   /** Saved credentials, or `unreadable` when the credentials key cannot decrypt them. */
-  inspect(...[player, service]: Parameters<Connections['read']>) {
+  const inspect = Effect.fn('ConnectionsService.inspect')(function* (
+    ...[player, service]: Parameters<Connections['read']>
+  ) {
     try {
-      return { credentials: this.connectionsRepository.read(player, service), unreadable: false };
+      return { credentials: repositories.connectionsRepository.read(player, service), unreadable: false };
     } catch (error) {
       if (!(error instanceof UnreadableCredentialsError)) throw error;
-      this.context.world.lifecycle.log.warn('connections.unreadable', 'Saved credentials cannot be decrypted', {
+      context.world.lifecycle.log.warn('connections.unreadable', 'Saved credentials cannot be decrypted', {
         playerId: player,
         provider: service,
         error,
@@ -31,14 +32,22 @@ export class ConnectionsService extends BaseService {
 
       return { credentials: null, unreadable: true };
     }
-  }
+  });
 
-  save(...args: Parameters<Connections['save']>) {
-    return this.connectionsRepository.save(...args);
-  }
+  const save = Effect.fn('ConnectionsService.save')(function* (...args: Parameters<Connections['save']>) {
+    return repositories.connectionsRepository.save(...args);
+  });
 
-  remove(...args: Parameters<Connections['remove']>) {
-    this.connectionsRepository.remove(...args);
-    new UploadsService(this.context).revoke(args[0]);
-  }
+  const remove = Effect.fn('ConnectionsService.remove')(function* (...args: Parameters<Connections['remove']>) {
+    repositories.connectionsRepository.remove(...args);
+    new UploadsService(context).revoke(args[0]);
+  });
+
+  return { has, read, inspect, save, remove };
+});
+
+export class ConnectionsService extends Context.Service<ConnectionsService, Effect.Success<typeof make>>()(
+  'zluggish/ConnectionsService',
+) {
+  static readonly layer = Layer.effect(ConnectionsService, make);
 }

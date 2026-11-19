@@ -1,3 +1,4 @@
+import { DocumentsService } from '#src/services/documents.service';
 import { ActivitySchema } from '#src/protocol/generated/activity_pb';
 import { DurabilityRepository } from '#src/repositories/durability.repository';
 import { binary, mediumFixture } from '#tests/medium/support';
@@ -61,7 +62,7 @@ await test('a delivery flushes its sending state before the provider request', a
   const f = await mediumFixture(t);
   f.services.durability.start();
   t.after(() => f.services.durability.close());
-  f.services.documents.put(f.rider.player_id, 'runalyze_token.txt', 'token');
+  f.effects.runSync(DocumentsService.use((service) => service.put(f.rider.player_id, 'runalyze_token.txt', 'token')));
   const order: string[] = [];
   const flush = DurabilityRepository.prototype.flush;
 

@@ -1,3 +1,4 @@
+import { DocumentsService } from '#src/services/documents.service';
 import { immediate } from '#src/db/transaction';
 import { JobError } from '#src/errors';
 import { ActivitySchema } from '#src/protocol/generated/activity_pb';
@@ -113,7 +114,7 @@ await test('an old handler after lease expiry and a new claim cannot commit or p
 
 await test('a delivery lease expiry does not authorize a second send', async (t) => {
   const f = await mediumFixture(t);
-  f.services.documents.put(f.rider.player_id, 'runalyze_token.txt', 'token');
+  f.effects.runSync(DocumentsService.use((service) => service.put(f.rider.player_id, 'runalyze_token.txt', 'token')));
   const id = await completed(f);
   const repository = f.accounts.repositories.jobsRepository;
   const gate = Promise.withResolvers<Response>();

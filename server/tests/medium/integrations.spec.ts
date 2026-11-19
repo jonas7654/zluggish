@@ -1,3 +1,4 @@
+import { DocumentsService } from '#src/services/documents.service';
 import { responseStatus, inputValue } from '#tests/support/html';
 import { createGameApp } from '#src/http/app';
 import { DeliveryRefusedError } from '#src/errors';
@@ -75,7 +76,10 @@ await test('Strava credentials are stored encrypted, never echoed, and disconnec
   const empty = await web.request('/api/me/connections/strava', 'PUT', { username: '', secret: '' });
   assert.equal(empty.status, 400);
   await web.request('/api/me/connections/strava/cookie', 'PUT', { cookie: 'cookie-value' });
-  assert.equal(f.services.documents.text(user.player_id, 'strava4_session.txt'), 'cookie-value');
+  assert.equal(
+    f.effects.runSync(DocumentsService.use((service) => service.text(user.player_id, 'strava4_session.txt'))),
+    'cookie-value',
+  );
   const stored = f.accounts.db.prepare("SELECT data FROM rider_document WHERE name='strava4_session.txt'").get();
   assert.equal(
     Buffer.from(Schema.decodeUnknownSync(Schema.instanceOf(Uint8Array))(stored?.data)).includes('cookie-value'),
@@ -83,7 +87,10 @@ await test('Strava credentials are stored encrypted, never echoed, and disconnec
   );
   const removed = await web.request('/api/me/connections/strava', 'DELETE');
   assert.equal(removed.status, 200);
-  assert.equal(f.services.documents.has(user.player_id, 'strava4_session.txt'), false);
+  assert.equal(
+    f.effects.runSync(DocumentsService.use((service) => service.has(user.player_id, 'strava4_session.txt'))),
+    false,
+  );
   assert.equal(f.accounts.repositories.connectionsRepository.read(user.player_id, 'strava'), null);
 });
 
@@ -179,8 +186,12 @@ await test('Intervals.icu upload pairs the planned workout and removes only that
 await test('an expired Strava token is saved before an upload whose result is unknown', async (t) => {
   const f = runtimeFixture(t);
   const user = await f.accounts.create('Upload Rider', 'test-password');
-  f.services.documents.put(user.player_id, 'strava_token.txt', '1\nsecret\nold\nrefresh\n1\n');
-  f.services.documents.put(user.player_id, 'runalyze_token.txt', 'runalyze-token\n');
+  f.effects.runSync(
+    DocumentsService.use((service) => service.put(user.player_id, 'strava_token.txt', '1\nsecret\nold\nrefresh\n1\n')),
+  );
+  f.effects.runSync(
+    DocumentsService.use((service) => service.put(user.player_id, 'runalyze_token.txt', 'runalyze-token\n')),
+  );
   const calls: string[] = [];
 
   t.mock.method(globalThis, 'fetch', (input: URL | string) => {
@@ -202,7 +213,10 @@ await test('an expired Strava token is saved before an upload whose result is un
     uploads.strava(user.player_id, activityWithFit()),
     (error) => !(error instanceof DeliveryRefusedError),
   );
-  assert.equal(f.services.documents.text(user.player_id, 'strava_token.txt'), '1\nsecret\nnew\nnewer\n9000000000\n');
+  assert.equal(
+    f.effects.runSync(DocumentsService.use((service) => service.text(user.player_id, 'strava_token.txt'))),
+    '1\nsecret\nnew\nnewer\n9000000000\n',
+  );
   await uploads.runalyze(user.player_id, activityWithFit());
   assert.ok(calls.some((url) => url.includes('runalyze.com')));
 });
@@ -328,8 +342,14 @@ await test('Strava authorization only completes for the web session that started
   const refused = await other.request('/api/me/connections/strava/authorize', 'POST', { code: 'abc', state });
   assert.equal(refused.status, 403);
   assert.equal(calls.length, 0);
-  assert.equal(f.services.documents.has(user.player_id, 'strava_token.txt'), false);
+  assert.equal(
+    f.effects.runSync(DocumentsService.use((service) => service.has(user.player_id, 'strava_token.txt'))),
+    false,
+  );
   const accepted = await web.request('/api/me/connections/strava/authorize', 'POST', { code: 'abc', state });
   assert.equal(accepted.status, 200);
-  assert.equal(f.services.documents.text(user.player_id, 'strava_token.txt'), '55\nsecret\na\nr\n9000000000\n');
+  assert.equal(
+    f.effects.runSync(DocumentsService.use((service) => service.text(user.player_id, 'strava_token.txt'))),
+    '55\nsecret\na\nr\n9000000000\n',
+  );
 });

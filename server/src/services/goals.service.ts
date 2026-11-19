@@ -20,7 +20,7 @@ export const goalInput = Schema.Struct({
   actualDurationInMinutes: Schema.Finite.pipe(withDefault(0)),
 });
 
-export function jsonGoal(goal: Goal) {
+function jsonGoal(goal: Goal) {
   const timestamp = (time: bigint) => (time ? new Date(Number(time)).toISOString().replace('Z', '+0000') : null);
 
   return {
@@ -41,7 +41,7 @@ export function jsonGoal(goal: Goal) {
   };
 }
 
-export function parseGoal(body: (typeof goalInput)['Type']) {
+function parseGoal(body: (typeof goalInput)['Type']) {
   return create(GoalSchema, {
     id: BigInt(body.id),
     playerId: BigInt(body.profileId),

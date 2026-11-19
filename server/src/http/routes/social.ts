@@ -1,3 +1,5 @@
+import { ProfilesService } from '#src/services/profile.service';
+import { DocumentsService } from '#src/services/documents.service';
 import { effectRoutes } from '#src/http/effect';
 import { SocialService } from '#src/services/social.service';
 import {
@@ -29,10 +31,14 @@ import { Effect, Schema } from 'effect';
 import { NumberFromInput } from '#src/schema';
 
 export function socialRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
-  const summary = (id: number) => {
-    const profile = runtime.services.profiles.get(id);
+  const appRoutes = effectRoutes(app, runtime);
 
-    const image = runtime.services.files.exists(resolve(runtime.services.profiles.folder(id), 'avatarLarge.jpg'))
+  const summary = (id: number) => {
+    const profile = runtime.effects.runSync(ProfilesService.use((service) => service.get(id)));
+
+    const image = runtime.services.files.exists(
+      resolve(runtime.effects.runSync(ProfilesService.use((service) => service.folder(id))), 'avatarLarge.jpg'),
+    )
       ? `https://us-or-rly101.zwift.com/download/${id}/avatarLarge.jpg`
       : null;
 
@@ -46,28 +52,35 @@ export function socialRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     };
   };
 
-  app.get('/api/profiles', (c) => {
-    const ids = Schema.decodeUnknownSync(
-      Schema.Array(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0))).check(Schema.isMaxLength(1000)),
-    )(c.req.queries('id') ?? []);
+  appRoutes.get('/api/profiles', (c) =>
+    Effect.gen(function* () {
+      const profilesService = yield* ProfilesService;
 
-    return c.body(
-      toBinary(
-        PlayerProfilesSchema,
-        create(PlayerProfilesSchema, {
-          profiles: ids.map((id) => {
-            if (runtime.services.profiles.synthetic.has(BigInt(id)) || runtime.services.accounts.get(id))
-              return runtime.services.profiles.forViewer(runtime.services.profiles.get(id), c.get('user')?.player_id);
+      const ids = Schema.decodeUnknownSync(
+        Schema.Array(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0))).check(Schema.isMaxLength(1000)),
+      )(c.req.queries('id') ?? []);
 
-            return create(PlayerProfileSchema, {
-              id: BigInt(id),
-              lastName: id > 9_000_000 && id < 10_000_000 ? 'Bookmark' : '',
-            });
+      return c.body(
+        toBinary(
+          PlayerProfilesSchema,
+          create(PlayerProfilesSchema, {
+            profiles: yield* Effect.forEach(ids, (id) =>
+              profilesService.synthetic.has(BigInt(id)) || runtime.services.accounts.get(id)
+                ? profilesService
+                    .get(id)
+                    .pipe(Effect.flatMap((profile) => profilesService.forViewer(profile, c.get('user')?.player_id)))
+                : Effect.succeed(
+                    create(PlayerProfileSchema, {
+                      id: BigInt(id),
+                      lastName: id > 9_000_000 && id < 10_000_000 ? 'Bookmark' : '',
+                    }),
+                  ),
+            ),
           }),
-        }),
-      ),
-    );
-  });
+        ),
+      );
+    }),
+  );
   app.on(
     'GET',
     ['/api/profiles/:id/followers', '/api/profiles/:id/followees', '/api/profiles/:id/followees-in-common/:other'],
@@ -89,7 +102,6 @@ export function socialRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       );
     },
   );
-  const appRoutes = effectRoutes(app, runtime);
   appRoutes.on('POST', ['/api/search/profiles', '/api/search/profiles/restricted'], (c) =>
     Effect.gen(function* () {
       const socialService = yield* SocialService;
@@ -110,30 +122,36 @@ export function socialRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       return c.json(rows.map((row) => summary(Schema.decodeUnknownSync(Schema.Finite)(row.player_id))));
     }),
   );
-  app.post('/api/profiles/:id/privacy', async (c) => {
-    const user = authenticated(c);
+  appRoutes.post('/api/profiles/:id/privacy', (c) =>
+    Effect.gen(function* () {
+      const profilesService = yield* ProfilesService;
 
-    if (String(user.player_id) !== c.req.param('id')) throw new HTTPException(401);
+      const documentsService = yield* DocumentsService;
 
-    const input = Schema.decodeUnknownSync(privacyUpdateSchema)(await c.req.json());
+      const user = authenticated(c);
 
-    const profile = runtime.services.profiles.get(user.player_id);
-    profile.privacyBits = BigInt(
-      (input.approvalRequired ? 1 : 0) +
-        (input.minor ? 2 : 0) +
-        (input.displayWeight ? 4 : 0) +
-        (input.privateMessaging ? 8 : 0) +
-        (input.defaultFitnessDataPrivacy ? 16 : 0) +
-        (input.suppressFollowerNotification ? 32 : 0) +
-        (input.displayAge ? 0 : 64),
-    );
-    profile.defaultActivityPrivacy =
-      input.defaultActivityPrivacy === 'PRIVATE' ? 1 : input.defaultActivityPrivacy === 'FRIENDS' ? 2 : 0;
-    runtime.services.profiles.save(user.player_id, profile);
-    runtime.services.documents.put(user.player_id, 'privacy.json', JSON.stringify(input));
+      if (String(user.player_id) !== c.req.param('id')) throw new HTTPException(401);
 
-    return c.body(null, 200);
-  });
+      const input = Schema.decodeUnknownSync(privacyUpdateSchema)(yield* Effect.promise(() => c.req.json()));
+
+      const profile = yield* profilesService.get(user.player_id);
+      profile.privacyBits = BigInt(
+        (input.approvalRequired ? 1 : 0) +
+          (input.minor ? 2 : 0) +
+          (input.displayWeight ? 4 : 0) +
+          (input.privateMessaging ? 8 : 0) +
+          (input.defaultFitnessDataPrivacy ? 16 : 0) +
+          (input.suppressFollowerNotification ? 32 : 0) +
+          (input.displayAge ? 0 : 64),
+      );
+      profile.defaultActivityPrivacy =
+        input.defaultActivityPrivacy === 'PRIVATE' ? 1 : input.defaultActivityPrivacy === 'FRIENDS' ? 2 : 0;
+      yield* profilesService.save(user.player_id, profile);
+      yield* documentsService.put(user.player_id, 'privacy.json', JSON.stringify(input));
+
+      return c.body(null, 200);
+    }),
+  );
   appRoutes.get('/api/profiles/:id/statistics', (c) =>
     Effect.gen(function* () {
       const socialService = yield* SocialService;
@@ -143,37 +161,35 @@ export function socialRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       return c.json(Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.NullOr(Schema.Finite)))(row));
     }),
   );
-  app.post('/api/profiles/:id/photo', async (c) => {
-    const user = authenticated(c);
+  appRoutes.post('/api/profiles/:id/photo', (c) =>
+    Effect.gen(function* () {
+      const profilesService = yield* ProfilesService;
 
-    if (String(user.player_id) !== c.req.param('id')) throw new HTTPException(401);
-    let image: Uint8Array;
+      const user = authenticated(c);
 
-    if (c.req.header('Content-Type')?.toLowerCase().startsWith('multipart/form-data')) {
-      let form: FormData;
+      if (String(user.player_id) !== c.req.param('id')) throw new HTTPException(401);
+      let image: Uint8Array;
 
-      try {
-        form = await c.req.formData();
-      } catch {
+      if (c.req.header('Content-Type')?.toLowerCase().startsWith('multipart/form-data')) {
+        const form = yield* Effect.tryPromise({ try: () => c.req.formData(), catch: () => new HTTPException(400) });
+
+        const file = form.values().find((value) => value instanceof File);
+
+        if (!(file instanceof File)) throw new HTTPException(400);
+        image = new Uint8Array(yield* Effect.promise(() => file.arrayBuffer()));
+      } else image = new Uint8Array(yield* Effect.promise(() => c.req.arrayBuffer()));
+
+      if (image.length < 4 || image[0] !== 0xff || image[1] !== 0xd8 || image.at(-2) !== 0xff || image.at(-1) !== 0xd9)
         throw new HTTPException(400);
-      }
+      runtime.services.files.write(
+        resolve(yield* profilesService.folder(user.player_id), 'avatarLarge.jpg'),
+        image,
+        true,
+      );
 
-      const file = form.values().find((value) => value instanceof File);
-
-      if (!(file instanceof File)) throw new HTTPException(400);
-      image = new Uint8Array(await file.arrayBuffer());
-    } else image = new Uint8Array(await c.req.arrayBuffer());
-
-    if (image.length < 4 || image[0] !== 0xff || image[1] !== 0xd8 || image.at(-2) !== 0xff || image.at(-1) !== 0xd9)
-      throw new HTTPException(400);
-    runtime.services.files.write(
-      resolve(runtime.services.profiles.folder(user.player_id), 'avatarLarge.jpg'),
-      image,
-      true,
-    );
-
-    return c.body(null, 200);
-  });
+      return c.body(null, 200);
+    }),
+  );
   app.put('/relay/profiles/me/phone', async (c) => {
     const user = authenticated(c);
 
@@ -197,38 +213,44 @@ export function socialRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
     return c.body(null, 204);
   });
-  app.post('/api/profiles/:id/activities/0/rideon', (c) => {
-    const user = authenticated(c);
-    const profile = runtime.services.profiles.get(user.player_id);
-    const receiver = BigInt(c.req.param('id'));
+  appRoutes.post('/api/profiles/:id/activities/0/rideon', (c) =>
+    Effect.gen(function* () {
+      const profilesService = yield* ProfilesService;
 
-    const payload = toBinary(
-      RideOnSchema,
-      create(RideOnSchema, {
-        playerId: BigInt(user.player_id),
-        toPlayerId: receiver,
-        firstName: profile.firstName,
-        lastName: profile.lastName,
-        countryCode: profile.countryCode,
-      }),
-    );
+      const user = authenticated(c);
+      const profile = yield* profilesService.get(user.player_id);
+      const receiver = BigInt(c.req.param('id'));
 
-    runtime.world.enqueue(
-      create(WorldAttributeSchema, {
-        serverRealm: 1n,
-        waType: WA_TYPE.WAT_RIDE_ON,
-        worldTimeBorn: worldTime(),
-        worldTimeExpire: worldTime() + 9890n,
-        timestamp: BigInt(Date.now()) * 1000n,
-        payload,
-      }),
-      [receiver],
-    );
+      const payload = toBinary(
+        RideOnSchema,
+        create(RideOnSchema, {
+          playerId: BigInt(user.player_id),
+          toPlayerId: receiver,
+          firstName: profile.firstName,
+          lastName: profile.lastName,
+          countryCode: profile.countryCode,
+        }),
+      );
 
-    return c.text('{}');
-  });
+      runtime.world.enqueue(
+        create(WorldAttributeSchema, {
+          serverRealm: 1n,
+          waType: WA_TYPE.WAT_RIDE_ON,
+          worldTimeBorn: worldTime(),
+          worldTimeExpire: worldTime() + 9890n,
+          timestamp: BigInt(Date.now()) * 1000n,
+          payload,
+        }),
+        [receiver],
+      );
+
+      return c.text('{}');
+    }),
+  );
   appRoutes.post('/relay/worlds/attributes', (c) =>
     Effect.gen(function* () {
+      const profilesService = yield* ProfilesService;
+
       const socialService = yield* SocialService;
 
       const user = authenticated(c);
@@ -247,7 +269,7 @@ export function socialRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       if (update.waType === WA_TYPE.WAT_SPA) {
         const action = parseProtobuf(SocialPlayerActionSchema, update.payload);
         action.playerId = id;
-        const profile = runtime.services.profiles.get(user.player_id);
+        const profile = yield* profilesService.get(user.player_id);
         action.firstName = profile.firstName;
         action.lastName = profile.lastName;
         update.payload = toBinary(SocialPlayerActionSchema, action);

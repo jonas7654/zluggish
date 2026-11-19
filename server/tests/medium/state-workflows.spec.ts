@@ -1,3 +1,6 @@
+import { ConnectionsService } from '#src/services/connections.service';
+import { IntegrationsService } from '#src/services/integrations.service';
+import { DocumentsService } from '#src/services/documents.service';
 import { RecordDataService } from '#src/services/record-data.service';
 import { StravaRepository } from '#src/repositories/strava.repository';
 import { UploadsService } from '#src/services/uploads.service';
@@ -178,7 +181,9 @@ await test('browser continuation requires the same session and current identity 
 await test('Garmin MFA consumes one code and persists compatible tokens only for the current attempt', async (t) => {
   const f = await mediumFixture(t);
   const opened = webSession(f);
-  f.services.connections.save(f.rider.player_id, 'garmin', ['test', 'password']);
+  f.effects.runSync(
+    ConnectionsService.use((service) => service.save(f.rider.player_id, 'garmin', ['test', 'password'])),
+  );
   t.mock.method(
     GarminClient.prototype,
     'login',
@@ -189,17 +194,30 @@ await test('Garmin MFA consumes one code and persists compatible tokens only for
 
     return Promise.resolve();
   });
-  assert.equal(await f.services.integrations.authorizeGarminSession(opened.id, opened.live, f.rider), 'mfa');
   assert.equal(
-    await f.services.integrations.authorizeGarminSession(opened.id, opened.live, f.rider, '123'),
+    await f.effects.runPromise(
+      IntegrationsService.use((service) => service.authorizeGarminSession(opened.id, opened.live, f.rider)),
+    ),
+    'mfa',
+  );
+  assert.equal(
+    await f.effects.runPromise(
+      IntegrationsService.use((service) => service.authorizeGarminSession(opened.id, opened.live, f.rider, '123')),
+    ),
     'authorized',
   );
   assert.deepEqual(
-    JSON.parse(f.services.documents.text(f.rider.player_id, 'garth/oauth1_token.json') ?? ''),
+    JSON.parse(
+      f.effects.runSync(
+        DocumentsService.use((service) => service.text(f.rider.player_id, 'garth/oauth1_token.json')),
+      ) ?? '',
+    ),
     tokens.oauth1,
   );
   await assert.rejects(
-    f.services.integrations.authorizeGarminSession(opened.id, opened.live, f.rider, '123'),
+    f.effects.runPromise(
+      IntegrationsService.use((service) => service.authorizeGarminSession(opened.id, opened.live, f.rider, '123')),
+    ),
     /Expired/,
   );
 });
@@ -207,7 +225,9 @@ await test('Garmin MFA consumes one code and persists compatible tokens only for
 await test('an obsolete Garmin login cannot publish tokens or erase the newer MFA attempt', async (t) => {
   const f = await mediumFixture(t);
   const opened = webSession(f);
-  f.services.connections.save(f.rider.player_id, 'garmin', ['test', 'password']);
+  f.effects.runSync(
+    ConnectionsService.use((service) => service.save(f.rider.player_id, 'garmin', ['test', 'password'])),
+  );
   const gate = Promise.withResolvers<LoginResult>();
   let calls = 0;
   t.mock.method(GarminClient.prototype, 'login', function (this: GarminClient): Promise<LoginResult> {
@@ -216,14 +236,25 @@ await test('an obsolete Garmin login cannot publish tokens or erase the newer MF
     return ++calls === 1 ? gate.promise : Promise.resolve({ state: 'mfa_required', mfaState: mfa });
   });
   const publish = t.mock.method(GarminRepository.prototype, 'saveAuthorization');
-  const old = f.services.integrations.authorizeGarminSession(opened.id, opened.live, f.rider);
-  assert.equal(await f.services.integrations.authorizeGarminSession(opened.id, opened.live, f.rider), 'mfa');
+
+  const old = f.effects.runPromise(
+    IntegrationsService.use((service) => service.authorizeGarminSession(opened.id, opened.live, f.rider)),
+  );
+
+  assert.equal(
+    await f.effects.runPromise(
+      IntegrationsService.use((service) => service.authorizeGarminSession(opened.id, opened.live, f.rider)),
+    ),
+    'mfa',
+  );
   gate.resolve({ state: 'success', ...tokens });
   await assert.rejects(old, /Expired/);
   assert.equal(publish.mock.callCount(), 0);
   t.mock.method(GarminClient.prototype, 'resumeLogin', () => Promise.resolve());
   assert.equal(
-    await f.services.integrations.authorizeGarminSession(opened.id, opened.live, f.rider, '123'),
+    await f.effects.runPromise(
+      IntegrationsService.use((service) => service.authorizeGarminSession(opened.id, opened.live, f.rider, '123')),
+    ),
     'authorized',
   );
   assert.equal(publish.mock.callCount(), 1);
@@ -233,13 +264,20 @@ for (const reason of ['expiry', 'logout', 'password', 'disconnect'] as const)
   await test(`Garmin continuation rejects ${reason}`, async (t) => {
     const f = await mediumFixture(t);
     const opened = webSession(f);
-    f.services.connections.save(f.rider.player_id, 'garmin', ['test', 'password']);
+    f.effects.runSync(
+      ConnectionsService.use((service) => service.save(f.rider.player_id, 'garmin', ['test', 'password'])),
+    );
     t.mock.method(
       GarminClient.prototype,
       'login',
       (): Promise<LoginResult> => Promise.resolve({ state: 'mfa_required', mfaState: mfa }),
     );
-    assert.equal(await f.services.integrations.authorizeGarminSession(opened.id, opened.live, f.rider), 'mfa');
+    assert.equal(
+      await f.effects.runPromise(
+        IntegrationsService.use((service) => service.authorizeGarminSession(opened.id, opened.live, f.rider)),
+      ),
+      'mfa',
+    );
 
     switch (reason) {
       case 'expiry': {
@@ -259,7 +297,7 @@ for (const reason of ['expiry', 'logout', 'password', 'disconnect'] as const)
       }
 
       case 'disconnect': {
-        f.services.connections.remove(f.rider.player_id, 'garmin');
+        f.effects.runSync(ConnectionsService.use((service) => service.remove(f.rider.player_id, 'garmin')));
         break;
       }
       // No default
@@ -267,7 +305,9 @@ for (const reason of ['expiry', 'logout', 'password', 'disconnect'] as const)
 
     const resume = t.mock.method(GarminClient.prototype, 'resumeLogin', () => Promise.resolve());
     await assert.rejects(
-      f.services.integrations.authorizeGarminSession(opened.id, opened.live, f.rider, '123'),
+      f.effects.runPromise(
+        IntegrationsService.use((service) => service.authorizeGarminSession(opened.id, opened.live, f.rider, '123')),
+      ),
       /Expired/,
     );
     assert.equal(resume.mock.callCount(), 0);
@@ -276,7 +316,9 @@ for (const reason of ['expiry', 'logout', 'password', 'disconnect'] as const)
 await test('Strava authorization cannot publish a token after web sign-out', async (t) => {
   const f = await mediumFixture(t);
   const opened = webSession(f);
-  f.services.connections.save(f.rider.player_id, 'strava', ['client', 'secret']);
+  f.effects.runSync(
+    ConnectionsService.use((service) => service.save(f.rider.player_id, 'strava', ['client', 'secret'])),
+  );
   const gate = Promise.withResolvers<void>();
   t.mock.method(StravaRepository.prototype, 'exchangeCode', async () => {
     await gate.promise;
@@ -289,11 +331,18 @@ await test('Strava authorization cannot publish a token after web sign-out', asy
       expiresAt: 9_999_999_999,
     };
   });
-  const pending = f.services.integrations.authorizeStravaSession(opened.live, f.rider, 'code');
+
+  const pending = f.effects.runPromise(
+    IntegrationsService.use((service) => service.authorizeStravaSession(opened.live, f.rider, 'code')),
+  );
+
   opened.end();
   gate.resolve();
   await assert.rejects(pending, /Expired/);
-  assert.equal(f.services.documents.has(f.rider.player_id, 'strava_token.txt'), false);
+  assert.equal(
+    f.effects.runSync(DocumentsService.use((service) => service.has(f.rider.player_id, 'strava_token.txt'))),
+    false,
+  );
 });
 
 await test('partially opened runtimes release storage ownership and close is idempotent', async (t) => {

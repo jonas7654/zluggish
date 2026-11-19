@@ -1,3 +1,4 @@
+import { ProfilesService } from '#src/services/profile.service';
 import { packageVersion } from '#src/config/load';
 import { browserJson } from '#src/http/game/results';
 import { ApplicationError } from '#src/errors';
@@ -119,7 +120,10 @@ export function createGameApp(metadata: PublicMetadata, runtime?: Runtime) {
     const known = new Map(byName);
 
     if (runtime && user) {
-      const file = resolve(runtime.services.profiles.folder(user.player_id), 'variants.txt');
+      const file = resolve(
+        runtime.effects.runSync(ProfilesService.use((service) => service.folder(user.player_id))),
+        'variants.txt',
+      );
 
       if (runtime.services.files.exists(file))
         try {

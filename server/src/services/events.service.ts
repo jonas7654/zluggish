@@ -1,3 +1,4 @@
+import { RuntimeContext } from '#src/context';
 import { notificationPayloadSchema, notificationEventSchema, notificationUpdateSchema } from '#src/dtos/events.dto';
 import { type RepositoryContext } from '#src/context';
 import type { Meetup, MeetupInput } from '#src/dtos/meetup.dto';
@@ -7,38 +8,45 @@ import { EventSchema, PlayerJoinedEventSchema, PlayerLeftEventSchema } from '#sr
 import { WA_TYPE, WorldAttributeSchema } from '#src/protocol/generated/udp-node-msgs_pb';
 import type { User } from '#src/repositories/accounts.repository';
 import { EventsRepository } from '#src/repositories/events.repository';
-import { BaseService } from '#src/services/base.service';
 import { EventCatalogService } from '#src/services/event-catalog.service';
 import { worldTime } from '#src/world/state';
 import { create, toBinary } from '@bufbuild/protobuf';
-import { Schema } from 'effect';
+import { transaction } from '#src/db/transaction';
+import { Context, Effect, Layer, Schema } from 'effect';
 
-export class EventsService extends BaseService {
-  constructor(private readonly context: RepositoryContext) {
-    super(context.accounts.repositories);
-  }
+const make = Effect.gen(function* () {
+  const context = yield* RuntimeContext;
+  const repositories = context.accounts.repositories;
 
-  findPrivateEvent(...values: Parameters<EventsRepository['findPrivateEvent']>) {
-    return this.eventsRepository.findPrivateEvent(...values);
-  }
+  const findPrivateEvent = Effect.fn('EventsService.findPrivateEvent')(function* (
+    ...values: Parameters<EventsRepository['findPrivateEvent']>
+  ) {
+    return repositories.eventsRepository.findPrivateEvent(...values);
+  });
 
-  updateNotification(...values: Parameters<EventsRepository['updateNotification']>) {
-    return this.eventsRepository.updateNotification(...values);
-  }
+  const updateNotification = Effect.fn('EventsService.updateNotification')(function* (
+    ...values: Parameters<EventsRepository['updateNotification']>
+  ) {
+    return repositories.eventsRepository.updateNotification(...values);
+  });
 
-  notificationsForPlayer(...values: Parameters<EventsRepository['notificationsForPlayer']>) {
-    return this.eventsRepository.notificationsForPlayer(...values);
-  }
+  const notificationsForPlayer = Effect.fn('EventsService.notificationsForPlayer')(function* (
+    ...values: Parameters<EventsRepository['notificationsForPlayer']>
+  ) {
+    return repositories.eventsRepository.notificationsForPlayer(...values);
+  });
 
-  findNotification(...values: Parameters<EventsRepository['findNotification']>) {
-    return this.eventsRepository.findNotification(...values);
-  }
+  const findNotification = Effect.fn('EventsService.findNotification')(function* (
+    ...values: Parameters<EventsRepository['findNotification']>
+  ) {
+    return repositories.eventsRepository.findNotification(...values);
+  });
 
   /** Listing expiry only hides notifications. Updates can mark read or unread;
   meetup edits reset unread and invite removal deletes the corresponding rows.
   */
-  notifications(player: number, now = Date.now()) {
-    return this.notificationsForPlayer(player).flatMap((row) => {
+  const notifications = Effect.fn('EventsService.notifications')(function* (player: number, now = Date.now()) {
+    return (yield* notificationsForPlayer(player)).flatMap((row) => {
       const text = Schema.decodeUnknownSync(Schema.String)(row.json);
       const notification = Schema.decodeUnknownSync(notificationPayloadSchema)(JSON.parse(text));
 
@@ -48,23 +56,28 @@ export class EventsService extends BaseService {
         ? text
         : [];
     });
-  }
+  });
 
-  markNotification(player: number, id: string, update: (typeof notificationUpdateSchema)['Type']) {
-    const row = this.findNotification(id, player);
+  const markNotification = Effect.fn('EventsService.markNotification')(function* (
+    player: number,
+    id: string,
+    update: (typeof notificationUpdateSchema)['Type'],
+  ) {
+    const row = yield* findNotification(id, player);
 
-    if (!row) throw new ApplicationError({ status: 404 });
+    if (!row) return yield* new ApplicationError({ status: 404 });
 
     const notification = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))(
       JSON.parse(Schema.decodeUnknownSync(Schema.String)(row.json)),
     );
 
     Object.assign(notification, update, { lastModified: update.readDate });
-    this.updateNotification(JSON.stringify(notification), id);
-  }
+    yield* updateNotification(JSON.stringify(notification), id);
+  });
 
-  profile(id: number) {
-    const rider = this.context.profiles.get(id);
+  /** The invite card for a rider. */
+  function profileOf(id: number) {
+    const rider = context.profiles.get(id);
 
     return {
       id,
@@ -77,31 +90,40 @@ export class EventsService extends BaseService {
     };
   }
 
-  read(id: string) {
-    const row = this.findPrivateEvent(id);
+  const profile = Effect.fn('EventsService.profile')(function* (id: number) {
+    return profileOf(id);
+  });
 
-    if (!row) throw new ApplicationError({ status: 404 });
+  const read = Effect.fn('EventsService.read')(function* (id: string) {
+    const row = yield* findPrivateEvent(id);
+
+    if (!row) return yield* new ApplicationError({ status: 404 });
 
     return decodeMeetup(JSON.parse(Schema.decodeUnknownSync(Schema.String)(row.json)));
-  }
+  });
 
-  all() {
-    return this.eventsRepository
+  const all = Effect.fn('EventsService.all')(function* () {
+    return repositories.eventsRepository
       .listPrivateEvent()
       .map((row) => decodeMeetup(JSON.parse(Schema.decodeUnknownSync(Schema.String)(row.json))));
-  }
+  });
 
-  save(event: Meetup) {
+  /** Store a meetup with its invite counts. Runs inside the caller's transaction. */
+  function saveEvent(event: Meetup) {
     const accepted = event.eventInvites.filter((invite) => invite.status === 'ACCEPTED');
     event.acceptedTotalCount = accepted.length;
     event.acceptedFolloweeCount = accepted.filter(
       (invite) => invite.invitedProfile.id !== event.organizerProfileId,
     ).length;
     event.invitedTotalCount = event.eventInvites.length;
-    this.eventsRepository.updatePrivateEvent(JSON.stringify(event), event.id);
+    repositories.eventsRepository.updatePrivateEvent(JSON.stringify(event), event.id);
   }
 
-  broadcast(event: Meetup) {
+  const save = Effect.fn('EventsService.save')(function* (event: Meetup) {
+    saveEvent(event);
+  });
+
+  const broadcast = Effect.fn('EventsService.broadcast')(function* (event: Meetup) {
     const payload = toBinary(
       EventSchema,
       create(EventSchema, {
@@ -126,7 +148,7 @@ export class EventsService extends BaseService {
     const recipients = [event.organizerProfileId, ...event.invitedProfileIds];
 
     for (const id of recipients)
-      this.context.world.enqueue(
+      context.world.enqueue(
         create(WorldAttributeSchema, {
           serverRealm: 1n,
           waType: WA_TYPE.WAT_INV_W,
@@ -139,12 +161,12 @@ export class EventsService extends BaseService {
         }),
         [BigInt(id)],
       );
-  }
+  });
 
-  notify(event: Meetup, id: number) {
-    const notificationId = Number(this.eventsRepository.insertNotification(event.id, id, '').lastInsertRowid);
+  const notify = Effect.fn('EventsService.notify')(function* (event: Meetup, id: number) {
+    const notificationId = Number(repositories.eventsRepository.insertNotification(event.id, id, '').lastInsertRowid);
 
-    const organizer = this.profile(event.organizerProfileId);
+    const organizer = yield* profile(event.organizerProfileId);
 
     const notification = {
       activity: null,
@@ -173,10 +195,14 @@ export class EventsService extends BaseService {
       type: 'PRIVATE_EVENT_INVITE',
     };
 
-    this.updateNotification(JSON.stringify(notification), notificationId);
-  }
+    yield* updateNotification(JSON.stringify(notification), notificationId);
+  });
 
-  announceSignup(playerId: number, id: bigint, joining: boolean) {
+  const announceSignup = Effect.fn('EventsService.announceSignup')(function* (
+    playerId: number,
+    id: bigint,
+    joining: boolean,
+  ) {
     const payload = joining
       ? toBinary(
           PlayerJoinedEventSchema,
@@ -193,7 +219,7 @@ export class EventsService extends BaseService {
           }),
         );
 
-    this.context.world.enqueue(
+    context.world.enqueue(
       create(WorldAttributeSchema, {
         serverRealm: 1n,
         waType: joining ? WA_TYPE.WAT_JOIN_E : WA_TYPE.WAT_LEFT_E,
@@ -204,162 +230,185 @@ export class EventsService extends BaseService {
         timestamp: BigInt(Date.now()) * 1000n,
         relId: BigInt(playerId),
       }),
-      [...new Set([...this.context.world.online.keys(), BigInt(playerId)])],
+      [...new Set([...context.world.online.keys(), BigInt(playerId)])],
     );
-  }
+  });
 
-  private begin() {
-    this.eventsRepository.begin();
-  }
+  const eventsAt = Effect.fn('EventsService.eventsAt')(function* (
+    ...args: Parameters<EventCatalogService['eventsAt']>
+  ) {
+    return new EventCatalogService(repositories).eventsAt(...args);
+  });
 
-  private commit() {
-    this.eventsRepository.commit();
-  }
-
-  private rollback() {
-    this.eventsRepository.rollback();
-  }
-
-  eventsAt(...args: Parameters<EventCatalogService['eventsAt']>) {
-    return new EventCatalogService(this.repositories).eventsAt(...args);
-  }
-
-  eventJSON(...args: Parameters<typeof EventCatalogService.eventJSON>) {
+  const eventJSON = Effect.fn('EventsService.eventJSON')(function* (
+    ...args: Parameters<typeof EventCatalogService.eventJSON>
+  ) {
     return EventCatalogService.eventJSON(...args);
-  }
+  });
 
-  createMeetup(user: User, input: MeetupInput) {
+  const createMeetup = Effect.fn('EventsService.createMeetup')(function* (user: User, input: MeetupInput) {
     input.invitedProfileIds = [...new Set(input.invitedProfileIds)].filter((id) => id !== user.player_id);
 
     for (const id of input.invitedProfileIds)
-      if (!this.context.accounts.get(id)) throw new ApplicationError({ status: 400 });
-    this.begin();
-    let event: Meetup;
+      if (!context.accounts.get(id)) return yield* new ApplicationError({ status: 400 });
 
-    try {
-      const id = Number(this.eventsRepository.insertPrivateEvent('{}').lastInsertRowid);
+    const event = yield* transaction(context.accounts.db)(
+      Effect.gen(function* () {
+        const id = Number(repositories.eventsRepository.insertPrivateEvent('{}').lastInsertRowid);
 
-      const organizer = this.profile(user.player_id);
-      event = {
-        ...input,
-        id,
-        eventSubgroupId: id,
-        name: `Route #${input.routeId}`,
-        organizerProfileId: user.player_id,
-        organizerId: user.player_id,
-        organizerFirstName: organizer.firstName,
-        organizerLastName: organizer.lastName,
-        organizerImageUrl: organizer.imageSrc,
-        updateDate: new Date().toISOString(),
-        acceptedTotalCount: input.invitedProfileIds.length,
-        acceptedFolloweeCount: input.invitedProfileIds.length + 1,
-        invitedTotalCount: input.invitedProfileIds.length + 1,
-        startLocation: 1,
-        allowsLateJoin: true,
-        eventInvites: [
-          { invitedProfile: organizer, status: 'ACCEPTED' },
-          ...input.invitedProfileIds.map((id) => ({
-            invitedProfile: this.profile(id),
-            status: Schema.decodeUnknownSync(Schema.Literal('PENDING'))('PENDING'),
-          })),
-        ],
-      };
-      this.save(event);
+        const organizer = profileOf(user.player_id);
 
-      for (const id of input.invitedProfileIds) this.notify(event, id);
-      this.commit();
-    } catch (error) {
-      this.rollback();
-      throw error;
-    }
+        const event: Meetup = {
+          ...input,
+          id,
+          eventSubgroupId: id,
+          name: `Route #${input.routeId}`,
+          organizerProfileId: user.player_id,
+          organizerId: user.player_id,
+          organizerFirstName: organizer.firstName,
+          organizerLastName: organizer.lastName,
+          organizerImageUrl: organizer.imageSrc,
+          updateDate: new Date().toISOString(),
+          acceptedTotalCount: input.invitedProfileIds.length,
+          acceptedFolloweeCount: input.invitedProfileIds.length + 1,
+          invitedTotalCount: input.invitedProfileIds.length + 1,
+          startLocation: 1,
+          allowsLateJoin: true,
+          eventInvites: [
+            { invitedProfile: organizer, status: 'ACCEPTED' },
+            ...input.invitedProfileIds.map((id) => ({
+              invitedProfile: profileOf(id),
+              status: Schema.decodeUnknownSync(Schema.Literal('PENDING'))('PENDING'),
+            })),
+          ],
+        };
 
-    this.announceSignup(user.player_id, BigInt(event.id), true);
-    this.broadcast(event);
+        saveEvent(event);
+
+        for (const id of input.invitedProfileIds) yield* notify(event, id);
+
+        return event;
+      }),
+    );
+
+    yield* announceSignup(user.player_id, BigInt(event.id), true);
+    yield* broadcast(event);
 
     return event.id;
-  }
+  });
 
-  deleteMeetup(event: Meetup, commit: () => void = () => {}) {
-    this.begin();
+  const deleteMeetup = Effect.fn('EventsService.deleteMeetup')(function* (
+    event: Meetup,
+    commit: () => void = () => {},
+  ) {
+    yield* transaction(context.accounts.db)(
+      Effect.sync(() => {
+        repositories.eventsRepository.deletePrivateEvent(event.id);
+        repositories.eventsRepository.deleteNotification(event.id);
+        commit();
+      }),
+    );
+  });
 
-    try {
-      this.eventsRepository.deletePrivateEvent(event.id);
-      this.eventsRepository.deleteNotification(event.id);
-      commit();
-      this.commit();
-    } catch (error) {
-      this.rollback();
-      throw error;
-    }
-  }
-
-  updateMeetup(event: Meetup, update: MeetupInput, commit: () => void = () => {}) {
+  const updateMeetup = Effect.fn('EventsService.updateMeetup')(function* (
+    event: Meetup,
+    update: MeetupInput,
+    commit: () => void = () => {},
+  ) {
     update.invitedProfileIds = [...new Set(update.invitedProfileIds)].filter((id) => id !== event.organizerProfileId);
 
     for (const id of update.invitedProfileIds)
-      if (!this.context.accounts.get(id)) throw new ApplicationError({ status: 400 });
+      if (!context.accounts.get(id)) return yield* new ApplicationError({ status: 400 });
     const next = { ...event, ...update, updateDate: new Date().toISOString() };
     next.eventInvites = [
-      { invitedProfile: this.profile(event.organizerProfileId), status: 'ACCEPTED' },
+      { invitedProfile: profileOf(event.organizerProfileId), status: 'ACCEPTED' },
       ...update.invitedProfileIds
         .filter((id) => id !== event.organizerProfileId)
         .map(
           (id) =>
             event.eventInvites.find((invite) => invite.invitedProfile.id === id) ?? {
-              invitedProfile: this.profile(id),
+              invitedProfile: profileOf(id),
               status: Schema.decodeUnknownSync(Schema.Literal('PENDING'))('PENDING'),
             },
         ),
     ];
-    this.begin();
+    yield* transaction(context.accounts.db)(
+      Effect.gen(function* () {
+        saveEvent(next);
 
-    try {
-      this.save(next);
+        for (const row of repositories.eventsRepository.listNotification(event.id)) {
+          if (!update.invitedProfileIds.includes(Schema.decodeUnknownSync(Schema.Finite)(row.player_id))) {
+            repositories.eventsRepository.deletePlayerNotification(
+              event.id,
+              Schema.decodeUnknownSync(Schema.Finite)(row.player_id),
+            );
+            continue;
+          }
 
-      for (const row of this.eventsRepository.listNotification(event.id)) {
-        if (!update.invitedProfileIds.includes(Schema.decodeUnknownSync(Schema.Finite)(row.player_id))) {
-          this.eventsRepository.deletePlayerNotification(
-            event.id,
-            Schema.decodeUnknownSync(Schema.Finite)(row.player_id),
+          const notification = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))(
+            JSON.parse(Schema.decodeUnknownSync(Schema.String)(row.json)),
           );
-          continue;
+
+          Object.assign(notification, {
+            read: false,
+            readDate: null,
+            lastModified: next.updateDate,
+            argString0: JSON.stringify({
+              eventId: next.id,
+              eventStartDate: Math.floor(Date.parse(next.eventStart) / 1000),
+              otherInviteeCount: next.invitedProfileIds.length,
+            }),
+          });
+          yield* updateNotification(JSON.stringify(notification), Schema.decodeUnknownSync(Schema.Finite)(row.id));
         }
 
-        const notification = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))(
-          JSON.parse(Schema.decodeUnknownSync(Schema.String)(row.json)),
-        );
+        for (const id of update.invitedProfileIds) if (!event.invitedProfileIds.includes(id)) yield* notify(next, id);
+        commit();
+      }),
+    );
 
-        Object.assign(notification, {
-          read: false,
-          readDate: null,
-          lastModified: next.updateDate,
-          argString0: JSON.stringify({
-            eventId: next.id,
-            eventStartDate: Math.floor(Date.parse(next.eventStart) / 1000),
-            otherInviteeCount: next.invitedProfileIds.length,
-          }),
-        });
-        this.updateNotification(JSON.stringify(notification), Schema.decodeUnknownSync(Schema.Finite)(row.id));
-      }
-
-      for (const id of update.invitedProfileIds) if (!event.invitedProfileIds.includes(id)) this.notify(next, id);
-      commit();
-      this.commit();
-    } catch (error) {
-      this.rollback();
-      throw error;
-    }
-
-    this.broadcast(next);
-  }
+    yield* broadcast(next);
+  });
 
   // Any existing decision may change. The organizer remains accepted when updating
   // the invite list; retained invitees keep decisions, new invitees start pending.
-  respondToInvite(event: Meetup, playerId: number, accepting: boolean) {
+  const respondToInvite = Effect.fn('EventsService.respondToInvite')(function* (
+    event: Meetup,
+    playerId: number,
+    accepting: boolean,
+  ) {
     const invite = event.eventInvites.find((invite) => invite.invitedProfile.id === playerId);
 
-    if (!invite) throw new ApplicationError({ status: 403 });
+    if (!invite) return yield* new ApplicationError({ status: 403 });
     invite.status = accepting ? 'ACCEPTED' : 'REJECTED';
-    this.save(event);
-  }
+    saveEvent(event);
+  });
+
+  return {
+    findPrivateEvent,
+    updateNotification,
+    notificationsForPlayer,
+    findNotification,
+    notifications,
+    markNotification,
+    profile,
+    read,
+    all,
+    save,
+    broadcast,
+    notify,
+    announceSignup,
+    eventsAt,
+    eventJSON,
+    createMeetup,
+    deleteMeetup,
+    updateMeetup,
+    respondToInvite,
+  };
+});
+
+export class EventsService extends Context.Service<EventsService, Effect.Success<typeof make>>()(
+  'zluggish/EventsService',
+) {
+  static readonly layer = Layer.effect(EventsService, make);
 }

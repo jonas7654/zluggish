@@ -1,3 +1,4 @@
+import { DocumentsService } from '#src/services/documents.service';
 import { decodeOwned } from '#src/schema';
 import { Schema } from 'effect';
 import { openDatabase } from '#src/db/open';
@@ -25,7 +26,7 @@ async function backedUp(t: TestContext) {
     for (const close of cleanup) await close();
   });
   const f = await mediumFixture(t);
-  f.services.documents.put(f.rider.player_id, 'runalyze_token.txt', 'token');
+  f.effects.runSync(DocumentsService.use((service) => service.put(f.rider.player_id, 'runalyze_token.txt', 'token')));
 
   const data = {
     playerId: BigInt(f.rider.player_id),

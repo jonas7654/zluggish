@@ -1,3 +1,4 @@
+import { DocumentsService } from '#src/services/documents.service';
 import { createGameApp } from '#src/http/app';
 import { LoginResponseSchema } from '#src/protocol/generated/login_pb';
 import { AchievementsSchema, PlayerProfileSchema, StreaksSchema } from '#src/protocol/generated/profile_pb';
@@ -56,8 +57,13 @@ for (const item of cases) {
     const web = mediumWeb(f, f.rider);
     const other = mediumWeb(f, f.other);
     const folder = f.profiles.folder(f.rider.player_id);
-    const stored = () => Buffer.from(f.services.documents.get(f.rider.player_id, item.name) ?? []);
-    f.services.documents.put(f.rider.player_id, item.name, item.before);
+
+    const stored = () =>
+      Buffer.from(
+        f.effects.runSync(DocumentsService.use((service) => service.get(f.rider.player_id, item.name))) ?? [],
+      );
+
+    f.effects.runSync(DocumentsService.use((service) => service.put(f.rider.player_id, item.name, item.before)));
     const account = f.accounts.get(f.rider.player_id);
 
     const upload = async () => {
@@ -104,7 +110,10 @@ for (const item of cases) {
     assert.deepEqual(readFileSync(resolve(folder, backups[0]!)), Buffer.from(item.before));
     assert.equal(f.accounts.get(f.rider.player_id)?.auth_version, account?.auth_version);
     assert.equal(f.accounts.get(f.rider.player_id)?.role, account?.role);
-    assert.equal(f.services.documents.has(f.other.player_id, item.name), false);
+    assert.equal(
+      f.effects.runSync(DocumentsService.use((service) => service.has(f.other.player_id, item.name))),
+      false,
+    );
     assert.equal(
       readdirSync(folder).some((name) => name.startsWith('.ts-import-')),
       false,
@@ -149,7 +158,7 @@ await test('F12 app reconstruction removes a stage whose restore already committ
   const folder = f.profiles.folder(f.rider.player_id);
   const original = toBinary(StreaksSchema, create(StreaksSchema, { curStreak: 2 }));
   const incoming = toBinary(StreaksSchema, create(StreaksSchema, { curStreak: 99 }));
-  f.services.documents.put(f.rider.player_id, 'streaks.bin', original);
+  f.effects.runSync(DocumentsService.use((service) => service.put(f.rider.player_id, 'streaks.bin', original)));
   const files = new FormData();
   files.set('streaks.bin', new File([incoming], 'streaks.bin'));
   const staged = await web.request('/api/me/import', 'POST', files);
@@ -158,7 +167,7 @@ await test('F12 app reconstruction removes a stage whose restore already committ
   assert.ok(stage);
   // Simulate a process stopping after the publication transaction, before the stage removal.
   f.accounts.db.exec('BEGIN');
-  f.services.documents.put(f.rider.player_id, 'streaks.bin', incoming);
+  f.effects.runSync(DocumentsService.use((service) => service.put(f.rider.player_id, 'streaks.bin', incoming)));
   f.accounts.db.prepare('INSERT INTO rider_import (stage, player_id) VALUES (?, ?)').run(stage, f.rider.player_id);
   f.accounts.db.exec('COMMIT');
   const restarted = createGameApp({ gameInfo: '{}', gameInfoHash: '0', variants: '{}' }, f);
@@ -185,9 +194,10 @@ for (const choice of ['profile', 'achievements', 'both']) {
     const connections = f.accounts.repositories.connectionsRepository;
     assert.deepEqual(connections.read(f.rider.player_id, 'zwift'), ['official@example.test', 'medium-secret']);
     assert.equal(
-      Buffer.from(f.services.documents.get(f.rider.player_id, 'zwift_credentials.bin') ?? []).includes(
-        Buffer.from('medium-secret'),
-      ),
+      Buffer.from(
+        f.effects.runSync(DocumentsService.use((service) => service.get(f.rider.player_id, 'zwift_credentials.bin'))) ??
+          [],
+      ).includes(Buffer.from('medium-secret')),
       false,
     );
     assert.equal(connections.read(f.other.player_id, 'zwift'), null);
@@ -256,8 +266,14 @@ for (const choice of ['profile', 'achievements', 'both']) {
     assert.equal(published.status, 200);
     assert.equal(f.profiles.get(f.rider.player_id).id, BigInt(f.rider.player_id));
     assert.equal(f.profiles.get(f.rider.player_id).firstName, 'Medium');
-    assert.equal(f.services.documents.has(f.rider.player_id, 'economy_config.txt'), choice !== 'achievements');
-    assert.equal(f.services.documents.has(f.rider.player_id, 'achievements.bin'), choice !== 'profile');
+    assert.equal(
+      f.effects.runSync(DocumentsService.use((service) => service.has(f.rider.player_id, 'economy_config.txt'))),
+      choice !== 'achievements',
+    );
+    assert.equal(
+      f.effects.runSync(DocumentsService.use((service) => service.has(f.rider.player_id, 'achievements.bin'))),
+      choice !== 'profile',
+    );
     assert.equal(calls.includes('/api/profiles/me'), choice !== 'achievements');
     assert.equal(calls.includes('/api/achievement/loadPlayerAchievements'), choice !== 'profile');
     assert.equal(calls.at(-1), '/auth/realms/zwift/tokens/logout');

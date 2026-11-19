@@ -1,3 +1,4 @@
+import { DocumentsService } from '#src/services/documents.service';
 import { RuntimeContext } from '#src/context';
 import { validateConfig } from '#src/config/index';
 import { StorageService } from '#src/services/storage.service';
@@ -229,7 +230,7 @@ for (const count of [0, 1, 9, 10, 24, 25]) {
       );
     }
 
-    assert.ok(f.services.documents.has(f.rider.player_id, 'achievements.bin'));
+    assert.ok(f.effects.runSync(DocumentsService.use((service) => service.has(f.rider.player_id, 'achievements.bin'))));
   });
 }
 
@@ -329,7 +330,7 @@ await test('bike upgrade unlocks include extra frames, preserve settings and lea
       attributes: [{ bikeProgress: { signature: '270803031', level: 2 }, gameSettings: { minimalLeaderboards: 1 } }],
     }),
   });
-  const before = f.services.documents.get(id, 'user_storage.bin');
+  const before = f.effects.runSync(DocumentsService.use((service) => service.get(id, 'user_storage.bin')));
 
   const unlocked = StorageService.layer.pipe(
     Layer.provide(
@@ -373,7 +374,7 @@ await test('bike upgrade unlocks include extra frames, preserve settings and lea
   assert.equal(result.attributes.filter((a) => a.gameSettings).length, 1);
   assert.equal(attributes(new Set([22])).attributes.length, 1);
   assert.equal(attributes(new Set()).attributes.length, 0);
-  assert.deepEqual(f.services.documents.get(id, 'user_storage.bin'), before);
+  assert.deepEqual(f.effects.runSync(DocumentsService.use((service) => service.get(id, 'user_storage.bin'))), before);
 
   const original = await decode(
     await f.request('/api/player-profile/user-game-storage/attributes?n=24'),

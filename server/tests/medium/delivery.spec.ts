@@ -1,3 +1,5 @@
+import { ConnectionsService } from '#src/services/connections.service';
+import { DocumentsService } from '#src/services/documents.service';
 import { ActivitySchema } from '#src/protocol/generated/activity_pb';
 import { PlayerProfileSchema } from '#src/protocol/generated/profile_pb';
 import { DeliveryRefusedError } from '#src/errors';
@@ -51,7 +53,7 @@ for (const [outcome, response, state] of [
 ] as const)
   await test(`a delivery with ${outcome} becomes ${state} and never sends twice on its own`, async (t) => {
     const f = await mediumFixture(t);
-    f.services.documents.put(f.rider.player_id, 'runalyze_token.txt', 'token');
+    f.effects.runSync(DocumentsService.use((service) => service.put(f.rider.player_id, 'runalyze_token.txt', 'token')));
     await completed(f);
     const sends = t.mock.method(globalThis, 'fetch', response);
     await f.services.jobs.drain();
@@ -62,7 +64,7 @@ for (const [outcome, response, state] of [
 
 await test('a stop during each delivery state never sends a delivery twice', async (t) => {
   const f = await mediumFixture(t);
-  f.services.documents.put(f.rider.player_id, 'runalyze_token.txt', 'token');
+  f.effects.runSync(DocumentsService.use((service) => service.put(f.rider.player_id, 'runalyze_token.txt', 'token')));
   const id = await completed(f);
   const sends = t.mock.method(globalThis, 'fetch', () => Promise.resolve(new Response(null, { status: 200 })));
 
@@ -102,7 +104,7 @@ await test('a rider uploads a finished activity on request, and uploads it again
   assert.deepEqual(uploads.forActivity(player, id), []);
   assert.throws(() => uploads.request(player, id, 'runalyze', false), { status: 409 });
 
-  f.services.documents.put(player, 'runalyze_token.txt', 'token');
+  f.effects.runSync(DocumentsService.use((service) => service.put(player, 'runalyze_token.txt', 'token')));
   assert.deepEqual(uploads.forActivity(player, id), [{ provider: 'runalyze', state: null, error: null }]);
   assert.throws(() => uploads.request(f.other.player_id, id, 'runalyze', false), { status: 404 });
 
@@ -122,7 +124,7 @@ await test('finished activities without completion records upload, while unfinis
   const id = await completed(f);
   f.accounts.db.prepare('DELETE FROM activity_completion WHERE activity_id=?').run(id);
   f.accounts.db.prepare('UPDATE activity SET end_date=? WHERE id=?').run(new Date().toISOString(), id);
-  f.services.documents.put(player, 'runalyze_token.txt', 'token');
+  f.effects.runSync(DocumentsService.use((service) => service.put(player, 'runalyze_token.txt', 'token')));
   const sends = t.mock.method(globalThis, 'fetch', () => Promise.resolve(new Response(null, { status: 200 })));
 
   await f.services.uploads.request(player, id, 'runalyze', false);
@@ -139,7 +141,7 @@ await test('finished activities without completion records upload, while unfinis
 
 await test('a partial Zwift delivery keeps its remote activity and a retry uploads to it', async (t) => {
   const f = await mediumFixture(t);
-  f.services.connections.save(f.rider.player_id, 'zwift', ['user', 'pass']);
+  f.effects.runSync(ConnectionsService.use((service) => service.save(f.rider.player_id, 'zwift', ['user', 'pass'])));
   f.settings.save(f.rider.player_id, { 'uploads.zwift.enabled': true });
   t.mock.method(ZwiftRepository.prototype, 'officialLogin', () => Promise.resolve('token'));
   await completed(f);
@@ -172,7 +174,7 @@ await test('a partial Zwift delivery keeps its remote activity and a retry uploa
 
 await test('deleting every FIT export breaks neither details, charts nor delivery; a job creates them again', async (t) => {
   const f = await mediumFixture(t);
-  f.services.documents.put(f.rider.player_id, 'runalyze_token.txt', 'token');
+  f.effects.runSync(DocumentsService.use((service) => service.put(f.rider.player_id, 'runalyze_token.txt', 'token')));
   const delivered: Uint8Array[] = [];
   t.mock.method(globalThis, 'fetch', async (_input: string | URL, init?: RequestInit) => {
     const file = Schema.decodeUnknownSync(Schema.instanceOf(FormData))(init?.body).get('file');
@@ -236,11 +238,28 @@ const activity = create(ActivitySchema, {
 });
 
 for (const [provider, setup] of [
-  ['runalyze', (f: Fixture) => f.services.documents.put(f.rider.player_id, 'runalyze_token.txt', 'token')],
-  ['intervals', (f: Fixture) => f.services.connections.save(f.rider.player_id, 'intervals', ['42', 'key'])],
+  [
+    'runalyze',
+    (f: Fixture) =>
+      f.effects.runSync(
+        DocumentsService.use((service) => service.put(f.rider.player_id, 'runalyze_token.txt', 'token')),
+      ),
+  ],
+  [
+    'intervals',
+    (f: Fixture) =>
+      f.effects.runSync(
+        ConnectionsService.use((service) => service.save(f.rider.player_id, 'intervals', ['42', 'key'])),
+      ),
+  ],
   [
     'strava',
-    (f: Fixture) => f.services.documents.put(f.rider.player_id, 'strava_token.txt', '1\nsecret\na\nr\n9999999999\n'),
+    (f: Fixture) =>
+      f.effects.runSync(
+        DocumentsService.use((service) =>
+          service.put(f.rider.player_id, 'strava_token.txt', '1\nsecret\na\nr\n9999999999\n'),
+        ),
+      ),
   ],
 ] as const)
   for (const [response, expected] of [
@@ -278,14 +297,16 @@ await test('every provider refuses a delivery without credentials, before any re
   ])
     assert.equal(await outcome(send), 'failed');
 
-  f.services.connections.save(player, 'intervals', ['not-a-number', 'key']);
+  f.effects.runSync(ConnectionsService.use((service) => service.save(player, 'intervals', ['not-a-number', 'key'])));
   assert.equal(await outcome(() => uploads.intervals(player, activity)), 'failed');
   assert.equal(sends.mock.callCount(), 0);
 });
 
 await test('strava: a failed token refresh happens before the upload and is refused', async (t) => {
   const f = await mediumFixture(t);
-  f.services.documents.put(f.rider.player_id, 'strava_token.txt', '1\nsecret\na\nr\n1\n');
+  f.effects.runSync(
+    DocumentsService.use((service) => service.put(f.rider.player_id, 'strava_token.txt', '1\nsecret\na\nr\n1\n')),
+  );
   const calls = t.mock.method(globalThis, 'fetch', status(400));
   assert.equal(await outcome(() => new UploadsService(f).strava(f.rider.player_id, activity)), 'failed');
   assert.equal(calls.mock.callCount(), 1, 'only the refresh request');
@@ -298,7 +319,9 @@ for (const [step, expected] of [
 ] as const)
   await test(`strava session cookie: ${step} becomes ${expected}`, async (t) => {
     const f = await mediumFixture(t);
-    f.services.documents.put(f.rider.player_id, 'strava4_session.txt', 'cookie');
+    f.effects.runSync(
+      DocumentsService.use((service) => service.put(f.rider.player_id, 'strava4_session.txt', 'cookie')),
+    );
 
     t.mock.method(globalThis, 'fetch', (input: string | URL) => {
       const url = String(input);
@@ -330,21 +353,29 @@ for (const [error, expected] of [
   await test(`garmin: ${error.message} becomes ${expected}`, async (t) => {
     const f = await mediumFixture(t);
     const tokens = { oauth_token: 't', oauth_token_secret: 's' };
-    f.services.documents.put(f.rider.player_id, 'garth/oauth1_token.json', JSON.stringify(tokens));
-    f.services.documents.put(
-      f.rider.player_id,
-      'garth/oauth2_token.json',
-      JSON.stringify({
-        scope: '',
-        jti: '',
-        token_type: 'Bearer',
-        access_token: 'a',
-        refresh_token: 'r',
-        expires_in: 3600,
-        refresh_token_expires_in: 7200,
-        expires_at: 9_999_999_999,
-        refresh_token_expires_at: 9_999_999_999,
-      }),
+    f.effects.runSync(
+      DocumentsService.use((service) =>
+        service.put(f.rider.player_id, 'garth/oauth1_token.json', JSON.stringify(tokens)),
+      ),
+    );
+    f.effects.runSync(
+      DocumentsService.use((service) =>
+        service.put(
+          f.rider.player_id,
+          'garth/oauth2_token.json',
+          JSON.stringify({
+            scope: '',
+            jti: '',
+            token_type: 'Bearer',
+            access_token: 'a',
+            refresh_token: 'r',
+            expires_in: 3600,
+            refresh_token_expires_in: 7200,
+            expires_at: 9_999_999_999,
+            refresh_token_expires_at: 9_999_999_999,
+          }),
+        ),
+      ),
     );
     t.mock.method(Garmin.prototype, 'importActivity', () => Promise.reject(error));
     assert.equal(await outcome(() => new UploadsService(f).garmin(f.rider.player_id, activity)), expected);
@@ -359,7 +390,7 @@ for (const [step, expected, creates] of [
 ] as const)
   await test(`zwift: ${step} becomes ${expected}`, async (t) => {
     const f = await mediumFixture(t);
-    f.services.connections.save(f.rider.player_id, 'zwift', ['user', 'pass']);
+    f.effects.runSync(ConnectionsService.use((service) => service.save(f.rider.player_id, 'zwift', ['user', 'pass'])));
     t.mock.method(ZwiftRepository.prototype, 'officialLogin', () =>
       step === 'the login fails' ? Promise.reject(new Error('login')) : Promise.resolve('token'),
     );

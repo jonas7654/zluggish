@@ -1,3 +1,4 @@
+import { DocumentsService } from '#src/services/documents.service';
 import { validateConfig } from '#src/config/index';
 import { createGameApp } from '#src/http/app';
 import { ActivitySchema } from '#src/protocol/generated/activity_pb';
@@ -23,7 +24,7 @@ import { Schema } from 'effect';
 
 await test('deleting a queued activity while another upload is sending prevents its later delivery', async (t) => {
   const f = await mediumFixture(t);
-  f.services.documents.put(f.rider.player_id, 'runalyze_token.txt', 'test');
+  f.effects.runSync(DocumentsService.use((service) => service.put(f.rider.player_id, 'runalyze_token.txt', 'test')));
   const ids: number[] = [];
 
   const data = {
@@ -98,7 +99,10 @@ await test('a failed completion transaction commits nothing and a repeated save 
   assert.equal(f.accounts.db.prepare('SELECT name FROM activity WHERE id=?').get(id)?.name, 'Before failure');
   assert.equal(f.accounts.db.prepare('SELECT fit FROM activity WHERE id=?').get(id)?.fit, null);
   assert.equal(f.accounts.db.prepare('SELECT count(*) AS n FROM job').get()?.n, 0);
-  assert.equal(f.services.documents.has(f.rider.player_id, 'streaks.bin'), false);
+  assert.equal(
+    f.effects.runSync(DocumentsService.use((service) => service.has(f.rider.player_id, 'streaks.bin'))),
+    false,
+  );
   f.accounts.db.exec('DROP TRIGGER fail_completion');
 
   for (let i = 0; i < 2; i++) {
@@ -123,7 +127,7 @@ await test('a failed completion transaction commits nothing and a repeated save 
 
 await test('reopened delivery queues mark interrupted sends ambiguous and honor disconnection', async (t) => {
   const f = await mediumFixture(t);
-  f.services.documents.put(f.rider.player_id, 'runalyze_token.txt', 'test');
+  f.effects.runSync(DocumentsService.use((service) => service.put(f.rider.player_id, 'runalyze_token.txt', 'test')));
 
   const data = {
     playerId: BigInt(f.rider.player_id),
@@ -235,7 +239,7 @@ await test('repeated finalization keeps one streak update and deliveries retry o
   });
 
   const { id } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await response.json());
-  f.services.documents.put(f.rider.player_id, 'runalyze_token.txt', 'test');
+  f.effects.runSync(DocumentsService.use((service) => service.put(f.rider.player_id, 'runalyze_token.txt', 'test')));
   let delivered = 0;
   t.mock.method(globalThis, 'fetch', () => {
     delivered++;

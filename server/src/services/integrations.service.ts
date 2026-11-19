@@ -1,9 +1,12 @@
+import { Context, Effect, Layer } from 'effect';
+import { RuntimeContext } from '#src/context';
 import type { User } from '#src/repositories/accounts.repository';
 import type { GarminClient, MfaState } from 'garminconnect-js';
-import type { RepositoryContext } from '#src/context';
 import type { FitnessRepository } from '#src/repositories/fitness.repository';
 import { officialRelay } from '#src/repositories/zwift.repository';
-import { BaseService } from '#src/services/base.service';
+import type { ZwiftRepository } from '#src/repositories/zwift.repository';
+import type { ProfileDownloadRepository } from '#src/repositories/profile-download.repository';
+import type { StravaRepository } from '#src/repositories/strava.repository';
 
 type GarminAttempt = {
   identity: string;
@@ -12,132 +15,178 @@ type GarminAttempt = {
   credentials: readonly [string, string];
 } & ({ status: 'login' | 'verifying' } | { status: 'mfa'; state: MfaState });
 
-export class IntegrationsService extends BaseService {
-  private readonly garminAttempts = new Map<string, GarminAttempt>();
+const make = Effect.gen(function* () {
+  const context = yield* RuntimeContext;
+  const repositories = context.accounts.repositories;
 
-  constructor(readonly context: RepositoryContext) {
-    super(context.accounts.repositories);
-  }
+  const garminAttempts = new Map<string, GarminAttempt>();
 
   /** Session-keyed authorization: login -> mfa -> verifying -> committed/removed.
   A replacement attempt fences both old callbacks and token-file publication.
   */
-  async authorizeGarminSession(key: string, live: () => boolean, rider: User, code?: string) {
-    const identity = this.context.accounts.identityOf(rider);
+  const authorizeGarminSession = Effect.fn('IntegrationsService.authorizeGarminSession')(function* (
+    key: string,
+    live: () => boolean,
+    rider: User,
+    code?: string,
+  ) {
+    return yield* Effect.promise(async () => {
+      const identity = context.accounts.identityOf(rider);
 
-    for (const [id, entry] of this.garminAttempts) if (entry.expires < Date.now()) this.garminAttempts.delete(id);
-    let attempt: GarminAttempt;
+      for (const [id, entry] of garminAttempts) if (entry.expires < Date.now()) garminAttempts.delete(id);
+      let attempt: GarminAttempt;
 
-    if (code === undefined) {
-      const credentials = this.connectionsRepository.read(rider.player_id, 'garmin');
+      if (code === undefined) {
+        const credentials = repositories.connectionsRepository.read(rider.player_id, 'garmin');
 
-      if (!credentials) throw new Error('Save credentials first');
+        if (!credentials) throw new Error('Save credentials first');
 
-      if (!this.garminAttempts.has(key) && this.garminAttempts.size >= 100)
-        throw new Error('Too many pending authorizations');
-      attempt = {
-        status: 'login',
-        identity,
-        credentials,
-        expires: Date.now() + 300_000,
-        client: this.garminRepository.garminClient(null, this.context.config.integrations.garmin.domain),
-      };
-      this.garminAttempts.set(key, attempt);
-    } else {
-      const pending = this.garminAttempts.get(key);
-
-      if (!pending || pending.status !== 'mfa' || pending.identity !== identity)
-        throw new Error('Expired authorization');
-      attempt = pending;
-    }
-
-    const current = () => {
-      const credentials = this.connectionsRepository.read(rider.player_id, 'garmin');
-
-      return (
-        this.garminAttempts.get(key) === attempt &&
-        attempt.expires >= Date.now() &&
-        live() &&
-        credentials?.[0] === attempt.credentials[0] &&
-        credentials?.[1] === attempt.credentials[1]
-      );
-    };
-
-    try {
-      if (!current()) throw new Error('Expired authorization');
-
-      if (attempt.status === 'mfa') {
-        const state = attempt.state;
-        attempt = { ...attempt, status: 'verifying' };
-        this.garminAttempts.set(key, attempt);
-        await attempt.client.resumeLogin(state, code ?? '');
+        if (!garminAttempts.has(key) && garminAttempts.size >= 100) throw new Error('Too many pending authorizations');
+        attempt = {
+          status: 'login',
+          identity,
+          credentials,
+          expires: Date.now() + 300_000,
+          client: repositories.garminRepository.garminClient(null, context.config.integrations.garmin.domain),
+        };
+        garminAttempts.set(key, attempt);
       } else {
-        const result = await attempt.client.login(attempt.credentials[0], attempt.credentials[1]);
+        const pending = garminAttempts.get(key);
 
-        if (!current()) throw new Error('Expired authorization');
-
-        if (result.state === 'mfa_required') {
-          if (this.garminAttempts.size > 100) throw new Error('Too many pending authorizations');
-          attempt = { ...attempt, status: 'mfa', state: result.mfaState };
-          this.garminAttempts.set(key, attempt);
-
-          return 'mfa';
-        }
+        if (!pending || pending.status !== 'mfa' || pending.identity !== identity)
+          throw new Error('Expired authorization');
+        attempt = pending;
       }
 
-      if (!current()) throw new Error('Expired authorization');
-      await this.garminRepository.saveAuthorization(
-        this.garminRepository.tokenStore(this.riderDocuments, rider.player_id),
-        attempt.client,
-      );
-      this.garminAttempts.delete(key);
+      const current = () => {
+        const credentials = repositories.connectionsRepository.read(rider.player_id, 'garmin');
 
-      return 'authorized';
-    } catch (error) {
-      if (this.garminAttempts.get(key) === attempt) this.garminAttempts.delete(key);
-      throw error;
-    }
-  }
+        return (
+          garminAttempts.get(key) === attempt &&
+          attempt.expires >= Date.now() &&
+          live() &&
+          credentials?.[0] === attempt.credentials[0] &&
+          credentials?.[1] === attempt.credentials[1]
+        );
+      };
 
-  async authorizeStravaSession(live: () => boolean, rider: User, code: string) {
-    const credentials = this.connectionsRepository.read(rider.player_id, 'strava');
+      try {
+        if (!current()) throw new Error('Expired authorization');
+
+        if (attempt.status === 'mfa') {
+          const state = attempt.state;
+          attempt = { ...attempt, status: 'verifying' };
+          garminAttempts.set(key, attempt);
+          await attempt.client.resumeLogin(state, code ?? '');
+        } else {
+          const result = await attempt.client.login(attempt.credentials[0], attempt.credentials[1]);
+
+          if (!current()) throw new Error('Expired authorization');
+
+          if (result.state === 'mfa_required') {
+            if (garminAttempts.size > 100) throw new Error('Too many pending authorizations');
+            attempt = { ...attempt, status: 'mfa', state: result.mfaState };
+            garminAttempts.set(key, attempt);
+
+            return 'mfa';
+          }
+        }
+
+        if (!current()) throw new Error('Expired authorization');
+        await repositories.garminRepository.saveAuthorization(
+          repositories.garminRepository.tokenStore(repositories.riderDocuments, rider.player_id),
+          attempt.client,
+        );
+        garminAttempts.delete(key);
+
+        return 'authorized';
+      } catch (error) {
+        if (garminAttempts.get(key) === attempt) garminAttempts.delete(key);
+        throw error;
+      }
+    });
+  });
+
+  const authorizeStravaSession = Effect.fn('IntegrationsService.authorizeStravaSession')(function* (
+    live: () => boolean,
+    rider: User,
+    code: string,
+  ) {
+    const credentials = repositories.connectionsRepository.read(rider.player_id, 'strava');
 
     if (!credentials) throw new Error('Missing Strava credentials');
-    const token = await this.stravaRepository.exchangeCode(credentials[0], credentials[1], code);
-    const current = this.connectionsRepository.read(rider.player_id, 'strava');
+
+    const token = yield* Effect.promise(() =>
+      repositories.stravaRepository.exchangeCode(credentials[0], credentials[1], code),
+    );
+
+    const current = repositories.connectionsRepository.read(rider.player_id, 'strava');
 
     if (!live() || current?.[0] !== credentials[0] || current?.[1] !== credentials[1])
       throw new Error('Expired authorization');
-    this.riderDocuments.put(rider.player_id, 'strava_token.txt', this.stravaRepository.serializeToken(token));
-  }
+    repositories.riderDocuments.put(
+      rider.player_id,
+      'strava_token.txt',
+      repositories.stravaRepository.serializeToken(token),
+    );
+  });
 
-  deletePowerCurve(...values: Parameters<FitnessRepository['deletePowerCurve']>) {
-    return this.fitnessRepository.deletePowerCurve(...values);
-  }
+  const deletePowerCurve = Effect.fn('IntegrationsService.deletePowerCurve')(function* (
+    ...values: Parameters<FitnessRepository['deletePowerCurve']>
+  ) {
+    return repositories.fitnessRepository.deletePowerCurve(...values);
+  });
 
-  request(...args: Parameters<typeof fetch>) {
-    return fetch(...args);
-  }
+  const request = Effect.fn('IntegrationsService.request')(function* (...args: Parameters<typeof fetch>) {
+    return yield* Effect.promise(() => fetch(...args));
+  });
 
-  downloadOfficialData(...args: Parameters<typeof this.profileDownloadRepository.downloadOfficialData>) {
-    return this.profileDownloadRepository.downloadOfficialData(...args);
-  }
+  const downloadOfficialData = Effect.fn('IntegrationsService.downloadOfficialData')(function* (
+    ...args: Parameters<ProfileDownloadRepository['downloadOfficialData']>
+  ) {
+    return yield* Effect.promise(() => repositories.profileDownloadRepository.downloadOfficialData(...args));
+  });
 
-  authorizationUrl(...args: Parameters<typeof this.stravaRepository.authorizationUrl>) {
-    return this.stravaRepository.authorizationUrl(...args);
-  }
+  const authorizationUrl = Effect.fn('IntegrationsService.authorizationUrl')(function* (
+    ...args: Parameters<StravaRepository['authorizationUrl']>
+  ) {
+    return repositories.stravaRepository.authorizationUrl(...args);
+  });
 
-  checkSession(...args: Parameters<typeof this.stravaRepository.checkSession>) {
-    return this.stravaRepository.checkSession(...args);
-  }
+  const checkSession = Effect.fn('IntegrationsService.checkSession')(function* (
+    ...args: Parameters<StravaRepository['checkSession']>
+  ) {
+    return yield* Effect.promise(() => repositories.stravaRepository.checkSession(...args));
+  });
 
-  officialHeaders(...args: Parameters<typeof this.zwiftRepository.officialHeaders>) {
-    return this.zwiftRepository.officialHeaders(...args);
-  }
+  const officialHeaders = Effect.fn('IntegrationsService.officialHeaders')(function* (
+    ...args: Parameters<ZwiftRepository['officialHeaders']>
+  ) {
+    return repositories.zwiftRepository.officialHeaders(...args);
+  });
 
-  officialLogin(...args: Parameters<typeof this.zwiftRepository.officialLogin>) {
-    return this.zwiftRepository.officialLogin(...args);
-  }
+  const officialLogin = Effect.fn('IntegrationsService.officialLogin')(function* (
+    ...args: Parameters<ZwiftRepository['officialLogin']>
+  ) {
+    return yield* Effect.promise(() => repositories.zwiftRepository.officialLogin(...args));
+  });
 
-  readonly officialRelay = officialRelay;
+  return {
+    authorizeGarminSession,
+    authorizeStravaSession,
+    deletePowerCurve,
+    request,
+    downloadOfficialData,
+    authorizationUrl,
+    checkSession,
+    officialHeaders,
+    officialLogin,
+    officialRelay,
+  };
+});
+
+export class IntegrationsService extends Context.Service<IntegrationsService, Effect.Success<typeof make>>()(
+  'zluggish/IntegrationsService',
+) {
+  static readonly layer = Layer.effect(IntegrationsService, make);
 }

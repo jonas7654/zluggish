@@ -1,3 +1,4 @@
+import { ConnectionsService } from '#src/services/connections.service';
 import { createCdn } from '#src/node/network/cdn';
 import { LoginRequestSchema, LoginResponseSchema } from '#src/protocol/generated/login_pb';
 import { ZFilesProtoSchema } from '#src/protocol/generated/zfiles_pb';
@@ -22,7 +23,9 @@ await test('F07 browser home and Android login share one refresh; saved-token lo
   t.mock.timers.enable({ apis: ['Date'], now: Date.UTC(2026, 10, 13, 12) });
   const f = await mediumFixture(t);
   const browser = await mediumBrowser(f);
-  f.services.connections.save(f.rider.player_id, 'intervals', ['123', 'medium-key']);
+  f.effects.runSync(
+    ConnectionsService.use((service) => service.save(f.rider.player_id, 'intervals', ['123', 'medium-key'])),
+  );
   const calls: { url: URL; signal: AbortSignal | null | undefined }[] = [];
 
   t.mock.method(globalThis, 'fetch', async (input: URL | string, init?: RequestInit) => {
@@ -86,7 +89,9 @@ for (const failure of ['provider unavailable', 'invalid second download']) {
     t.mock.timers.enable({ apis: ['Date'], now: Date.UTC(2026, 10, 13, 12) });
     const f = await mediumFixture(t);
     const browser = await mediumBrowser(f);
-    f.services.connections.save(f.rider.player_id, 'intervals', ['123', 'medium-key']);
+    f.effects.runSync(
+      ConnectionsService.use((service) => service.save(f.rider.player_id, 'intervals', ['123', 'medium-key'])),
+    );
     let failing = false;
 
     t.mock.method(globalThis, 'fetch', (input: URL | string) => {
@@ -134,7 +139,9 @@ for (const failure of ['provider unavailable', 'invalid second download']) {
 
 await test('F07 automatic login deadline cancels provider work without replacing the cached schedule', async (t) => {
   const f = await mediumFixture(t);
-  f.services.connections.save(f.rider.player_id, 'intervals', ['123', 'medium-key']);
+  f.effects.runSync(
+    ConnectionsService.use((service) => service.save(f.rider.player_id, 'intervals', ['123', 'medium-key'])),
+  );
   const metadata = resolve(f.profiles.folder(f.rider.player_id), 'intervals_icu_workout.json');
   const before = Buffer.from('{"provider":"intervals-icu","workouts":[]}');
   new AssetFiles().writeDurable(metadata, before);
@@ -229,7 +236,9 @@ for (const sport of [undefined, 'CYCLING', 'cycling', 'RUNNING', 'running', 'ROW
     t.mock.timers.enable({ apis: ['Date'], now: Date.UTC(2026, 10, 13, 12) });
     const f = await mediumFixture(t);
     const web = mediumWeb(f, f.rider);
-    f.services.connections.save(f.rider.player_id, 'intervals', ['123', 'medium-key']);
+    f.effects.runSync(
+      ConnectionsService.use((service) => service.save(f.rider.player_id, 'intervals', ['123', 'medium-key'])),
+    );
     t.mock.method(globalThis, 'fetch', (input: URL | string) =>
       Promise.resolve(
         String(input).endsWith('/download.zwo')
@@ -273,7 +282,7 @@ await test('Intervals sync preserves interleaved exercise blocks and text events
   t.mock.timers.enable({ apis: ['Date'], now: Date.UTC(2026, 10, 13, 12) });
   const f = await mediumFixture(t);
   const web = mediumWeb(f, f.rider);
-  f.services.connections.save(f.rider.player_id, 'intervals', ['123', 'test']);
+  f.effects.runSync(ConnectionsService.use((service) => service.save(f.rider.player_id, 'intervals', ['123', 'test'])));
 
   const workout =
     '<workout_file><name>A &amp; B</name><sportType>bike</sportType><uniqueId>old</uniqueId><workout>' +

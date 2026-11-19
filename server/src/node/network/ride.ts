@@ -1,3 +1,4 @@
+import { DocumentsService } from '#src/services/documents.service';
 import type { Runtime } from '#src/http/runtime';
 import type { InitializationVector } from '#src/node/network/packet';
 import { decodePacket, encodePacket, FrameDecoder } from '#src/node/network/packet';
@@ -145,14 +146,21 @@ export function startRideListeners(runtime: Runtime) {
 
             // The stored relay key lets a restarted server accept the existing session.
             const current = world.relays.get(playerId);
-            const documents = runtime.services.documents;
 
             if (current && rider.enabled) {
               runtime.services.rideCompletion.persistRelay(id, current.key, rider.auth_version);
             } else {
-              const key = documents.get(id, 'encryption_key.bin');
+              const key = runtime.effects.runSync(
+                DocumentsService.use((documents) => documents.get(id, 'encryption_key.bin')),
+              );
 
-              if (key && rider.enabled && documents.text(id, 'relay-auth-version') === String(rider.auth_version))
+              if (
+                key &&
+                rider.enabled &&
+                runtime.effects.runSync(
+                  DocumentsService.use((documents) => documents.text(id, 'relay-auth-version')),
+                ) === String(rider.auth_version)
+              )
                 world.login(playerId, key);
             }
           }

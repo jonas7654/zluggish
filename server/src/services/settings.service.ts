@@ -6,7 +6,7 @@ import type { SettingsStore } from '#src/repositories/settings.repository';
 import type { Overrides } from '#src/dtos/settings.dto';
 import { UploadsService } from '#src/services/uploads.service';
 
-export function resolveRiderSettings(defaults: RiderSettings, overrides: Overrides) {
+function resolveRiderSettings(defaults: RiderSettings, overrides: Overrides) {
   return validateRiderSettings({
     ghosts: { enabled: overrides['ghosts.enabled'] ?? defaults.ghosts.enabled },
     uploads: {

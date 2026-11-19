@@ -1,3 +1,5 @@
+import { effectRoutes } from '#src/http/effect';
+import { ProfilesService } from '#src/services/profile.service';
 import { profileUpdateSchema } from '#src/dtos/profiles.dto';
 import { parseProtobuf } from '#src/http/protobuf';
 import { authenticated } from '#src/http/routes/accounts';
@@ -7,125 +9,153 @@ import { create, toBinary } from '@bufbuild/protobuf';
 import type { Context, Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { resolve } from 'node:path';
-import { Schema } from 'effect';
+import { Effect, Schema } from 'effect';
 import { NumberFromInput } from '#src/schema';
 
 export function profileRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
+  const appRoutes = effectRoutes(app, runtime);
+
   runtime.services.imports.recover();
 
-  app.get('/download/:id/avatarLarge.jpg', (c) => {
-    const id = Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(
-      c.req.param('id'),
-    );
+  appRoutes.get('/download/:id/avatarLarge.jpg', (c) =>
+    Effect.gen(function* () {
+      const profilesService = yield* ProfilesService;
 
-    const path = resolve(runtime.services.profiles.folder(id), 'avatarLarge.jpg');
+      const id = Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(
+        c.req.param('id'),
+      );
 
-    if (!runtime.services.files.exists(path)) throw new HTTPException(404);
+      const path = resolve(yield* profilesService.folder(id), 'avatarLarge.jpg');
 
-    return c.body(runtime.services.files.read(path), 200, { 'Content-Type': 'image/jpeg' });
-  });
+      if (!runtime.services.files.exists(path)) throw new HTTPException(404);
 
-  function profileResponse(c: Context<RuntimeEnv>, id: number) {
-    const profile = runtime.services.profiles.entitlements(runtime.services.profiles.get(id));
+      return c.body(runtime.services.files.read(path), 200, { 'Content-Type': 'image/jpeg' });
+    }),
+  );
 
-    return c.req.header('Accept')?.includes('application/json')
-      ? c.json(runtime.services.profiles.companionProfile(profile, avatar(id)))
-      : c.body(toBinary(PlayerProfileSchema, profile));
-  }
+  const avatar = Effect.fn('profiles.avatar')(function* (id: number) {
+    const profiles = yield* ProfilesService;
 
-  function avatar(id: number) {
-    return runtime.services.files.exists(resolve(runtime.services.profiles.folder(id), 'avatarLarge.jpg'))
+    return runtime.services.files.exists(resolve(yield* profiles.folder(id), 'avatarLarge.jpg'))
       ? `https://us-or-rly101.zwift.com/download/${id}/avatarLarge.jpg`
       : null;
-  }
-
-  app.on('GET', ['/api/profiles/me', '/api/profiles/me/'], (c) => profileResponse(c, authenticated(c).player_id));
-  app.get('/api/profiles/me/entitlements', (c) => {
-    const user = authenticated(c);
-    const profile = runtime.services.profiles.entitlements(runtime.services.profiles.get(user.player_id));
-
-    return c.body(
-      toBinary(
-        ProfileEntitlementsSchema,
-        create(ProfileEntitlementsSchema, {
-          entitlements: profile.entitlements,
-        }),
-      ),
-    );
   });
-  app.get('/api/profiles/:id', (c) => {
-    const viewer = authenticated(c);
 
-    const id = Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(
-      c.req.param('id'),
-    );
+  const profileResponse = Effect.fn('profiles.profileResponse')(function* (c: Context<RuntimeEnv>, id: number) {
+    const profiles = yield* ProfilesService;
+    const profile = yield* profiles.entitlements(yield* profiles.get(id));
 
-    if (
-      !runtime.services.accounts.get(id) &&
-      !runtime.services.profiles.synthetic.has(BigInt(id)) &&
-      !runtime.services.profiles.exists(id)
-    )
-      throw new HTTPException(404);
-    const profile = runtime.services.profiles.forViewer(runtime.services.profiles.get(id), viewer.player_id);
-
-    return c.json(
-      runtime.services.profiles.companionProfile(
-        profile,
-        runtime.services.files.exists(resolve(runtime.services.profiles.folder(Number(profile.id)), 'avatarLarge.jpg'))
-          ? `https://us-or-rly101.zwift.com/download/${profile.id}/avatarLarge.jpg`
-          : null,
-      ),
-    );
+    return c.req.header('Accept')?.includes('application/json')
+      ? c.json(yield* profiles.companionProfile(profile, yield* avatar(id)))
+      : c.body(toBinary(PlayerProfileSchema, profile));
   });
-  app.put('/api/profiles/me/:id', async (c) => {
-    const user = authenticated(c);
 
-    if (String(user.player_id) !== c.req.param('id')) throw new HTTPException(401);
+  appRoutes.on('GET', ['/api/profiles/me', '/api/profiles/me/'], (c) => profileResponse(c, authenticated(c).player_id));
+  appRoutes.get('/api/profiles/me/entitlements', (c) =>
+    Effect.gen(function* () {
+      const profilesService = yield* ProfilesService;
 
-    const update = Schema.decodeUnknownSync(profileUpdateSchema)(await c.req.json());
+      const user = authenticated(c);
+      const profile = yield* profilesService.entitlements(yield* profilesService.get(user.player_id));
 
-    const profile = runtime.services.profiles.get(user.player_id);
+      return c.body(
+        toBinary(
+          ProfileEntitlementsSchema,
+          create(ProfileEntitlementsSchema, {
+            entitlements: profile.entitlements,
+          }),
+        ),
+      );
+    }),
+  );
+  appRoutes.get('/api/profiles/:id', (c) =>
+    Effect.gen(function* () {
+      const profilesService = yield* ProfilesService;
 
-    if (update.countryCode !== undefined) profile.countryCode = update.countryCode;
+      const viewer = authenticated(c);
 
-    if (update.dob !== undefined) profile.dob = update.dob;
+      const id = Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(
+        c.req.param('id'),
+      );
 
-    if (update.emailAddress !== undefined) profile.email = update.emailAddress;
+      if (
+        !runtime.services.accounts.get(id) &&
+        !profilesService.synthetic.has(BigInt(id)) &&
+        !(yield* profilesService.exists(id))
+      )
+        throw new HTTPException(404);
+      const profile = yield* profilesService.forViewer(yield* profilesService.get(id), viewer.player_id);
 
-    if (update.firstName !== undefined) profile.firstName = update.firstName;
+      return c.json(
+        yield* profilesService.companionProfile(
+          profile,
+          runtime.services.files.exists(resolve(yield* profilesService.folder(Number(profile.id)), 'avatarLarge.jpg'))
+            ? `https://us-or-rly101.zwift.com/download/${profile.id}/avatarLarge.jpg`
+            : null,
+        ),
+      );
+    }),
+  );
+  appRoutes.put('/api/profiles/me/:id', (c) =>
+    Effect.gen(function* () {
+      const profilesService = yield* ProfilesService;
 
-    if (update.lastName !== undefined) profile.lastName = update.lastName;
+      const user = authenticated(c);
 
-    if (update.height !== undefined) profile.heightInMillimeters = update.height;
+      if (String(user.player_id) !== c.req.param('id')) throw new HTTPException(401);
 
-    if (update.male !== undefined) profile.isMale = update.male;
+      const update = Schema.decodeUnknownSync(profileUpdateSchema)(yield* Effect.promise(() => c.req.json()));
 
-    if (update.useMetric !== undefined) profile.useMetric = update.useMetric;
+      const profile = yield* profilesService.get(user.player_id);
 
-    if (update.weight !== undefined) profile.weightInGrams = update.weight;
-    const current = runtime.services.accounts.get(user.player_id);
+      if (update.countryCode !== undefined) profile.countryCode = update.countryCode;
 
-    if (!current?.enabled || current.auth_version !== user.auth_version || current.revision !== user.revision)
-      throw new HTTPException(409, { message: 'User changed. Reload and retry.' });
-    runtime.services.profiles.save(user.player_id, profile);
+      if (update.dob !== undefined) profile.dob = update.dob;
 
-    return profileResponse(c, user.player_id);
-  });
-  app.on(['PUT'], ['/api/profiles/:id', '/api/profiles/:id/in-game-fields'], async (c) => {
-    const user = authenticated(c);
+      if (update.emailAddress !== undefined) profile.email = update.emailAddress;
 
-    if (c.req.param('id') === '0') throw new HTTPException(400);
+      if (update.firstName !== undefined) profile.firstName = update.firstName;
 
-    if (String(user.player_id) !== c.req.param('id')) throw new HTTPException(401);
+      if (update.lastName !== undefined) profile.lastName = update.lastName;
 
-    const profile = parseProtobuf(PlayerProfileSchema, new Uint8Array(await c.req.arrayBuffer()));
+      if (update.height !== undefined) profile.heightInMillimeters = update.height;
 
-    const current = runtime.services.accounts.get(user.player_id);
+      if (update.male !== undefined) profile.isMale = update.male;
 
-    if (!current?.enabled || current.auth_version !== user.auth_version || current.revision !== user.revision)
-      throw new HTTPException(409, { message: 'User changed. Reload and retry.' });
-    runtime.services.profiles.save(user.player_id, profile);
+      if (update.useMetric !== undefined) profile.useMetric = update.useMetric;
 
-    return c.body(null, 204);
-  });
+      if (update.weight !== undefined) profile.weightInGrams = update.weight;
+      const current = runtime.services.accounts.get(user.player_id);
+
+      if (!current?.enabled || current.auth_version !== user.auth_version || current.revision !== user.revision)
+        throw new HTTPException(409, { message: 'User changed. Reload and retry.' });
+      yield* profilesService.save(user.player_id, profile);
+
+      return yield* profileResponse(c, user.player_id);
+    }),
+  );
+  appRoutes.on(['PUT'], ['/api/profiles/:id', '/api/profiles/:id/in-game-fields'], (c) =>
+    Effect.gen(function* () {
+      const profilesService = yield* ProfilesService;
+
+      const user = authenticated(c);
+
+      if (c.req.param('id') === '0') throw new HTTPException(400);
+
+      if (String(user.player_id) !== c.req.param('id')) throw new HTTPException(401);
+
+      const profile = parseProtobuf(
+        PlayerProfileSchema,
+        new Uint8Array(yield* Effect.promise(() => c.req.arrayBuffer())),
+      );
+
+      const current = runtime.services.accounts.get(user.player_id);
+
+      if (!current?.enabled || current.auth_version !== user.auth_version || current.revision !== user.revision)
+        throw new HTTPException(409, { message: 'User changed. Reload and retry.' });
+      yield* profilesService.save(user.player_id, profile);
+
+      return c.body(null, 204);
+    }),
+  );
 }

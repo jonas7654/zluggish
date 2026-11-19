@@ -1,5 +1,8 @@
+import { ConnectionsService } from '#src/services/connections.service';
+import { IntegrationsService } from '#src/services/integrations.service';
+import { DocumentsService } from '#src/services/documents.service';
 import { effectRoutes } from '#src/http/effect';
-import { resolveRiderSettings, SettingsService } from '#src/services/settings.service';
+import { SettingsService } from '#src/services/settings.service';
 import { Effect, Schema } from 'effect';
 import { Strict, withDefault } from '#src/schema';
 import { DownloadFile } from '#src/enum';
@@ -8,11 +11,13 @@ import { ApplicationError } from '#src/errors';
 import { importFilenameSchema } from '#src/dtos/profile-import.dto';
 import type { ImportFiles } from '#src/dtos/profile-import.dto';
 import type { HttpRuntime } from '#src/http/runtime';
-import { providerFailure } from '#src/http/web-connections';
+import { asProviderFailure } from '#src/http/web-connections';
 import type { WebEnv } from '#src/http/web-app';
 
 export function webProfileRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
-  const { management, accounts, imports, connections, integrations } = runtime.services;
+  const appRoutes = effectRoutes(app, runtime);
+
+  const { management, accounts, imports } = runtime.services;
   const { sessions } = management;
 
   function context(c: Context<WebEnv>) {
@@ -72,37 +77,49 @@ export function webProfileRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
     return c.json({ review: review(c) });
   }
 
-  app.get('/api/me/export', (c) => {
-    const { user } = context(c);
+  appRoutes.get('/api/me/export', (c) =>
+    Effect.gen(function* () {
+      const documentsService = yield* DocumentsService;
 
-    return c.json({
-      filenames: Object.values(DownloadFile).filter((name) => runtime.services.documents.has(user.player_id, name)),
-    });
-  });
-  app.get('/api/me/export/:filename', (c) => {
-    const { user } = context(c);
-    const filename = Schema.decodeUnknownSync(Schema.Enum(DownloadFile))(c.req.param('filename'));
-    const data = runtime.services.documents.get(user.player_id, filename);
+      const { user } = context(c);
 
-    if (!data) throw new ApplicationError({ status: 404, message: 'File not found.' });
+      return c.json({
+        filenames: Object.values(DownloadFile).filter((name) => documentsService.has(user.player_id, name)),
+      });
+    }),
+  );
+  appRoutes.get('/api/me/export/:filename', (c) =>
+    Effect.gen(function* () {
+      const documentsService = yield* DocumentsService;
 
-    return c.body(new Uint8Array(data), 200, {
-      'Content-Type': 'application/octet-stream',
-      'Content-Disposition': `attachment; filename="${filename}"`,
-    });
-  });
-  app.post('/api/me/power-curves', async (c) => {
-    const { user } = context(c);
+      const { user } = context(c);
+      const filename = Schema.decodeUnknownSync(Schema.Enum(DownloadFile))(c.req.param('filename'));
+      const data = yield* documentsService.get(user.player_id, filename);
 
-    const input = Schema.decodeUnknownSync(Schema.Struct({ confirm: Schema.Literal(true), create: Schema.Boolean }))(
-      await c.req.json(),
-    );
+      if (!data) throw new ApplicationError({ status: 404, message: 'File not found.' });
 
-    if (input.create) runtime.services.activities.rebuildPowerCurves(user.player_id);
-    else runtime.services.integrations.deletePowerCurve(user.player_id);
+      return c.body(new Uint8Array(data), 200, {
+        'Content-Type': 'application/octet-stream',
+        'Content-Disposition': `attachment; filename="${filename}"`,
+      });
+    }),
+  );
+  appRoutes.post('/api/me/power-curves', (c) =>
+    Effect.gen(function* () {
+      const integrationsService = yield* IntegrationsService;
 
-    return c.json({ message: input.create ? 'Power curves rebuild queued.' : 'Power curves deleted.' });
-  });
+      const { user } = context(c);
+
+      const input = Schema.decodeUnknownSync(Schema.Struct({ confirm: Schema.Literal(true), create: Schema.Boolean }))(
+        yield* Effect.promise(() => c.req.json()),
+      );
+
+      if (input.create) runtime.services.activities.rebuildPowerCurves(user.player_id);
+      else yield* integrationsService.deletePowerCurve(user.player_id);
+
+      return c.json({ message: input.create ? 'Power curves rebuild queued.' : 'Power curves deleted.' });
+    }),
+  );
 
   app.get('/api/me/import', (c) => {
     context(c);
@@ -158,19 +175,20 @@ export function webProfileRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
     Effect.gen(function* () {
       const settings = yield* SettingsService;
       const { user } = context(c);
-      const resolved = resolveRiderSettings(runtime.config.riderDefaults, yield* settings.read(user.player_id));
+      const resolved = SettingsService.resolveRiderSettings(runtime.config.riderDefaults, yield* settings.read(user.player_id));
 
       return c.json({
-        connected: connections.has(user.player_id, 'zwift'),
+        connected: yield* (yield* ConnectionsService).has(user.player_id, 'zwift'),
         upload: resolved.uploads.zwift.enabled,
         click: resolved.devices.zwiftClick.enabled,
       });
     });
 
-  const appRoutes = effectRoutes(app, runtime);
   appRoutes.get('/api/me/zwift', connection);
   appRoutes.put('/api/me/zwift', (c) =>
     Effect.gen(function* () {
+      const connectionsService = yield* ConnectionsService;
+
       const settingsService = yield* SettingsService;
 
       const input = Schema.decodeUnknownSync(
@@ -188,10 +206,10 @@ export function webProfileRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
       if (Boolean(username) !== Boolean(input.password))
         throw new ApplicationError({ status: 400, message: 'Enter both username and password.' });
 
-      if (!username && !connections.has(user.player_id, 'zwift') && (input.upload || input.click))
+      if (!username && !(yield* connectionsService.has(user.player_id, 'zwift')) && (input.upload || input.click))
         throw new ApplicationError({ status: 400, message: 'Save credentials before enabling uploads or Click.' });
 
-      if (username) connections.save(user.player_id, 'zwift', [username, input.password]);
+      if (username) yield* connectionsService.save(user.player_id, 'zwift', [username, input.password]);
       yield* settingsService.save(user.player_id, {
         ...(yield* settingsService.read(user.player_id)),
         'uploads.zwift.enabled': input.upload,
@@ -207,33 +225,31 @@ export function webProfileRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
 
     return connection(c);
   });
-  app.post('/api/me/zwift/import', async (c) => {
-    const input = Schema.decodeUnknownSync(Strict({ profile: Schema.Boolean, achievements: Schema.Boolean }))(
-      await c.req.json(),
-    );
+  appRoutes.post('/api/me/zwift/import', (c) =>
+    Effect.gen(function* () {
+      const connectionsService = yield* ConnectionsService;
 
-    const { user } = context(c);
-    const identity = accounts.identityOf(user);
-    const credentials = connections.read(user.player_id, 'zwift');
+      const integrationsService = yield* IntegrationsService;
 
-    if (!credentials || (!input.profile && !input.achievements))
-      throw new ApplicationError({ status: 400, message: 'Save credentials and choose at least one download.' });
-
-    if (runtime.world.active(user.player_id))
-      throw new ApplicationError({ status: 409, message: 'Finish the active ride before importing.' });
-    let files: ImportFiles;
-
-    try {
-      files = await integrations.downloadOfficialData(
-        credentials[0],
-        credentials[1],
-        input.profile,
-        input.achievements,
+      const input = Schema.decodeUnknownSync(Strict({ profile: Schema.Boolean, achievements: Schema.Boolean }))(
+        yield* Effect.promise(() => c.req.json()),
       );
-    } catch (error) {
-      throw providerFailure(runtime, error, 400, 'Download failed. Existing user data was retained.');
-    }
 
-    return stageFiles(c, identity, files);
-  });
+      const { user } = context(c);
+      const identity = accounts.identityOf(user);
+      const credentials = yield* connectionsService.read(user.player_id, 'zwift');
+
+      if (!credentials || (!input.profile && !input.achievements))
+        throw new ApplicationError({ status: 400, message: 'Save credentials and choose at least one download.' });
+
+      if (runtime.world.active(user.player_id))
+        throw new ApplicationError({ status: 409, message: 'Finish the active ride before importing.' });
+
+      const files: ImportFiles = yield* integrationsService
+        .downloadOfficialData(credentials[0], credentials[1], input.profile, input.achievements)
+        .pipe(asProviderFailure(runtime, 400, 'Download failed. Existing user data was retained.'));
+
+      return stageFiles(c, identity, files);
+    }),
+  );
 }

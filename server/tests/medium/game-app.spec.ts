@@ -1,3 +1,4 @@
+import { ConnectionsService } from '#src/services/connections.service';
 import { mediumBrowser, mediumFixture } from '#tests/medium/support';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -128,10 +129,22 @@ await test('browser JSON errors do not change game API responses and never seria
   const game = await f.app.request('/api/profiles/me', { headers: { Accept: 'application/json' } });
   assert.equal(game.status, 401);
   assert.ok(!game.headers.get('Content-Type')?.includes('application/json'));
-  f.services.connections.save(f.rider.player_id, 'garmin', ['public-user', 'never-send-garmin-password']);
-  f.services.connections.save(f.rider.player_id, 'strava', ['123', 'never-send-client-secret']);
-  f.services.connections.save(f.rider.player_id, 'intervals', ['42', 'never-send-api-key']);
-  f.services.connections.save(f.rider.player_id, 'zwift', ['zwift-user', 'never-send-zwift-password']);
+  f.effects.runSync(
+    ConnectionsService.use((service) =>
+      service.save(f.rider.player_id, 'garmin', ['public-user', 'never-send-garmin-password']),
+    ),
+  );
+  f.effects.runSync(
+    ConnectionsService.use((service) => service.save(f.rider.player_id, 'strava', ['123', 'never-send-client-secret'])),
+  );
+  f.effects.runSync(
+    ConnectionsService.use((service) => service.save(f.rider.player_id, 'intervals', ['42', 'never-send-api-key'])),
+  );
+  f.effects.runSync(
+    ConnectionsService.use((service) =>
+      service.save(f.rider.player_id, 'zwift', ['zwift-user', 'never-send-zwift-password']),
+    ),
+  );
   t.mock.method(f.services.workouts, 'syncWorkoutsAutomatically', () => Promise.resolve());
   const browser = await mediumBrowser(f);
 
