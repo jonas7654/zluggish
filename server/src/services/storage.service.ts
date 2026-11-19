@@ -28,9 +28,10 @@ function safeName(value: string) {
 const make = Effect.gen(function* () {
   const context = yield* RuntimeContext;
   const repositories = context.accounts.repositories;
+  const achievementService = yield* AchievementService;
 
   const achievements = Effect.fn('StorageService.achievements')(function* (id: number) {
-    return new AchievementService(repositories).loadAchievements(context, id);
+    return yield* achievementService.loadAchievements(id);
   });
 
   /** Repeated unlocks are idempotent membership additions, not progression increments. */

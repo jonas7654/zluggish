@@ -1,3 +1,4 @@
+import { WorkoutsService } from '#src/services/workout.service';
 import { FilesService } from '#src/services/files.service';
 import { ProfilesService } from '#src/services/profile.service';
 import { effectRoutes } from '#src/http/effect';
@@ -338,12 +339,14 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
   const appRoutes = effectRoutes(app, runtime);
   appRoutes.get('/user/:username/', (c) =>
     Effect.gen(function* () {
+      const workoutsService = yield* WorkoutsService;
+
       const filesService = yield* FilesService;
 
       const recordsService = yield* RecordsService;
 
       const user = authenticated(c);
-      yield* Effect.promise(() => runtime.services.workouts.syncWorkoutsAutomatically(user.player_id));
+      yield* workoutsService.syncWorkoutsAutomatically(user.player_id);
 
       const climbs = yield* readClimbs(runtime);
 

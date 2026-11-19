@@ -1,8 +1,9 @@
+import { Effect, Schema } from 'effect';
+import { WorkoutsService } from '#src/services/workout.service';
 import { ConnectionsService } from '#src/services/connections.service';
 import { mediumBrowser, mediumFixture } from '#tests/medium/support';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { Schema } from 'effect';
 
 await test('Svelte SSR dashboard keeps identity, CSRF and static asset boundaries', async (t) => {
   const f = await mediumFixture(t);
@@ -88,7 +89,7 @@ await test('session probes never create anonymous sessions or trigger workout sy
   assert.equal(f.sessions.browsers.size, before);
 
   const browser = await mediumBrowser(f);
-  const sync = t.mock.method(f.services.workouts, 'syncWorkoutsAutomatically', () => Promise.resolve());
+  const sync = t.mock.method(f.effects.runSync(WorkoutsService), 'syncWorkoutsAutomatically', () => Effect.void);
   const live = await browser.request('/ui/status/session', { headers: { Accept: 'application/json' } });
   assert.equal(live.status, 204);
   assert.equal(live.headers.get('Cache-Control'), 'no-store');
@@ -145,7 +146,7 @@ await test('browser JSON errors do not change game API responses and never seria
       service.save(f.rider.player_id, 'zwift', ['zwift-user', 'never-send-zwift-password']),
     ),
   );
-  t.mock.method(f.services.workouts, 'syncWorkoutsAutomatically', () => Promise.resolve());
+  t.mock.method(f.effects.runSync(WorkoutsService), 'syncWorkoutsAutomatically', () => Effect.void);
   const browser = await mediumBrowser(f);
 
   for (const path of ['/login/', `/user/${f.rider.username}/`]) {

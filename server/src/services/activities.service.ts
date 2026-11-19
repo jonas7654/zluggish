@@ -213,7 +213,10 @@ export class ActivitiesService extends BaseService {
       this.activitiesRepository.setFit(activity.id, activity.fit);
 
       const advanced = progresses
-        ? StreakService.advancedStreak(new StreakService(this.repositories).streaksFor(player), activity)
+        ? StreakService.advancedStreak(
+            this.context.bridge!.runSync(StreakService.use((streaks) => streaks.streaksFor(player))),
+            activity,
+          )
         : null;
 
       if (advanced) this.streakRepository.saveStreaks(player, advanced);
@@ -570,11 +573,11 @@ export class ActivitiesService extends BaseService {
   }
 
   savePowerCurve(id: number, bytes: Uint8Array) {
-    return new FitService(this.repositories).savePowerCurve(id, bytes);
+    this.context.bridge!.runSync(FitService.use((fit) => fit.savePowerCurve(id, bytes)));
   }
 
   updateStreaks(id: number, activity: Activity) {
-    return new StreakService(this.repositories).updateStreaks(id, activity);
+    this.context.bridge!.runSync(StreakService.use((streaks) => streaks.updateStreaks(id, activity)));
   }
 
   /** Recreate a rider's power curves from canonical FIT payloads, as jobs. */
@@ -651,7 +654,7 @@ export class ActivitiesService extends BaseService {
         job.commit(() => {
           if (!this.activitiesRepository.findActivity(id, player)) return;
           this.fitnessRepository.deleteActivityPowerCurve(id);
-          new FitService(this.repositories).insertPowerBests(player, curve, id);
+          this.context.bridge!.runSync(FitService.use((fit) => fit.insertPowerBests(player, curve, id)));
         });
       },
     });

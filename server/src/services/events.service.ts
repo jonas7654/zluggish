@@ -1,6 +1,5 @@
 import { RuntimeContext } from '#src/context';
 import { notificationPayloadSchema, notificationEventSchema, notificationUpdateSchema } from '#src/dtos/events.dto';
-import { type RepositoryContext } from '#src/context';
 import type { Meetup, MeetupInput } from '#src/dtos/meetup.dto';
 import { decodeMeetup } from '#src/dtos/meetup.dto';
 import { ApplicationError } from '#src/errors';
@@ -17,6 +16,7 @@ import { Context, Effect, Layer, Schema } from 'effect';
 const make = Effect.gen(function* () {
   const context = yield* RuntimeContext;
   const repositories = context.accounts.repositories;
+  const eventCatalogService = yield* EventCatalogService;
 
   const findPrivateEvent = Effect.fn('EventsService.findPrivateEvent')(function* (
     ...values: Parameters<EventsRepository['findPrivateEvent']>
@@ -235,9 +235,9 @@ const make = Effect.gen(function* () {
   });
 
   const eventsAt = Effect.fn('EventsService.eventsAt')(function* (
-    ...args: Parameters<EventCatalogService['eventsAt']>
+    ...args: Parameters<EventCatalogService['Service']['eventsAt']>
   ) {
-    return new EventCatalogService(repositories).eventsAt(...args);
+    return yield* eventCatalogService.eventsAt(...args);
   });
 
   const eventJSON = Effect.fn('EventsService.eventJSON')(function* (

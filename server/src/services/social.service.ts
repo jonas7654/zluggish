@@ -6,6 +6,7 @@ import { MessageService } from '#src/services/message.service';
 const make = Effect.gen(function* () {
   const context = yield* RuntimeContext;
   const repositories = context.accounts.repositories;
+  const messageService = yield* MessageService;
 
   const listUser = Effect.fn('SocialService.listUser')(function* (...values: Parameters<SocialRepository['listUser']>) {
     return repositories.socialRepository.listUser(...values);
@@ -34,7 +35,7 @@ const make = Effect.gen(function* () {
     recipients?: bigint[],
     sender = 'Server',
   ) {
-    return new MessageService(repositories).sendMessage(context, message, recipients, sender);
+    return yield* messageService.sendMessage(message, recipients, sender);
   });
 
   return { listUser, findActivity, insertPlayback, playbackForSegment, sendMessage };

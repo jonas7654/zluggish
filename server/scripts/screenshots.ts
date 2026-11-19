@@ -1,3 +1,5 @@
+import { Effect } from 'effect';
+import { WorkoutsService } from '#src/services/workout.service';
 import { ConnectionsService } from '#src/services/connections.service';
 import { DocumentsService } from '#src/services/documents.service';
 /**
@@ -303,7 +305,7 @@ await test('capture README screenshots', { timeout: 120_000 }, async (t) => {
   });
 
   const f = runtimeFixture(t);
-  t.mock.method(f.services.workouts, 'syncWorkoutsAutomatically', () => Promise.resolve());
+  t.mock.method(f.effects.runSync(WorkoutsService), 'syncWorkoutsAutomatically', () => Effect.void);
   const browser = await chromium.launch();
   t.after(() => browser.close());
   mkdirSync(out, { recursive: true });

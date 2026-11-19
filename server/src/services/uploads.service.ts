@@ -415,8 +415,8 @@ export class UploadsService extends BaseService {
     const [athlete, key] = credentials;
 
     if (!/^\d+$/.test(athlete)) throw new DeliveryRefusedError({ code: 'intervals_invalid_athlete' });
-    const workouts = new WorkoutsService(this.runtime);
-    const paired = UploadsService.pairedEvent(activity, workouts.stored(player));
+    const workouts = this.runtime.bridge!.runSync(WorkoutsService);
+    const paired = UploadsService.pairedEvent(activity, this.runtime.bridge!.runSync(workouts.stored(player)));
     const query = new URLSearchParams({ name: activity.name });
 
     if (paired !== null) query.set('paired_event_id', String(paired));
@@ -435,7 +435,7 @@ export class UploadsService extends BaseService {
       'intervals',
     );
 
-    if (paired !== null) workouts.removeEvent(player, paired);
+    if (paired !== null) this.runtime.bridge!.runSync(workouts.removeEvent(player, paired));
   }
 
   /** Two requests: create the official activity, then upload its FIT data. The remote

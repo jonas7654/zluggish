@@ -93,9 +93,9 @@ await test('workout ramps split at power boundaries and cached schedules retain 
   );
   assert.deepEqual(details?.zonePercentages, [7, 27, 53, 13, 0, 0]);
   assert.throws(() => WorkoutsService.workoutDetails('<!DOCTYPE foo><workout_file/>'));
-  const workouts = new WorkoutsService(f);
+  const workouts = f.effects.runSync(WorkoutsService);
   const id = '84e16aa6-2e13-4cc5-9bea-76595a66abe0';
-  const file = workouts.file(id);
+  const file = f.effects.runSync(workouts.file(id));
   assert.ok(file);
   new AssetFiles().writeDurable(file, xml);
   f.accounts.repositories.connectionsRepository.save(user.player_id, 'intervals', ['123', 'secret']);
@@ -108,13 +108,13 @@ await test('workout ramps split at power boundaries and cached schedules retain 
       start_date_local: '2026-11-12T08:00:00',
     }),
   );
-  const first = workouts.list(user.player_id, new Date(2026, 10, 12));
+  const first = f.effects.runSync(workouts.list(user.player_id, new Date(2026, 10, 12)));
   assert.equal(first.length, 1);
   assert.equal(
     first[0]?.schedule.scheduleId,
-    workouts.list(user.player_id, new Date(2026, 10, 12))[0]?.schedule.scheduleId,
+    f.effects.runSync(workouts.list(user.player_id, new Date(2026, 10, 12)))[0]?.schedule.scheduleId,
   );
-  assert.equal(workouts.list(user.player_id, new Date(2026, 10, 13)).length, 0);
+  assert.equal(f.effects.runSync(workouts.list(user.player_id, new Date(2026, 10, 13))).length, 0);
 });
 
 await test('blob chat overrides survive reconstruction, gestures change mode, stale anchors disappear', async (t) => {

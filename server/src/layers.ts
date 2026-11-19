@@ -14,16 +14,34 @@ import { IntegrationsService } from '#src/services/integrations.service';
 import { ConnectionsService } from '#src/services/connections.service';
 import { ProfilesService } from '#src/services/profile.service';
 import { FilesService } from '#src/services/files.service';
+import { StreakService } from '#src/services/streak.service';
+import { FitService } from '#src/services/fit.service';
+import { AchievementService } from '#src/services/achievement.service';
+import { MessageService } from '#src/services/message.service';
+import { EventCatalogService } from '#src/services/event-catalog.service';
+import { ProfileJsonService } from '#src/services/profile-json.service';
+import { WorkoutsService } from '#src/services/workout.service';
 import { Layer, ManagedRuntime } from 'effect';
 
-/** Every application service, built from the runtime context. */
-export const servicesLayer = Layer.mergeAll(
+/** Services that use only repositories. */
+const foundationLayer = Layer.mergeAll(
+  StreakService.layer,
+  FitService.layer,
+  AchievementService.layer,
+  MessageService.layer,
+  EventCatalogService.layer,
+  ProfileJsonService.layer,
   FilesService.layer,
+  DocumentsService.layer,
+);
+
+/** Every application service, built from the runtime context. Each tier may use the ones below it. */
+export const servicesLayer = Layer.mergeAll(
+  WorkoutsService.layer,
   ProfilesService.layer,
   ConnectionsService.layer,
   IntegrationsService.layer,
   EventsService.layer,
-  DocumentsService.layer,
   StorageService.layer,
   FitnessService.layer,
   SocialService.layer,
@@ -32,9 +50,34 @@ export const servicesLayer = Layer.mergeAll(
   GoalService.layer,
   SettingsService.layer,
   RecordsService.layer,
-);
+).pipe(Layer.provideMerge(foundationLayer));
 
-export type AppServices = Layer.Success<typeof servicesLayer> | RuntimeContext;
+/** Every service an application effect may use. Listed rather than inferred: the runtime context
+refers to the runtime, so an inferred type would be circular.
+*/
+export type AppServices =
+  | RuntimeContext
+  | StreakService
+  | FitService
+  | AchievementService
+  | MessageService
+  | EventCatalogService
+  | ProfileJsonService
+  | FilesService
+  | DocumentsService
+  | WorkoutsService
+  | ProfilesService
+  | ConnectionsService
+  | IntegrationsService
+  | EventsService
+  | StorageService
+  | FitnessService
+  | SocialService
+  | RecordDataService
+  | MetricsService
+  | GoalService
+  | SettingsService
+  | RecordsService;
 
 /** The application layer for one runtime context. */
 export function appLayer(context: RepositoryContext) {
@@ -42,8 +85,8 @@ export function appLayer(context: RepositoryContext) {
 }
 
 /** Runs application effects. HTTP handlers, sockets and the world loop use it at their edges. */
-export function makeAppRuntime(context: RepositoryContext): ManagedRuntime.ManagedRuntime<AppServices, never> {
+export function makeAppRuntime(context: RepositoryContext): AppRuntime {
   return ManagedRuntime.make(appLayer(context));
 }
 
-export type AppRuntime = ReturnType<typeof makeAppRuntime>;
+export type AppRuntime = ManagedRuntime.ManagedRuntime<AppServices, never>;

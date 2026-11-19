@@ -1,3 +1,4 @@
+import { WorkoutsService } from '#src/services/workout.service';
 import { FilesService } from '#src/services/files.service';
 import { ProfilesService } from '#src/services/profile.service';
 import { effectRoutes } from '#src/http/effect';
@@ -37,6 +38,8 @@ export function relayRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
   appRoutes.post('/api/users/login', (c) =>
     Effect.gen(function* () {
+      const workoutsService = yield* WorkoutsService;
+
       const filesService = yield* FilesService;
 
       const profilesService = yield* ProfilesService;
@@ -55,7 +58,7 @@ export function relayRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       if (![16, 24, 32].includes(request.key.length)) throw new HTTPException(400);
 
       if (c.req.header('User-Agent')?.toLowerCase().includes('android'))
-        yield* Effect.promise(() => runtime.services.workouts.syncWorkoutsAutomatically(user.player_id, true));
+        yield* workoutsService.syncWorkoutsAutomatically(user.player_id, true);
 
       if (!runtime.services.accounts.identity(runtime.services.accounts.identityOf(user))) throw new HTTPException(401);
       runtime.world.login(BigInt(user.player_id), request.key);

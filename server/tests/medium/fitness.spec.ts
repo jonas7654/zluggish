@@ -16,9 +16,13 @@ await test('streak ride timestamps persist when starting, extending and restarti
     ['2026-11-09', 2, 9000, '2026-11-09'],
     ['2026-11-30', 1, 3000, '2026-11-30'],
   ] as const) {
-    new StreakService(f.accounts.repositories).updateStreaks(
-      f.rider.player_id,
-      create(ActivitySchema, { startDate: `${date}T12:00:00Z`, distanceInMeters: 3000 }),
+    f.effects.runSync(
+      StreakService.use((streaks) =>
+        streaks.updateStreaks(
+          f.rider.player_id,
+          create(ActivitySchema, { startDate: `${date}T12:00:00Z`, distanceInMeters: 3000 }),
+        ),
+      ),
     );
 
     const streak = await decode(await f.request('/api/fitness/streaks'), StreaksSchema);

@@ -48,7 +48,9 @@ export class ChatBridge extends BaseService implements Bridge {
     else if (content === '!ping') this.send('pong');
     else if (content === '!help' && settings.helpMessage) this.send(settings.helpMessage);
     else if (!content.startsWith('!'))
-      new MessageService(this.repositories).sendMessage(this.runtime, content.slice(0, 2000), undefined, author);
+      this.runtime.bridge!.runSync(
+        MessageService.use((messages) => messages.sendMessage(content.slice(0, 2000), undefined, author)),
+      );
   }
 
   send(content: string, sender = 'Server') {

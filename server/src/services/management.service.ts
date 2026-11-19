@@ -633,7 +633,7 @@ export class ManagementService extends BaseService {
       return JSON.parse(prior.result!);
     }
 
-    const effects = this.context.effects!;
+    const effects = this.context.bridge!;
     const event = effects.runSync(EventsService.use((events) => events.read(String(eventId))));
 
     if (event.updateDate !== input.revision)

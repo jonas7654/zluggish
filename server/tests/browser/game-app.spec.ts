@@ -1,3 +1,4 @@
+import { WorkoutsService } from '#src/services/workout.service';
 import { Effect, Schema } from 'effect';
 import { IntegrationsService } from '#src/services/integrations.service';
 import { ConnectionsService } from '#src/services/connections.service';
@@ -139,7 +140,7 @@ await test('a session change locks the dashboard instead of acting as another us
 await test('the launcher switches users without JavaScript', async (t) => {
   const f = await browserFixture(t);
   const rider = await f.accounts.create('Plain Rider', 'test-password');
-  t.mock.method(f.services.workouts, 'syncWorkoutsAutomatically', () => Promise.resolve());
+  t.mock.method(f.effects.runSync(WorkoutsService), 'syncWorkoutsAutomatically', () => Effect.void);
   const context = await f.browser.newContext({ javaScriptEnabled: false });
   const page = await context.newPage();
   await signIn(page, f.origin, rider.player_id);
@@ -207,7 +208,7 @@ await test('web connections keep saved secrets, show Garmin MFA and run workout 
   const integrations = f.effects.runSync(IntegrationsService);
   t.mock.method(integrations, 'authorizeGarminSession', () => Effect.succeed('mfa' as const));
   t.mock.method(integrations, 'checkSession', () => Effect.succeed(true));
-  t.mock.method(f.services.workouts, 'sync', () => Promise.resolve('Synced 2 Intervals.icu workouts.'));
+  t.mock.method(f.effects.runSync(WorkoutsService), 'sync', () => Effect.succeed('Synced 2 Intervals.icu workouts.'));
   const context = await f.browser.newContext();
   const page = await context.newPage();
   await webSignIn(page, f, rider);

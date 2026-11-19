@@ -1,3 +1,4 @@
+import { WorkoutsService } from '#src/services/workout.service';
 import { FilesService } from '#src/services/files.service';
 import { ProfilesService } from '#src/services/profile.service';
 import { ConnectionsService } from '#src/services/connections.service';
@@ -60,7 +61,7 @@ export function providerFailure(runtime: HttpRuntime, cause: unknown, status: 40
 export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
   const appRoutes = effectRoutes(app, runtime);
 
-  const { management, uploads, workouts } = runtime.services;
+  const { management, uploads } = runtime.services;
   const sessions = management.sessions;
 
   // Credentials the key cannot decrypt stay saved, so the rider is asked to enter them again.
@@ -239,6 +240,8 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
   );
   appRoutes.post('/api/me/workouts/sync', (c) =>
     Effect.gen(function* () {
+      const workoutsService = yield* WorkoutsService;
+
       const filesService = yield* FilesService;
 
       const profilesService = yield* ProfilesService;
@@ -258,10 +261,9 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
         true,
       );
 
-      const message = yield* Effect.tryPromise({
-        try: () => workouts.sync(user.player_id),
-        catch: (error) => providerFailure(runtime, error, 503, 'Workout sync failed. Existing workouts were retained.'),
-      });
+      const message = yield* workoutsService
+        .sync(user.player_id)
+        .pipe(asProviderFailure(runtime, 503, 'Workout sync failed. Existing workouts were retained.'));
 
       if (!sessions.current(id, identity)) throw new ApplicationError({ status: 401, message: 'Session changed.' });
 

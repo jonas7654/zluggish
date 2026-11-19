@@ -1,3 +1,4 @@
+import { AchievementService } from '#src/services/achievement.service';
 import { DocumentsService } from '#src/services/documents.service';
 import { RuntimeContext } from '#src/context';
 import { validateConfig } from '#src/config/index';
@@ -289,7 +290,7 @@ for (const count of [0, 1, 9, 10, 24, 25]) {
 await test('CDN workout endpoint serves exactly the cached XML', async (t) => {
   const f = await mediumFixture(t);
   const id = '84e16aa6-2e13-4cc5-9bea-76595a66abe0';
-  const file = new WorkoutsService(f).file(id);
+  const file = f.effects.runSync(WorkoutsService.use((service) => service.file(id)));
   assert.ok(file);
   new AssetFiles().writeDurable(file, '<workout_file><name>Tempo</name></workout_file>');
   const response = await createCdn(f).request(`/tp-workouts/intervalsicu/${id}.zwo`);
@@ -333,6 +334,7 @@ await test('bike upgrade unlocks include extra frames, preserve settings and lea
   const before = f.effects.runSync(DocumentsService.use((service) => service.get(id, 'user_storage.bin')));
 
   const unlocked = StorageService.layer.pipe(
+    Layer.provide(AchievementService.layer),
     Layer.provide(
       Layer.succeed(RuntimeContext, {
         ...f,

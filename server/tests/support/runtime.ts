@@ -38,7 +38,7 @@ export function runtimeFixture(t: TestContext) {
   };
 
   const effects = makeAppRuntime(context);
-  Object.assign(context, { effects });
+  Object.assign(context, { bridge: effects });
   const runtime = Object.assign(context, { services: createServices(context), effects });
 
   const app = createGameApp({ gameInfo: '{}', gameInfoHash: '0', variants: '{}' }, runtime);

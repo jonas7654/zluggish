@@ -6,6 +6,7 @@ import { Context, Effect, Layer } from 'effect';
 const make = Effect.gen(function* () {
   const context = yield* RuntimeContext;
   const repositories = context.accounts.repositories;
+  const achievementService = yield* AchievementService;
   const records = repositories.recordsRepository;
 
   return {
@@ -50,7 +51,7 @@ const make = Effect.gen(function* () {
 
     /** Record route badges the rider already holds as ridden routes. */
     backfillRoutes: Effect.fn('RecordsService.backfillRoutes')(function* (id: number) {
-      new AchievementService(repositories).backfillRoutes(context, id);
+      yield* achievementService.backfillRoutes(id);
     }),
   };
 });

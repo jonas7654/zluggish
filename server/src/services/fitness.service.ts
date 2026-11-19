@@ -10,6 +10,7 @@ import { Context, Effect, Layer, Schema } from 'effect';
 const make = Effect.gen(function* () {
   const context = yield* RuntimeContext;
   const repositories = context.accounts.repositories;
+  const streakService = yield* StreakService;
 
   const findActivity = Effect.fn('FitnessService.findActivity')(function* (
     ...values: Parameters<FitnessRepository['findActivity']>
@@ -118,7 +119,7 @@ const make = Effect.gen(function* () {
   });
 
   const streaks = Effect.fn('FitnessService.streaks')(function* (id: number) {
-    return new StreakService(repositories).streaksFor(id);
+    return yield* streakService.streaksFor(id);
   });
 
   const metrics = Effect.fn('FitnessService.metrics')(function* (id: number, date: number, historical: boolean) {

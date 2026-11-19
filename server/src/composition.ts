@@ -8,7 +8,6 @@ import { ImportsService } from '#src/services/profile-import.service';
 import { RetentionService } from '#src/services/retention.service';
 import { RideRecoveryService } from '#src/services/ride-recovery.service';
 import { UploadsService } from '#src/services/uploads.service';
-import { WorkoutsService } from '#src/services/workout.service';
 
 export function createServices(context: RepositoryContext) {
   const logging = context.accounts.repositories.loggingRepository;
@@ -26,7 +25,6 @@ export function createServices(context: RepositoryContext) {
     sessions: context.sessions,
     durability: new DurabilityService(context),
     imports: new ImportsService(context.accounts, context.world),
-    workouts: new WorkoutsService(context),
     uploads: new UploadsService(context),
     activities: new ActivitiesService(context),
     jobs: new JobsService(context),

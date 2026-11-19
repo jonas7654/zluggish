@@ -208,8 +208,8 @@ await test('automatic home and Android login sync coalesce, preserve UUIDs and e
   assert.match(await homeResponse.text(), /select name="climb"/);
   assert.equal(loginResponse.status, 200);
   assert.equal(eventRequests, 1);
-  const workouts = new WorkoutsService(f);
-  const id = workouts.list(user.player_id)[0]?.id;
+  const workouts = f.effects.runSync(WorkoutsService);
+  const id = f.effects.runSync(workouts.list(user.player_id))[0]?.id;
   assert.ok(id);
   f.world.logout(BigInt(user.player_id));
   await f.app.request('/api/users/login', {
@@ -218,7 +218,7 @@ await test('automatic home and Android login sync coalesce, preserve UUIDs and e
     body: toBinary(LoginRequestSchema, create(LoginRequestSchema, { key: new Uint8Array(16) })),
   });
   assert.equal(eventRequests, 2);
-  assert.equal(workouts.list(user.player_id)[0]?.id, id);
+  assert.equal(f.effects.runSync(workouts.list(user.player_id))[0]?.id, id);
 
   for (const sport of ['', 'CYCLING', 'cycling', 'RUNNING', 'other']) {
     const cycling = !sport || sport.toUpperCase() === 'CYCLING';
@@ -241,7 +241,7 @@ await test('automatic home and Android login sync coalesce, preserve UUIDs and e
     assert.equal(detail.status, cycling ? 200 : 404);
   }
 
-  const before = readFileSync(workouts.metadataFile(user.player_id));
+  const before = readFileSync(f.effects.runSync(workouts.metadataFile(user.player_id)));
   t.mock.method(
     globalThis,
     'fetch',
@@ -252,10 +252,10 @@ await test('automatic home and Android login sync coalesce, preserve UUIDs and e
       }),
   );
   const controller = new AbortController();
-  const aborted = workouts.sync(user.player_id, controller.signal);
+  const aborted = f.effects.runPromise(workouts.sync(user.player_id, controller.signal));
   controller.abort();
   await assert.rejects(aborted);
-  assert.deepEqual(readFileSync(workouts.metadataFile(user.player_id)), before);
+  assert.deepEqual(readFileSync(f.effects.runSync(workouts.metadataFile(user.player_id))), before);
   t.mock.method(globalThis, 'fetch', () => Promise.resolve(new Response(null, { status: 503 })));
   f.world.logout(BigInt(user.player_id));
 
@@ -266,7 +266,7 @@ await test('automatic home and Android login sync coalesce, preserve UUIDs and e
   });
 
   assert.equal(failure.status, 200);
-  assert.deepEqual(readFileSync(workouts.metadataFile(user.player_id)), before);
+  assert.deepEqual(readFileSync(f.effects.runSync(workouts.metadataFile(user.player_id))), before);
 });
 
 await test('automatic TrainingPeaks home refresh imports exported workouts without contacting a provider', async (t) => {
@@ -279,7 +279,7 @@ await test('automatic TrainingPeaks home refresh imports exported workouts witho
   t.mock.method(globalThis, 'fetch', () => {
     throw new Error('Unexpected network');
   });
-  await WorkoutsService.syncWorkoutsAutomatically(f, user.player_id);
+  await f.effects.runPromise(WorkoutsService.use((workouts) => workouts.syncWorkoutsAutomatically(user.player_id)));
   assert.equal(f.accounts.db.prepare('SELECT count(*) AS n FROM zfile WHERE player_id=?').get(user.player_id)?.n, 1);
 });
 
@@ -290,14 +290,14 @@ await test('a failed TrainingPeaks refresh retains all previously published file
   mkdirSync(folder);
   new AssetFiles().writeDurable(resolve(folder, 'first.zwo'), xml);
   f.settings.save(user.player_id, { 'workouts.trainingpeaks.bridgeFolder': folder });
-  const workouts = new WorkoutsService(f);
-  await workouts.sync(user.player_id);
+  const workouts = f.effects.runSync(WorkoutsService);
+  await f.effects.runPromise(workouts.sync(user.player_id));
   const target = resolve(f.profiles.folder(user.player_id), 'customworkouts/trainingpeaks-first.zwo');
   const before = readFileSync(target);
   const rows = f.accounts.db.prepare('SELECT * FROM zfile').all();
   new AssetFiles().writeDurable(resolve(folder, 'first.zwo'), xml.replace('Tempo', 'Changed'), true);
   new AssetFiles().writeDurable(resolve(folder, 'second.zwo'), '<broken>');
-  await WorkoutsService.syncWorkoutsAutomatically(f, user.player_id);
+  await f.effects.runPromise(WorkoutsService.use((workouts) => workouts.syncWorkoutsAutomatically(user.player_id)));
   assert.deepEqual(readFileSync(target), before);
   assert.deepEqual(f.accounts.db.prepare('SELECT * FROM zfile').all(), rows);
 });
@@ -306,9 +306,9 @@ await test('automatic sync deadline aborts provider work and never publishes a l
   const f = runtimeFixture(t);
   const user = await f.accounts.create('Deadline Rider', 'test-password');
   f.accounts.repositories.connectionsRepository.save(user.player_id, 'intervals', ['123', 'key']);
-  const workouts = new WorkoutsService(f);
+  const workouts = f.effects.runSync(WorkoutsService);
   const before = Buffer.from('{"provider":"intervals-icu","workouts":[]}');
-  new AssetFiles().writeDurable(workouts.metadataFile(user.player_id), before);
+  new AssetFiles().writeDurable(f.effects.runSync(workouts.metadataFile(user.player_id)), before);
   const timeout = AbortSignal.timeout.bind(AbortSignal);
   t.mock.method(AbortSignal, 'timeout', (milliseconds: number) => {
     assert.equal(milliseconds, 5000);
@@ -336,13 +336,13 @@ await test('automatic sync deadline aborts provider work and never publishes a l
   const keepAlive = setInterval(() => {}, 1000);
 
   try {
-    await WorkoutsService.syncWorkoutsAutomatically(f, user.player_id);
+    await f.effects.runPromise(WorkoutsService.use((workouts) => workouts.syncWorkoutsAutomatically(user.player_id)));
   } finally {
     clearInterval(keepAlive);
   }
 
   assert.equal(aborted, true);
-  assert.deepEqual(readFileSync(workouts.metadataFile(user.player_id)), before);
+  assert.deepEqual(readFileSync(f.effects.runSync(workouts.metadataFile(user.player_id))), before);
 });
 
 await test('home marks the climb portals this rider has already ridden', async (t) => {

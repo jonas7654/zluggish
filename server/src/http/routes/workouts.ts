@@ -1,3 +1,4 @@
+import { WorkoutsService } from '#src/services/workout.service';
 import { Effect } from 'effect';
 import { effectRoutes } from '#src/http/effect';
 import { FilesService } from '#src/services/files.service';
@@ -9,60 +10,74 @@ import { HTTPException } from 'hono/http-exception';
 export function workoutRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
   const appRoutes = effectRoutes(app, runtime);
 
-  const workouts = runtime.services.workouts;
+  const selected = Effect.fn('workouts.selected')(function* (id: number, sport = 'CYCLING') {
+    const workouts = yield* WorkoutsService;
 
-  const selected = (id: number, sport = 'CYCLING') => (sport.toUpperCase() === 'CYCLING' ? workouts.list(id) : []);
-
-  app.get('/api/workout/schedule/list', (c) => {
-    const user = authenticated(c);
-    c.header('Cache-Control', 'private, no-store');
-
-    return c.json(selected(user.player_id, c.req.query('sport')).map((item) => item.schedule));
+    return sport.toUpperCase() === 'CYCLING' ? yield* workouts.list(id) : [];
   });
-  app.get('/api/head-unit-bff/game-home', (c) => {
-    const user = authenticated(c);
-    c.header('Cache-Control', 'private, no-store');
 
-    return c.json(selected(user.player_id, c.req.query('sport'))[0]?.home ?? {});
-  });
-  app.get('/api/head-unit-bff/carousels/for-you', (c) => {
-    const user = authenticated(c);
-    c.header('Cache-Control', 'private, no-store');
+  appRoutes.get('/api/workout/schedule/list', (c) =>
+    Effect.gen(function* () {
+      const user = authenticated(c);
+      c.header('Cache-Control', 'private, no-store');
 
-    return c.json(
-      selected(user.player_id, c.req.query('sport')).map((workout) => ({
-        recommendationType: 'workout',
-        workoutUUID: workout.id,
-        workoutHash: null,
-        assetUrl: workout.schedule.workoutUri,
-        providerId: 'intervalsicu',
-        provider: null,
-        scheduleId: workout.schedule.scheduleId,
-        score: 1,
-        explanation: null,
-        sourceData: null,
-        source: 'SCHEDULED',
-        sourceId: workout.schedule.scheduleId,
-        ribbon: null,
-        recommendedDurationMinutes: null,
-      })),
-    );
-  });
-  app.get('/api/workout/workouts/:id', (c) => {
-    const user = authenticated(c);
+      return c.json((yield* selected(user.player_id, c.req.query('sport'))).map((item) => item.schedule));
+    }),
+  );
+  appRoutes.get('/api/head-unit-bff/game-home', (c) =>
+    Effect.gen(function* () {
+      const user = authenticated(c);
+      c.header('Cache-Control', 'private, no-store');
 
-    const workout = selected(user.player_id, c.req.query('sport')).find((item) => item.id === c.req.param('id'));
+      return c.json((yield* selected(user.player_id, c.req.query('sport')))[0]?.home ?? {});
+    }),
+  );
+  appRoutes.get('/api/head-unit-bff/carousels/for-you', (c) =>
+    Effect.gen(function* () {
+      const user = authenticated(c);
+      c.header('Cache-Control', 'private, no-store');
 
-    if (!workout) throw new HTTPException(404);
-    c.header('Cache-Control', 'private, no-store');
+      return c.json(
+        (yield* selected(user.player_id, c.req.query('sport'))).map((workout) => ({
+          recommendationType: 'workout',
+          workoutUUID: workout.id,
+          workoutHash: null,
+          assetUrl: workout.schedule.workoutUri,
+          providerId: 'intervalsicu',
+          provider: null,
+          scheduleId: workout.schedule.scheduleId,
+          score: 1,
+          explanation: null,
+          sourceData: null,
+          source: 'SCHEDULED',
+          sourceId: workout.schedule.scheduleId,
+          ribbon: null,
+          recommendedDurationMinutes: null,
+        })),
+      );
+    }),
+  );
+  appRoutes.get('/api/workout/workouts/:id', (c) =>
+    Effect.gen(function* () {
+      const user = authenticated(c);
 
-    return c.json(workout.schedule.workoutSummary);
-  });
+      const workout = (yield* selected(user.player_id, c.req.query('sport'))).find(
+        (item) => item.id === c.req.param('id'),
+      );
+
+      if (!workout) throw new HTTPException(404);
+      c.header('Cache-Control', 'private, no-store');
+
+      return c.json(workout.schedule.workoutSummary);
+    }),
+  );
   appRoutes.get('/tp-workouts/intervalsicu/:id', (c) =>
     Effect.gen(function* () {
+      const workoutsService = yield* WorkoutsService;
+
       const filesService = yield* FilesService;
 
-      const file = workouts.file(c.req.param('id').replace(/\.zwo$/, ''));
+      const file = yield* workoutsService.file(c.req.param('id').replace(/\.zwo$/, ''));
 
       if (!file || !(yield* filesService.exists(file))) throw new HTTPException(404);
 

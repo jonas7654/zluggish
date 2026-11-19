@@ -1,3 +1,4 @@
+import { WorkoutsService } from '#src/services/workout.service';
 import { Effect } from 'effect';
 import { IntegrationsService } from '#src/services/integrations.service';
 import { ConnectionsService } from '#src/services/connections.service';
@@ -193,11 +194,17 @@ await test('web uploads, workout sync and Strava session tests stay with the sig
   // With both providers configured, the one the user syncs becomes the game's provider.
   f.effects.runSync(ConnectionsService.use((service) => service.save(f.rider.player_id, 'intervals', ['42', 'key'])));
   f.settings.save(f.rider.player_id, { 'workouts.trainingpeaks.bridgeFolder': '/missing-folder' });
-  assert.equal(f.services.workouts.provider(f.rider.player_id), 'intervals-icu');
+  assert.equal(
+    f.effects.runSync(WorkoutsService.use((service) => service.provider(f.rider.player_id))),
+    'intervals-icu',
+  );
   const synced = await web.request('/api/me/workouts/sync', 'POST', { provider: 'trainingpeaks' });
   assert.deepEqual(await synced.json(), { message: 'TrainingPeaks bridge folder is missing.' });
-  assert.equal(f.services.workouts.provider(f.rider.player_id), 'trainingpeaks');
-  assert.equal(f.services.workouts.provider(f.other.player_id), null);
+  assert.equal(
+    f.effects.runSync(WorkoutsService.use((service) => service.provider(f.rider.player_id))),
+    'trainingpeaks',
+  );
+  assert.equal(f.effects.runSync(WorkoutsService.use((service) => service.provider(f.other.player_id))), null);
   assert.equal(await responseStatus(web.request('/api/me/workouts/sync', 'POST', { provider: 'garmin' })), 400);
 });
 
