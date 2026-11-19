@@ -10,6 +10,8 @@
   import Avatar from '../components/Avatar.svelte';
   import TextField from './TextField.svelte';
   import ServerLogs from './ServerLogs.svelte';
+  import Install from './Install.svelte';
+  import ServerCertificate from './ServerCertificate.svelte';
 
   type ApiValue = string | number | boolean | null | undefined | ApiValue[] | { [key: string]: ApiValue };
 
@@ -189,7 +191,9 @@
                             ? 'Settings'
                             : path === '/climbs'
                               ? 'Climbs'
-                              : 'Profile',
+                              : path === '/install'
+                                ? 'Install'
+                                : 'Profile',
   );
 
   const initials = (r: User) => `${r.first_name.charAt(0)}${r.last_name.charAt(0)}`.toUpperCase();
@@ -801,6 +805,7 @@
       {@render link('/export', 'Export', path === '/export')}
       {@render link('/integrations', 'Integrations', path === '/integrations')}
       {@render link('/settings', 'Settings', path === '/settings')}
+      {@render link('/install', 'Install', path === '/install')}
       {#if administrator}
         <p class="group">Manage</p>
         {@render link('/manage', 'Users', manage && path !== '/manage/server')}
@@ -980,6 +985,15 @@
     {:else if manage && administrator}
       <div>
         {#if path === '/manage/server'}
+          <ServerCertificate
+            {api}
+            {busy}
+            {done}
+            confirm={(confirmation) => {
+              pending = confirmation;
+            }}
+          />
+
           <section class="panel">
             <h2>Backups</h2>
             <p class="muted">Backups are saved beside storage. The server keeps the 10 most recent nightly backups.</p>
@@ -1466,6 +1480,8 @@
         <Activities {path} {api} {go} />
       {:else if path === '/climbs'}
         <Climbs {api} />
+      {:else if path === '/install'}
+        <Install {api} />
       {:else if path === '/settings'}
         {#if settings}
           <section class="panel narrow ghosts" aria-labelledby="ghosts-title">

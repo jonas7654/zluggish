@@ -1,4 +1,6 @@
 import { BackupService } from '#src/services/backup.service';
+import { TlsService } from '#src/services/tls.service';
+import { linuxSetupScript, setupFileName, windowsSetupScript } from '#src/http/client-setup';
 import { AccountsService } from '#src/services/auth.service';
 import { ManagementService } from '#src/services/management.service';
 import { WebSessionsService } from '#src/services/web-session.service';
@@ -15,13 +17,14 @@ import type { Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import { Effect, Schema } from 'effect';
-import { fieldErrors, NumberFromInput, Strict } from '#src/schema';
+import { fieldErrors, NumberFromInput, satisfies, Strict } from '#src/schema';
 import { ApplicationError, UnreadableCredentialsError } from '#src/errors';
 import { credentials, password, newUser } from '#src/dtos/management.dto';
 import type { HttpRuntime } from '#src/http/runtime';
 import { climbFacts, readClimbSegments, readClimbs } from '#src/http/climbs';
 import { peerAddress } from '#src/http/routes/accounts';
 import { WORLD_TIME_EPOCH_MS } from '#src/world/state';
+import { isIP } from 'node:net';
 import { resolve } from 'node:path';
 import { packageRoot, packageVersion, supportedZwiftVersion } from '#src/config/load';
 
@@ -333,6 +336,66 @@ export function createWebApp(runtime: HttpRuntime) {
   );
   webConnectionRoutes(app, runtime);
   webProfileRoutes(app, runtime);
+
+  // Client setup: any rider downloads the certificate and the scripts that install it.
+  appRoutes.get('/api/tls', (c) =>
+    Effect.gen(function* () {
+      const tls = yield* TlsService;
+      yield* sessions.require(c.get('sessionId'));
+
+      return c.json(yield* tls.status());
+    }),
+  );
+
+  /** The installable certificate. The shared legacy one is never offered: installing it is the problem. */
+  const installable = Effect.fn('web.tls.installable')(function* (c: Context<WebEnv>) {
+    const tls = yield* TlsService;
+    yield* sessions.require(c.get('sessionId'));
+    const status = yield* tls.status();
+    const material = tls.material();
+
+    if ((status.mode !== 'managed' && status.mode !== 'custom') || !status.certificate || !material)
+      throw new ApplicationError({ status: 409, message: 'This server has no certificate to install yet.' });
+
+    // A configured file may hold a chain: the first certificate is the one the server presents.
+    const pem = /-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/.exec(material.cert)![0] + '\n';
+
+    return { pem, certificate: status.certificate };
+  });
+
+  appRoutes.get('/api/tls/certificate', (c) =>
+    Effect.gen(function* () {
+      const { pem, certificate } = yield* installable(c);
+      const der = c.req.query('format') === 'der';
+
+      const body = der ? Buffer.from(pem.replaceAll(/-----[A-Z ]+-----|\s/g, ''), 'base64') : Buffer.from(pem, 'utf8');
+
+      return c.body(new Uint8Array(body), 200, {
+        'Content-Type': der ? 'application/pkix-cert' : 'application/x-pem-file',
+        'Content-Disposition': `attachment; filename="${setupFileName(certificate, der ? 'cer' : 'crt')}"`,
+      });
+    }),
+  );
+
+  const setupAddress = Schema.String.check(
+    Schema.isMaxLength(45),
+    satisfies((value: string) => value === '' || isIP(value) !== 0, 'Expected an IP address'),
+  );
+
+  appRoutes.get('/api/tls/setup/:platform', (c) =>
+    Effect.gen(function* () {
+      const platform = Schema.decodeUnknownSync(Schema.Literals(['windows', 'linux']))(c.req.param('platform'));
+      const address = Schema.decodeUnknownSync(setupAddress)(c.req.query('address') ?? '');
+      const { pem, certificate } = yield* installable(c);
+      const script = { pem, certificate, address, version: packageVersion(), now: new Date() };
+      const windows = platform === 'windows';
+
+      return c.body(windows ? windowsSetupScript(script) : linuxSetupScript(script), 200, {
+        'Content-Type': windows ? 'application/x-bat; charset=us-ascii' : 'application/x-sh; charset=us-ascii',
+        'Content-Disposition': `attachment; filename="${setupFileName(certificate, windows ? 'bat' : 'sh')}"`,
+      });
+    }),
+  );
 
   const activityId = Schema.String.check(Schema.isPattern(/^\d{1,19}$/));
   appRoutes.get('/api/me/activities', (c) =>
@@ -653,6 +716,19 @@ export function createWebApp(runtime: HttpRuntime) {
     }),
   );
 
+  appRoutes.post('/api/manage/server/certificate', (c) =>
+    Effect.gen(function* () {
+      const input = Schema.decodeUnknownSync(Strict({ operation: backupOperation }))(
+        yield* Effect.promise(() => c.req.json()),
+      );
+
+      const tls = yield* TlsService;
+      yield* sessions.require(c.get('sessionId'), true);
+
+      return c.json(yield* tls.rotate(input.operation));
+    }),
+  );
+
   app.get('/api/manage/server/logs', (c) => c.json({ entries: runtime.world.lifecycle.log.recentEntries() }));
 
   for (const action of ['reload-bots', 'bots'])
@@ -747,6 +823,7 @@ export function createWebApp(runtime: HttpRuntime) {
     '/activities',
     '/activities/*',
     '/climbs',
+    '/install',
     '/manage',
     '/manage/*',
   ])

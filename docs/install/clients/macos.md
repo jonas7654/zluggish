@@ -1,26 +1,26 @@
 ---
-sidebar_position: 2
+sidebar_position: 3
 description: Set up a Mac to ride on your Zluggish server.
 ---
 
 # macOS
 
-This procedure redirects Zwift to Zluggish. It also makes macOS and Zwift accept the self-signed Zluggish certificate for the Zwift domain names. You can make your own certificates and use them in the same way.
+This procedure makes macOS and Zwift trust the [server certificate](../certificate.md) and redirects Zwift to Zluggish. There is no setup script for macOS yet.
 
 ## Set up the client
 
 1. Install Zwift, if it is not installed.
-2. Download [cert-zwift-com.pem](https://github.com/zluggish/zluggish/raw/main/assets/ssl/cert-zwift-com.pem) to a known directory on the Mac.
+2. Sign in to the Zluggish web app and select **Install** in the menu. Under **Check the certificate**, download the certificate as `.crt`.
 3. Open Keychain Access.
 4. Under **Keychains**, select **System**. Under **Category**, select **Certificates**.
-5. Select **File → Import Items…** and import `cert-zwift-com.pem`.
+5. Select **File → Import Items…** and import the `.crt` file.
 6. Right-click **\*.zwift.com** and select **Get Info**.
 7. Under **Trust**, set **When using this certificate** to **Always Trust**.
-8. In Terminal, go to the directory with `cert-zwift-com.pem`.
+8. In Terminal, go to the directory with the `.crt` file.
 9. Add the certificate to the Zwift certificate file:
 
    ```sh
-   sed -n '29,53p' cert-zwift-com.pem >> ~/Library/Application\ Support/Zwift/data/cacert.pem
+   cat zluggish-zwift-*.crt >> ~/Library/Application\ Support/Zwift/data/cacert.pem
    ```
 
 10. Open `/etc/hosts` in a text editor with administrator rights.
