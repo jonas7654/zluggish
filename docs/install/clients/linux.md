@@ -12,6 +12,9 @@ This procedure is for Zwift for Windows in Wine, Lutris, Bottles or Steam (Proto
 1. Install Zwift, if it is not installed.
 2. Sign in to the Zluggish web app and select **Install** in the menu.
 3. Select **Linux**. Check the IP address of the server, then select **Download setup script**.
+
+   ![The Install page with Linux selected, the server IP address, a Download setup script button and the certificate fingerprints](../../../media/screenshots/webapp-install.png)
+
 4. Close Zwift. In a terminal, run the script:
 
    ```sh

@@ -88,9 +88,21 @@ await test('riders download the certificate and setup scripts, and only administ
   assert.equal(await responseStatus(createWebApp(f).request('http://local:8080/api/tls')), 401);
   const before = await json(web.request('/api/tls'));
   assert.equal(before.mode, 'legacy');
-  // The shared certificate is never offered for installation.
-  assert.equal(await responseStatus(web.request('/api/tls/certificate')), 409);
-  assert.equal(await responseStatus(web.request('/api/tls/setup/windows')), 409);
+  // Until the administrator switches, riders can still set up the shared certificate: never its key, and with
+  // a warning in the script and in the server log.
+  const warnings = t.mock.method(f.world.lifecycle.log, 'warn');
+  const shared = await text(web.request('/api/tls/certificate'));
+  assert.equal(new X509Certificate(shared).fingerprint256, before.certificate.fingerprint256);
+  assert.doesNotMatch(shared, /PRIVATE KEY/);
+  const legacyScript = await web.request('/api/tls/setup/windows?address=192.168.1.20');
+  assert.match(legacyScript.headers.get('Content-Disposition')!, /filename="zluggish-zwift-shared\.bat"/);
+  const legacyBat = await legacyScript.text();
+  assert.doesNotMatch(legacyBat, /-----BEGIN (?:RSA |EC )?PRIVATE KEY-----/);
+  assert.match(legacyBat, /WARNING: This server still uses the shared Zwift certificate/);
+  assert.deepEqual(
+    warnings.mock.calls.map((call) => call.arguments[0]),
+    ['tls.legacy_setup_download', 'tls.legacy_setup_download'],
+  );
 
   const operation = crypto.randomUUID();
   assert.equal(await responseStatus(web.request('/api/manage/server/certificate', 'POST', { operation })), 403);
@@ -125,6 +137,9 @@ await test('riders download the certificate and setup scripts, and only administ
   const bat = await windows.text();
   assert.ok(bat.includes(`$Thumbprint = '${next.certificate.thumbprint}'`));
   assert.ok(bat.includes("$ServerAddress = '192.168.1.20'"));
+  assert.doesNotMatch(bat, /WARNING/);
+  // Downloads of the server's own certificate are not warnings.
+  assert.equal(warnings.mock.callCount(), 2);
 
   const linux = await text(web.request('/api/tls/setup/linux?address=fd00::20'));
   assert.ok(linux.startsWith('#!/bin/sh'));

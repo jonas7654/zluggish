@@ -347,26 +347,35 @@ export function createWebApp(runtime: HttpRuntime) {
     }),
   );
 
-  /** The installable certificate. The shared legacy one is never offered: installing it is the problem. */
-  const installable = Effect.fn('web.tls.installable')(function* (c: Context<WebEnv>) {
+  /** The certificate that the server presents, without its key. While a server still uses the shared certificate,
+  riders can install that one too, with a warning, so that new computers connect until the administrator rotates it.
+  */
+  const installable = Effect.fn('web.tls.installable')(function* (c: Context<WebEnv>, download: string) {
     const tls = yield* TlsService;
-    yield* sessions.require(c.get('sessionId'));
+    const user = yield* sessions.require(c.get('sessionId'));
     const status = yield* tls.status();
     const material = tls.material();
 
-    if ((status.mode !== 'managed' && status.mode !== 'custom') || !status.certificate || !material)
-      throw new ApplicationError({ status: 409, message: 'This server has no certificate to install yet.' });
+    if (status.mode === 'disabled' || !status.certificate || !material)
+      throw new ApplicationError({ status: 409, message: 'This server has no certificate to install.' });
 
-    // A configured file may hold a chain: the first certificate is the one the server presents.
+    // A configured file may hold a chain, and the shared one holds its key: take the first certificate only.
     const pem = /-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/.exec(material.cert)![0] + '\n';
+
+    if (status.mode === 'legacy')
+      runtime.world.lifecycle.log.warn(
+        'tls.legacy_setup_download',
+        'A rider downloaded setup for the shared Zwift certificate, whose private key is public. Generate a server certificate under Manage → Server.',
+        { player: user.player_id, download },
+      );
 
     return { pem, certificate: status.certificate };
   });
 
   appRoutes.get('/api/tls/certificate', (c) =>
     Effect.gen(function* () {
-      const { pem, certificate } = yield* installable(c);
       const der = c.req.query('format') === 'der';
+      const { pem, certificate } = yield* installable(c, der ? 'certificate.cer' : 'certificate.crt');
 
       const body = der ? Buffer.from(pem.replaceAll(/-----[A-Z ]+-----|\s/g, ''), 'base64') : Buffer.from(pem, 'utf8');
 
@@ -386,7 +395,7 @@ export function createWebApp(runtime: HttpRuntime) {
     Effect.gen(function* () {
       const platform = Schema.decodeUnknownSync(Schema.Literals(['windows', 'linux']))(c.req.param('platform'));
       const address = Schema.decodeUnknownSync(setupAddress)(c.req.query('address') ?? '');
-      const { pem, certificate } = yield* installable(c);
+      const { pem, certificate } = yield* installable(c, `${platform} script`);
       const script = { pem, certificate, address, version: packageVersion(), now: new Date() };
       const windows = platform === 'windows';
 

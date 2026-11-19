@@ -15,6 +15,9 @@
   );
 
   let redirect = $state(true);
+
+  /** On a server with the shared certificate, the rider confirms the risk before the download unlocks. */
+  let accepted = $state(false);
   let address = $state('');
 
   const loopback = (value: string) => value === 'localhost' || value === '::1' || value.startsWith('127.');
@@ -36,7 +39,9 @@
     `/api/tls/setup/${platform}?${new URLSearchParams({ address: redirect ? address.trim() : '' })}`,
   );
 
-  const installable = $derived(status?.mode === 'managed' || status?.mode === 'custom');
+  const legacy = $derived(status?.mode === 'legacy');
+  const installable = $derived(status?.mode === 'managed' || status?.mode === 'custom' || legacy);
+  const blocked = $derived(!!addressError || (legacy && !accepted));
 
   const day = (iso: string) => new Date(iso).toLocaleDateString([], { year: 'numeric', month: 'long', day: 'numeric' });
 
@@ -57,12 +62,15 @@
   {#if !failure}<p role="status">Loading…</p>{/if}
 {:else if status.mode === 'legacy'}
   <section class="panel unsafe" aria-labelledby="install-legacy">
-    <h2 id="install-legacy">This server is not ready for setup</h2>
+    <h2 id="install-legacy">This server uses an unsafe certificate</h2>
     <p>
-      It still uses the shared Zwift certificate. That certificate's private key is published on the internet, so others
-      on your network could read your Zwift traffic, your password included.
+      It still uses the shared Zwift certificate. Its private key is published on the internet, so others on your
+      network could read and change your Zwift traffic, your password included.
     </p>
-    <p>Ask the server administrator to generate a server certificate. Then come back here to set up your computer.</p>
+    <p>
+      Ask the server administrator to generate a server certificate. Until then you can set up a computer with the
+      shared certificate. After the switch, run the new setup from this page.
+    </p>
   </section>
 {:else if status.mode === 'disabled'}
   <section class="panel" aria-labelledby="install-plain">
@@ -110,10 +118,20 @@
       <p class="hint">The script leaves the hosts file alone. Point Zwift at the server some other way, such as DNS.</p>
     {/if}
 
-    {#if addressError}
-      <button class="primary" type="button" disabled>Download setup script</button>
+    {#if legacy}
+      <label class="check risk"
+        ><input type="checkbox" bind:checked={accepted} /> I understand that this connection is not private</label
+      >
+    {/if}
+
+    {#if blocked}
+      <button class={legacy ? 'danger' : 'primary'} type="button" disabled
+        >{legacy ? 'Download unsafe setup script' : 'Download setup script'}</button
+      >
     {:else}
-      <a class="download" href={script} download>Download setup script</a>
+      <a class="download" class:danger={legacy} href={script} download
+        >{legacy ? 'Download unsafe setup script' : 'Download setup script'}</a
+      >
     {/if}
 
     <ol class="steps">
@@ -133,13 +151,14 @@
       {/if}
     </ol>
     <p class="hint">
-      Run the script again after a Zwift update and after the administrator rotates the certificate. It also removes the
-      old shared Zwift certificate from the computer.
+      {legacy
+        ? 'Run the script again after a Zwift update. When the administrator switches to a server certificate, run the new setup: it removes the shared certificate from the computer.'
+        : 'Run the script again after a Zwift update and after the administrator rotates the certificate. It also removes the old shared Zwift certificate from the computer.'}
     </p>
   </section>
 
   <section class="panel" aria-labelledby="install-certificate">
-    <h2 id="install-certificate">Check the certificate</h2>
+    <h2 id="install-certificate">{legacy ? 'Check the shared certificate' : 'Check the certificate'}</h2>
     <p>
       The script prints the thumbprint it installs. Windows shows it as <strong>Thumbprint</strong> in the certificate's
       details. It should match this one.
@@ -266,6 +285,29 @@
   }
   .setup button {
     margin: 1.25rem 0 0;
+  }
+  /* The unsafe download is never the celebrated orange action: it wears the alarm outline instead. */
+  a.download.danger,
+  button.danger {
+    border: 2px solid rgb(255 179 166 / 0.75);
+    background: none;
+    box-shadow: none;
+    color: var(--alarm);
+  }
+  a.download.danger {
+    padding: 0.55rem 1.1rem;
+  }
+  a.download.danger:hover {
+    background: rgb(255 90 70 / 0.14);
+  }
+  label.check.risk {
+    margin-top: 1.25rem;
+    padding: 0.6rem 0.75rem;
+    border-radius: 8px;
+    background: rgb(255 90 70 / 0.12);
+  }
+  label.check.risk input {
+    accent-color: #ff6b57;
   }
 
   .steps {

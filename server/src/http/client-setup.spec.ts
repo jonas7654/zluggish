@@ -21,6 +21,18 @@ const certificate = {
 
 const script = { pem: material.cert, certificate, address: '192.168.1.20', version: '1.2.3', now: new Date() };
 const legacyPem = readFileSync(resolve(packageRoot(), '../assets/ssl/cert-zwift-com.pem'), 'utf8').replaceAll('\r', '');
+const legacyOnly = /-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----\n/.exec(legacyPem)![0];
+const legacyFacts = crypto.certificateFacts(legacyOnly);
+
+const legacyScript = {
+  ...script,
+  pem: legacyOnly,
+  certificate: {
+    ...legacyFacts,
+    notBefore: legacyFacts.notBefore.toISOString(),
+    notAfter: legacyFacts.notAfter.toISOString(),
+  },
+};
 
 await test('the legacy constants describe the bundled shared certificate', () => {
   const legacy = crypto.certificateFacts(legacyPem);
@@ -41,6 +53,17 @@ await test('the Windows script is plain ASCII with CRLF line ends and names the 
   assert.equal(setupFileName(certificate, 'bat'), `zluggish-zwift-${facts.thumbprint.slice(0, 8).toLowerCase()}.bat`);
   // Without an address the hosts file is left alone.
   assert.ok(!windowsSetupScript({ ...script, address: '' }).includes('3. Points the Zwift host names'));
+});
+
+await test('scripts for the shared certificate warn before and after they run', () => {
+  for (const text of [windowsSetupScript(legacyScript), linuxSetupScript(legacyScript)]) {
+    assert.equal(text.split('WARNING: This server still uses the shared Zwift certificate').length, 4);
+    assert.ok(text.includes(legacyCertificate.thumbprint));
+  }
+
+  assert.equal(setupFileName(legacyScript.certificate, 'sh'), 'zluggish-zwift-shared.sh');
+  assert.ok(linuxSetupScript(legacyScript).includes("NAME='zluggish-zwift-shared'"));
+  assert.ok(!windowsSetupScript(script).includes('WARNING'));
 });
 
 await test(
@@ -71,8 +94,19 @@ await test(
     // The old setup appended the shared certificate with its private key.
     writeFileSync(bundle, `${other}\n${legacyPem.replaceAll('\n', '\r\n')}`);
 
-    const run = () => execFileSync('/bin/sh', [file, zwift], { env: { PATH: bin, HOME: root }, encoding: 'utf8' });
+    const run = (path = file) =>
+      execFileSync('/bin/sh', [path, zwift], { env: { PATH: bin, HOME: root }, encoding: 'utf8' });
 
+    // A server still on the shared certificate: its setup keeps that certificate, without the key, marked.
+    const legacyFile = resolve(root, 'legacy.sh');
+    writeFileSync(legacyFile, linuxSetupScript({ ...legacyScript, address: '' }));
+    assert.match(run(legacyFile), /WARNING/);
+    const shared = readFileSync(bundle, 'utf8');
+    assert.ok(!shared.includes('PRIVATE KEY'));
+    assert.equal(shared.split(legacyCertificate.body).length, 2);
+    assert.ok(shared.includes(`# BEGIN Zluggish server certificate ${legacyCertificate.thumbprint}`));
+
+    // After the switch, the new setup replaces it.
     assert.match(run(), /Updated .*cacert\.pem/);
     const once = readFileSync(bundle, 'utf8');
     run();

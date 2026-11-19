@@ -16,6 +16,7 @@
     busy,
     confirm,
     done,
+    onstatus,
   }: {
     api: (url: string, method?: string, data?: { operation: string }) => Promise<TlsStatus>;
     busy: boolean;
@@ -23,6 +24,8 @@
     confirm: (confirmation: Confirmation) => void;
     /** Reports the outcome in the page notice. */
     done: (message: string) => void;
+    /** Hears the certificate status whenever it loads or changes. */
+    onstatus?: ((status: TlsStatus) => void) | undefined;
   } = $props();
 
   let status = $state<TlsStatus | null>(null);
@@ -57,6 +60,7 @@
   onMount(async () => {
     try {
       status = await api('/api/tls');
+      onstatus?.(status);
     } catch (error) {
       failure = error instanceof Error ? error.message : 'The certificate could not be loaded.';
     }
@@ -73,6 +77,7 @@
       destructive: true,
       confirm: async () => {
         status = await api('/api/manage/server/certificate', 'POST', { operation });
+        onstatus?.(status);
         done(
           legacy
             ? 'Generated a server certificate. Ask every rider to run the setup from Install.'
@@ -130,7 +135,7 @@
       <p class="muted">
         {status.mode === 'managed'
           ? `New certificates are valid for ${status.lifetimeYears} ${status.lifetimeYears === 1 ? 'year' : 'years'}. Rotate the certificate if its key may have leaked, or before it expires.`
-          : 'The new certificate replaces the shared one for every client at once.'}
+          : 'Until you switch, riders can still download setup for the shared certificate from Install, behind a warning. The server log records each download. The new certificate replaces the shared one for every client at once.'}
       </p>
       <button class={status.mode === 'legacy' ? 'primary' : 'danger'} disabled={busy} onclick={rotate}
         >{status.mode === 'legacy' ? 'Generate certificate' : 'Rotate certificate'}</button

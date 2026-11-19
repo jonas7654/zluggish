@@ -47,7 +47,12 @@ If Zluggish and Zwift run on the same computer, use `127.0.0.1` as the IP addres
 
 ## Servers with the shared certificate
 
-A server that still uses the shared certificate offers no setup on the **Install** page. Ask the administrator to [move away from the shared certificate](../certificate.md#move-away-from-the-shared-certificate). Do not install the shared certificate: its private key is public.
+Until the administrator [moves away from the shared certificate](../certificate.md#move-away-from-the-shared-certificate), the **Install** page offers setup for the shared certificate, behind a warning.
+
+![The Install page on a server with the shared certificate: a warning, an I understand that this connection is not private checkbox and a Download unsafe setup script button](../../../media/screenshots/webapp-install-shared.png)
+Select **I understand that this connection is not private** to download it. The script installs the certificate without its private key and prints the warning when it runs.
+
+When the server has its own certificate, run the new setup. It removes the shared certificate from the computer.
 
 ## Next step
 
