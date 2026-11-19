@@ -1,3 +1,4 @@
+import { FilesService } from '#src/services/files.service';
 import { ProfilesService } from '#src/services/profile.service';
 import { DocumentsService } from '#src/services/documents.service';
 import { effectRoutes } from '#src/http/effect';
@@ -36,8 +37,11 @@ export function socialRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
   const summary = (id: number) => {
     const profile = runtime.effects.runSync(ProfilesService.use((service) => service.get(id)));
 
-    const image = runtime.services.files.exists(
-      resolve(runtime.effects.runSync(ProfilesService.use((service) => service.folder(id))), 'avatarLarge.jpg'),
+    const image = runtime.effects.runSync(
+      Effect.flatMap(
+        ProfilesService.use((service) => service.folder(id)),
+        (folder) => FilesService.use((files) => files.exists(resolve(folder, 'avatarLarge.jpg'))),
+      ),
     )
       ? `https://us-or-rly101.zwift.com/download/${id}/avatarLarge.jpg`
       : null;
@@ -163,6 +167,8 @@ export function socialRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
   );
   appRoutes.post('/api/profiles/:id/photo', (c) =>
     Effect.gen(function* () {
+      const filesService = yield* FilesService;
+
       const profilesService = yield* ProfilesService;
 
       const user = authenticated(c);
@@ -181,11 +187,7 @@ export function socialRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
       if (image.length < 4 || image[0] !== 0xff || image[1] !== 0xd8 || image.at(-2) !== 0xff || image.at(-1) !== 0xd9)
         throw new HTTPException(400);
-      runtime.services.files.write(
-        resolve(yield* profilesService.folder(user.player_id), 'avatarLarge.jpg'),
-        image,
-        true,
-      );
+      yield* filesService.write(resolve(yield* profilesService.folder(user.player_id), 'avatarLarge.jpg'), image, true);
 
       return c.body(null, 200);
     }),
@@ -305,6 +307,8 @@ export function socialRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
   );
   appRoutes.post('/api/player-playbacks/player/playback', (c) =>
     Effect.gen(function* () {
+      const filesService = yield* FilesService;
+
       const socialService = yield* SocialService;
 
       const user = authenticated(c);
@@ -313,7 +317,7 @@ export function socialRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
       if (!playback.time) return c.body(null, 200);
       const id = new CryptoRepository().randomUUID();
-      runtime.services.files.write(resolve(runtime.config.storageDir, 'playbacks', `${id}.playback`), bytes);
+      yield* filesService.write(resolve(runtime.config.storageDir, 'playbacks', `${id}.playback`), bytes);
       yield* socialService.insertPlayback(
         user.player_id,
         id,
@@ -373,14 +377,18 @@ export function socialRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       );
     }),
   );
-  app.get('/player-playback/playbacks/:filename', (c) => {
-    const file = c.req.param('filename');
+  appRoutes.get('/player-playback/playbacks/:filename', (c) =>
+    Effect.gen(function* () {
+      const filesService = yield* FilesService;
 
-    if (!/^[0-9a-f-]{36}\.playback$/.test(file)) throw new HTTPException(404);
-    const path = resolve(runtime.config.storageDir, 'playbacks', file);
+      const file = c.req.param('filename');
 
-    if (!runtime.services.files.exists(path)) throw new HTTPException(404);
+      if (!/^[0-9a-f-]{36}\.playback$/.test(file)) throw new HTTPException(404);
+      const path = resolve(runtime.config.storageDir, 'playbacks', file);
 
-    return c.body(runtime.services.files.read(path));
-  });
+      if (!(yield* filesService.exists(path))) throw new HTTPException(404);
+
+      return c.body(yield* filesService.read(path));
+    }),
+  );
 }

@@ -1,3 +1,4 @@
+import { FilesService } from '#src/services/files.service';
 import { effectRoutes } from '#src/http/effect';
 import { RecordDataService } from '#src/services/record-data.service';
 import { parseProtobuf } from '#src/http/protobuf';
@@ -175,6 +176,8 @@ export function activityRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
   );
   appRoutes.get('/api/activities/:activityId/file/:fileId', (c) =>
     Effect.gen(function* () {
+      const filesService = yield* FilesService;
+
       const recordDataService = yield* RecordDataService;
 
       const user = authenticated(c);
@@ -193,9 +196,9 @@ export function activityRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       if (!service.findOwnedActivityFile(id, c.req.param('activityId'))) throw new HTTPException(404);
       const file = service.chartPath(id);
 
-      if (!runtime.services.files.exists(file)) throw new HTTPException(404);
+      if (!(yield* filesService.exists(file))) throw new HTTPException(404);
 
-      return c.body(runtime.services.files.read(file), 200, {
+      return c.body(yield* filesService.read(file), 200, {
         'Content-Type': 'application/json',
       });
     }),

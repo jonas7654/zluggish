@@ -1,3 +1,4 @@
+import { FilesService } from '#src/services/files.service';
 import { ProfilesService } from '#src/services/profile.service';
 import { effectRoutes } from '#src/http/effect';
 import { DocumentsService } from '#src/services/documents.service';
@@ -36,6 +37,8 @@ export function relayRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
   appRoutes.post('/api/users/login', (c) =>
     Effect.gen(function* () {
+      const filesService = yield* FilesService;
+
       const profilesService = yield* ProfilesService;
 
       const documentsService = yield* DocumentsService;
@@ -61,7 +64,7 @@ export function relayRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
       const economy = fromJsonString(
         EconomyConfigSchema,
-        imported ?? runtime.services.files.read(resolve(runtime.assets, 'data/economy_config.txt'), 'utf8'),
+        imported ?? (yield* filesService.readText(resolve(runtime.assets, 'data/economy_config.txt'))),
       );
 
       if (imported === null) {

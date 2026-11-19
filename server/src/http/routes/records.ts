@@ -1,3 +1,4 @@
+import { FilesService } from '#src/services/files.service';
 import { ProfilesService } from '#src/services/profile.service';
 import { DocumentsService } from '#src/services/documents.service';
 import { RecordDataService } from '#src/services/record-data.service';
@@ -366,13 +367,15 @@ export function recordRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
   appRoutes.get('/api/achievement/route-completion-achievements', (c) =>
     Effect.gen(function* () {
+      const filesService = yield* FilesService;
+
       const documentsService = yield* DocumentsService;
 
       const user = authenticated(c);
 
       const response = fromJsonString(
         LoadPlayerRouteCompletionAchievementsResponseSchema,
-        runtime.services.files.read(resolve(runtime.assets, 'data/route_completion_achievement.txt'), 'utf8'),
+        yield* filesService.readText(resolve(runtime.assets, 'data/route_completion_achievement.txt')),
       );
 
       const stored = yield* documentsService.get(user.player_id, 'route_completion_achievements.bin');
@@ -432,6 +435,8 @@ export function recordRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
   });
   appRoutes.get('/api/race-results/summary', (c) =>
     Effect.gen(function* () {
+      const filesService = yield* FilesService;
+
       const profilesService = yield* ProfilesService;
 
       const recordsService = yield* RecordsService;
@@ -464,9 +469,7 @@ export function recordRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
               playerType: profile.playerType,
               firstName: profile.firstName,
               lastName: profile.lastName,
-              avatarUrl: runtime.services.files.exists(
-                resolve(yield* profilesService.folder(playerId), 'avatarLarge.jpg'),
-              )
+              avatarUrl: filesService.exists(resolve(yield* profilesService.folder(playerId), 'avatarLarge.jpg'))
                 ? `https://us-or-rly101.zwift.com/download/${playerId}/avatarLarge.jpg`
                 : '',
             }),

@@ -13,10 +13,12 @@ import { EventsService } from '#src/services/events.service';
 import { IntegrationsService } from '#src/services/integrations.service';
 import { ConnectionsService } from '#src/services/connections.service';
 import { ProfilesService } from '#src/services/profile.service';
+import { FilesService } from '#src/services/files.service';
 import { Layer, ManagedRuntime } from 'effect';
 
 /** Every application service, built from the runtime context. */
 export const servicesLayer = Layer.mergeAll(
+  FilesService.layer,
   ProfilesService.layer,
   ConnectionsService.layer,
   IntegrationsService.layer,

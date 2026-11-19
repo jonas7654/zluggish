@@ -1,3 +1,4 @@
+import { FilesService } from '#src/services/files.service';
 import { effectRoutes } from '#src/http/effect';
 import { RecordsService } from '#src/services/records.service';
 import { webConnectionRoutes } from '#src/http/web-connections';
@@ -33,7 +34,8 @@ function sameOrigin(origin: string | undefined, url: string, publicUrl: string |
 
 export function createWebApp(runtime: HttpRuntime) {
   const app = new Hono<WebEnv>();
-  const { management, accounts, durability, files, activities } = runtime.services;
+  const appRoutes = effectRoutes(app, runtime);
+  const { management, accounts, durability, activities } = runtime.services;
   const { sessions } = management;
   const attempts = new Map<string, { count: number; until: number }>();
   const cookie = 'zluggish_web_session';
@@ -202,13 +204,17 @@ export function createWebApp(runtime: HttpRuntime) {
   });
   app.get('/api/me/profile', (c) => c.json(management.ownProfile(c.get('sessionId'))));
   app.patch('/api/me/profile', async (c) => c.json(management.editOwnProfile(c.get('sessionId'), await c.req.json())));
-  app.get('/api/me/avatar', (c) => {
-    const path = management.avatarPath(sessions.require(c.get('sessionId')).player_id);
+  appRoutes.get('/api/me/avatar', (c) =>
+    Effect.gen(function* () {
+      const filesService = yield* FilesService;
 
-    if (!files.exists(path)) throw new ApplicationError({ status: 404, message: 'No photo.' });
+      const path = management.avatarPath(sessions.require(c.get('sessionId')).player_id);
 
-    return c.body(new Uint8Array(files.read(path)), 200, { 'Content-Type': 'image/jpeg' });
-  });
+      if (!(yield* filesService.exists(path))) throw new ApplicationError({ status: 404, message: 'No photo.' });
+
+      return c.body(new Uint8Array(yield* filesService.read(path)), 200, { 'Content-Type': 'image/jpeg' });
+    }),
+  );
   app.put('/api/me/avatar', async (c) =>
     c.json(management.saveAvatar(c.get('sessionId'), new Uint8Array(await c.req.arrayBuffer()))),
   );
@@ -232,7 +238,6 @@ export function createWebApp(runtime: HttpRuntime) {
 
     return c.json({ activities: rows.slice(0, 20), hasMore: rows.length > 20 });
   });
-  const appRoutes = effectRoutes(app, runtime);
   appRoutes.get('/api/me/climbs', (c) =>
     Effect.gen(function* () {
       const recordsService = yield* RecordsService;
@@ -245,8 +250,8 @@ export function createWebApp(runtime: HttpRuntime) {
       );
 
       const climbs = [];
-      const segments = readClimbSegments(runtime);
-      const all = readClimbs(runtime);
+      const segments = yield* readClimbSegments(runtime);
+      const all = yield* readClimbs(runtime);
 
       for (const climb of all) {
         const row = stats.get(climb.road);
@@ -361,17 +366,22 @@ export function createWebApp(runtime: HttpRuntime) {
     ),
   );
 
-  app.get('/api/manage/users/:id/avatar', (c) => {
-    const id = Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(
-      c.req.param('id'),
-    );
+  appRoutes.get('/api/manage/users/:id/avatar', (c) =>
+    Effect.gen(function* () {
+      const filesService = yield* FilesService;
 
-    const path = management.avatarPath(id);
+      const id = Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(
+        c.req.param('id'),
+      );
 
-    if (!accounts.get(id) || !files.exists(path)) throw new ApplicationError({ status: 404, message: 'No photo.' });
+      const path = management.avatarPath(id);
 
-    return c.body(new Uint8Array(files.read(path)), 200, { 'Content-Type': 'image/jpeg' });
-  });
+      if (!accounts.get(id) || !(yield* filesService.exists(path)))
+        throw new ApplicationError({ status: 404, message: 'No photo.' });
+
+      return c.body(new Uint8Array(yield* filesService.read(path)), 200, { 'Content-Type': 'image/jpeg' });
+    }),
+  );
 
   for (const action of ['password', 'disable', 'enable', 'revoke-sessions', 'role'])
     app.on(action === 'role' ? 'PUT' : 'POST', `/api/manage/users/:id/${action}`, async (c) =>
@@ -448,27 +458,31 @@ export function createWebApp(runtime: HttpRuntime) {
     ),
   );
   const clientRoot = resolve(packageRoot(), '../web/dist/app');
-  app.get('/assets/:file', (c) => {
-    const name = c.req.param('file');
+  appRoutes.get('/assets/:file', (c) =>
+    Effect.gen(function* () {
+      const filesService = yield* FilesService;
 
-    if (!/^[\w.-]+\.(?:js|css|woff2|png|jpg|svg)$/.test(name)) return c.notFound();
-    const path = resolve(clientRoot, 'assets', name);
+      const name = c.req.param('file');
 
-    if (!files.exists(path)) return c.notFound();
-    const ext = name.split('.').at(-1)!;
+      if (!/^[\w.-]+\.(?:js|css|woff2|png|jpg|svg)$/.test(name)) return c.notFound();
+      const path = resolve(clientRoot, 'assets', name);
 
-    const types = {
-      js: 'text/javascript',
-      css: 'text/css',
-      woff2: 'font/woff2',
-      png: 'image/png',
-      jpg: 'image/jpeg',
-      svg: 'image/svg+xml',
-    };
+      if (!(yield* filesService.exists(path))) return c.notFound();
+      const ext = name.split('.').at(-1)!;
 
-    // SAFETY: the filename extension was restricted to these MIME types above.
-    return c.body(files.read(path), 200, { 'Content-Type': types[ext as keyof typeof types]! });
-  });
+      const types = {
+        js: 'text/javascript',
+        css: 'text/css',
+        woff2: 'font/woff2',
+        png: 'image/png',
+        jpg: 'image/jpeg',
+        svg: 'image/svg+xml',
+      };
+
+      // SAFETY: the filename extension was restricted to these MIME types above.
+      return c.body(yield* filesService.read(path), 200, { 'Content-Type': types[ext as keyof typeof types]! });
+    }),
+  );
 
   for (const path of [
     '/',
@@ -487,13 +501,17 @@ export function createWebApp(runtime: HttpRuntime) {
     '/manage',
     '/manage/*',
   ])
-    app.get(path, (c) => {
-      const index = resolve(clientRoot, 'index.html');
+    appRoutes.get(path, (c) =>
+      Effect.gen(function* () {
+        const filesService = yield* FilesService;
 
-      return files.exists(index)
-        ? c.html(files.read(index, 'utf8'))
-        : c.text('Build the web app before starting.', 503);
-    });
+        const index = resolve(clientRoot, 'index.html');
+
+        return (yield* filesService.exists(index))
+          ? c.html(yield* filesService.readText(index))
+          : c.text('Build the web app before starting.', 503);
+      }),
+    );
   app.onError((error, c) => {
     if (Schema.isSchemaError(error))
       return c.json({ message: 'Check the form fields.', fieldErrors: fieldErrors(error) }, 400);

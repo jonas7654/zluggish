@@ -1,3 +1,6 @@
+import { Effect } from 'effect';
+import { effectRoutes } from '#src/http/effect';
+import { FilesService } from '#src/services/files.service';
 import { packageRoot } from '#src/config/load';
 import { gamePage } from '#src/http/game/render';
 import type { HttpRuntime as Runtime, RuntimeEnv } from '#src/http/runtime';
@@ -30,47 +33,53 @@ function inside(root: string, path: string) {
 }
 
 export function assetRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
+  const appRoutes = effectRoutes(app, runtime);
+
   const serve = (prefix: string, root: string) =>
-    app.get(`${prefix}/*`, (c) => {
-      const file = inside(root, c.req.path.slice(prefix.length));
+    appRoutes.get(`${prefix}/*`, (c) =>
+      Effect.gen(function* () {
+        const filesService = yield* FilesService;
 
-      if (!file || !runtime.services.files.exists(file) || !runtime.services.files.stat(file).isFile())
-        return c.notFound();
+        const file = inside(root, c.req.path.slice(prefix.length));
 
-      return c.body(runtime.services.files.read(file), 200, {
-        'Content-Type': types.get(extname(file)) ?? 'application/octet-stream',
-      });
-    });
+        if (!file || !(yield* filesService.isFile(file))) return c.notFound();
 
-  app.get('/static/launcher-ui/*', (c) => {
-    const file = inside(
-      resolve(packageRoot(), '../web/dist/game/client/assets'),
-      c.req.path.slice('/static/launcher-ui/assets'.length),
+        return c.body(yield* filesService.read(file), 200, {
+          'Content-Type': types.get(extname(file)) ?? 'application/octet-stream',
+        });
+      }),
     );
 
-    if (
-      !file ||
-      !c.req.path.startsWith('/static/launcher-ui/assets/') ||
-      !runtime.services.files.exists(file) ||
-      !runtime.services.files.stat(file).isFile()
-    )
-      return c.notFound();
+  appRoutes.get('/static/launcher-ui/*', (c) =>
+    Effect.gen(function* () {
+      const filesService = yield* FilesService;
 
-    return c.body(runtime.services.files.read(file), 200, {
-      'Content-Type': types.get(extname(file)) ?? 'application/octet-stream',
-      'Cache-Control': 'public, max-age=31536000, immutable',
-    });
-  });
+      const file = inside(
+        resolve(packageRoot(), '../web/dist/game/client/assets'),
+        c.req.path.slice('/static/launcher-ui/assets'.length),
+      );
+
+      if (!file || !c.req.path.startsWith('/static/launcher-ui/assets/') || !(yield* filesService.isFile(file)))
+        return c.notFound();
+
+      return c.body(yield* filesService.read(file), 200, {
+        'Content-Type': types.get(extname(file)) ?? 'application/octet-stream',
+        'Cache-Control': 'public, max-age=31536000, immutable',
+      });
+    }),
+  );
 
   app.get('/static/web/launcher/embed.html', (c) =>
-    gamePage(c, runtime, {
-      kind: 'message',
-      title: 'Loading Zwift...',
-      message: 'Enjoying Zluggish? Please star us on GitHub: zluggish.com',
-      csrf: '',
-      version: '',
-      forms: [],
-    }),
+    runtime.effects.runPromise(
+      gamePage(c, {
+        kind: 'message',
+        title: 'Loading Zwift...',
+        message: 'Enjoying Zluggish? Please star us on GitHub: zluggish.com',
+        csrf: '',
+        version: '',
+        forms: [],
+      }),
+    ),
   );
 
   serve('/style', resolve(runtime.assets, 'cdn/style'));

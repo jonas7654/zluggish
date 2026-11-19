@@ -12,12 +12,17 @@ import { create, toBinary } from '@bufbuild/protobuf';
 import type { Hono } from 'hono';
 import { resolve } from 'node:path';
 import { Schema } from 'effect';
+import { FilesService } from '#src/services/files.service';
 
 const contracts = Schema.Array(staticResponseSchema);
 
 export function staticRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
   const routes = Schema.decodeUnknownSync(contracts)(
-    JSON.parse(runtime.services.files.read(resolve(packageRoot(), '../assets/static-responses.json'), 'utf8')),
+    JSON.parse(
+      runtime.effects.runSync(
+        FilesService.use((files) => files.readText(resolve(packageRoot(), '../assets/static-responses.json'))),
+      ),
+    ),
   );
 
   for (const route of routes)

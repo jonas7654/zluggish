@@ -1,3 +1,4 @@
+import { FilesService } from '#src/services/files.service';
 import { ProfilesService } from '#src/services/profile.service';
 import { ConnectionsService } from '#src/services/connections.service';
 import { IntegrationsService } from '#src/services/integrations.service';
@@ -59,7 +60,7 @@ export function providerFailure(runtime: HttpRuntime, cause: unknown, status: 40
 export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
   const appRoutes = effectRoutes(app, runtime);
 
-  const { management, uploads, workouts, files } = runtime.services;
+  const { management, uploads, workouts } = runtime.services;
   const sessions = management.sessions;
 
   // Credentials the key cannot decrypt stay saved, so the rider is asked to enter them again.
@@ -238,6 +239,8 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
   );
   appRoutes.post('/api/me/workouts/sync', (c) =>
     Effect.gen(function* () {
+      const filesService = yield* FilesService;
+
       const profilesService = yield* ProfilesService;
 
       const id = c.get('sessionId');
@@ -249,7 +252,7 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
       );
 
       // The chosen provider becomes the one the game uses when both are configured.
-      files.write(
+      yield* filesService.write(
         resolve(yield* profilesService.folder(user.player_id), 'active_workout_provider.txt'),
         workoutProviders[input.provider],
         true,

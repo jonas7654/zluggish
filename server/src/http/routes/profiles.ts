@@ -1,3 +1,4 @@
+import { FilesService } from '#src/services/files.service';
 import { effectRoutes } from '#src/http/effect';
 import { ProfilesService } from '#src/services/profile.service';
 import { profileUpdateSchema } from '#src/dtos/profiles.dto';
@@ -19,6 +20,8 @@ export function profileRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
   appRoutes.get('/download/:id/avatarLarge.jpg', (c) =>
     Effect.gen(function* () {
+      const filesService = yield* FilesService;
+
       const profilesService = yield* ProfilesService;
 
       const id = Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(
@@ -27,16 +30,17 @@ export function profileRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
       const path = resolve(yield* profilesService.folder(id), 'avatarLarge.jpg');
 
-      if (!runtime.services.files.exists(path)) throw new HTTPException(404);
+      if (!(yield* filesService.exists(path))) throw new HTTPException(404);
 
-      return c.body(runtime.services.files.read(path), 200, { 'Content-Type': 'image/jpeg' });
+      return c.body(yield* filesService.read(path), 200, { 'Content-Type': 'image/jpeg' });
     }),
   );
 
   const avatar = Effect.fn('profiles.avatar')(function* (id: number) {
     const profiles = yield* ProfilesService;
+    const files = yield* FilesService;
 
-    return runtime.services.files.exists(resolve(yield* profiles.folder(id), 'avatarLarge.jpg'))
+    return (yield* files.exists(resolve(yield* profiles.folder(id), 'avatarLarge.jpg')))
       ? `https://us-or-rly101.zwift.com/download/${id}/avatarLarge.jpg`
       : null;
   });
@@ -70,6 +74,8 @@ export function profileRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
   );
   appRoutes.get('/api/profiles/:id', (c) =>
     Effect.gen(function* () {
+      const filesService = yield* FilesService;
+
       const profilesService = yield* ProfilesService;
 
       const viewer = authenticated(c);
@@ -89,7 +95,7 @@ export function profileRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       return c.json(
         yield* profilesService.companionProfile(
           profile,
-          runtime.services.files.exists(resolve(yield* profilesService.folder(Number(profile.id)), 'avatarLarge.jpg'))
+          (yield* filesService.exists(resolve(yield* profilesService.folder(Number(profile.id)), 'avatarLarge.jpg')))
             ? `https://us-or-rly101.zwift.com/download/${profile.id}/avatarLarge.jpg`
             : null,
         ),

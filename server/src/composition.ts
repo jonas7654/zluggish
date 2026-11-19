@@ -2,7 +2,6 @@ import { RideCompletionService } from '#src/services/ride-completion.service';
 import { ManagementService } from '#src/services/management.service';
 import type { RepositoryContext } from '#src/context';
 import { ActivitiesService } from '#src/services/activities.service';
-import { FilesService } from '#src/services/files.service';
 import { DurabilityService } from '#src/services/durability.service';
 import { JobsService } from '#src/services/jobs.service';
 import { ImportsService } from '#src/services/profile-import.service';
@@ -29,7 +28,6 @@ export function createServices(context: RepositoryContext) {
     imports: new ImportsService(context.accounts, context.world),
     workouts: new WorkoutsService(context),
     uploads: new UploadsService(context),
-    files: new FilesService(context.accounts.repositories),
     activities: new ActivitiesService(context),
     jobs: new JobsService(context),
     recovery: new RideRecoveryService(context),

@@ -1,7 +1,8 @@
 import { climbSchema } from '#src/dtos/accounts.dto';
 import type { HttpRuntime } from '#src/http/runtime';
 import { resolve } from 'node:path';
-import { Schema } from 'effect';
+import { Effect, Schema } from 'effect';
+import { FilesService } from '#src/services/files.service';
 
 const climbSegments = Schema.Record(
   Schema.String,
@@ -12,11 +13,13 @@ const climbSegments = Schema.Record(
 );
 
 /** The Strava segments of a climb portal road: the climb as ridden from Watopia and from France, by road. */
-export function readClimbSegments(runtime: HttpRuntime) {
+export const readClimbSegments = Effect.fn('climbs.segments')(function* (runtime: HttpRuntime) {
+  const files = yield* FilesService;
+
   return Schema.decodeUnknownSync(climbSegments)(
-    JSON.parse(runtime.services.files.read(resolve(runtime.assets, 'data/climb_segments.txt'), 'utf8')),
+    JSON.parse(yield* files.readText(resolve(runtime.assets, 'data/climb_segments.txt'))),
   );
-}
+});
 
 /** 'Cauberg (0.8 km / 57 m)' -> the bare name with its length and height; names in another form stay whole. */
 export function climbFacts(label: string) {
@@ -28,8 +31,10 @@ export function climbFacts(label: string) {
 }
 
 /** The climb portal roads the launcher offers, with their display names. */
-export function readClimbs(runtime: HttpRuntime) {
+export const readClimbs = Effect.fn('climbs.read')(function* (runtime: HttpRuntime) {
+  const files = yield* FilesService;
+
   return Schema.decodeUnknownSync(Schema.Array(climbSchema))(
-    JSON.parse(runtime.services.files.read(resolve(runtime.assets, 'data/climbs.txt'), 'utf8')),
+    JSON.parse(yield* files.readText(resolve(runtime.assets, 'data/climbs.txt'))),
   );
-}
+});

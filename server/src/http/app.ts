@@ -1,3 +1,4 @@
+import { FilesService } from '#src/services/files.service';
 import { ProfilesService } from '#src/services/profile.service';
 import { packageVersion } from '#src/config/load';
 import { browserJson } from '#src/http/game/results';
@@ -125,9 +126,11 @@ export function createGameApp(metadata: PublicMetadata, runtime?: Runtime) {
         'variants.txt',
       );
 
-      if (runtime.services.files.exists(file))
+      const files = runtime.effects.runSync(FilesService);
+
+      if (runtime.effects.runSync(files.exists(file)))
         try {
-          for (const variant of fromJsonString(FeatureResponseSchema, runtime.services.files.read(file, 'utf8'))
+          for (const variant of fromJsonString(FeatureResponseSchema, runtime.effects.runSync(files.readText(file)))
             .variants)
             known.set(variant.name, variant);
         } catch {
@@ -140,7 +143,11 @@ export function createGameApp(metadata: PublicMetadata, runtime?: Runtime) {
     if (
       runtime &&
       mochi &&
-      runtime.services.files.exists(resolve(runtime.config.storageDir, 'mochi/watopian/watopian.manifest.json'))
+      runtime.effects.runSync(
+        FilesService.use((files) =>
+          files.exists(resolve(runtime.config.storageDir, 'mochi/watopian/watopian.manifest.json')),
+        ),
+      )
     ) {
       const copy = clone(FeatureResponse_ParamsSchema, mochi);
       const values = copy.values ?? create(StructSchema);

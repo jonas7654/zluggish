@@ -1,3 +1,4 @@
+import { FilesService } from '#src/services/files.service';
 import { ProfilesService } from '#src/services/profile.service';
 import { effectRoutes } from '#src/http/effect';
 import { RecordsService } from '#src/services/records.service';
@@ -176,15 +177,16 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     (c) => {
       c.status(403);
 
-      return gamePage(
-        c,
-        runtime,
-        model(c, 'message', 'Registration is not available', [], {
-          message: 'Registration is not available. Ask the administrator to create a user in the web app.',
-          failed: true,
-          errorStatus: 403,
-          back: { href: '/login/', label: 'Choose a user' },
-        }),
+      return runtime.effects.runPromise(
+        gamePage(
+          c,
+          model(c, 'message', 'Registration is not available', [], {
+            message: 'Registration is not available. Ask the administrator to create a user in the web app.',
+            failed: true,
+            errorStatus: 403,
+            back: { href: '/login/', label: 'Choose a user' },
+          }),
+        ),
       );
     },
   );
@@ -207,10 +209,10 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
             {
               user: {
                 initials: `${user.first_name.charAt(0)}${user.last_name.charAt(0)}`.toUpperCase(),
-                photo: runtime.services.files.exists(
-                  resolve(
-                    runtime.effects.runSync(ProfilesService.use((service) => service.folder(user.player_id))),
-                    'avatarLarge.jpg',
+                photo: runtime.effects.runSync(
+                  Effect.flatMap(
+                    ProfilesService.use((service) => service.folder(user.player_id)),
+                    (folder) => FilesService.use((files) => files.exists(resolve(folder, 'avatarLarge.jpg'))),
                   ),
                 )
                   ? `/download/${user.player_id}/avatarLarge.jpg`
@@ -261,14 +263,14 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
           { playerId: user.player_id },
         );
 
-        return gamePage(c, runtime, loginPage(c, 'Login failed.'));
+        return runtime.effects.runPromise(gamePage(c, loginPage(c, 'Login failed.')));
       }
 
       if (user && !step) {
         // Choosing a rider signs in at once when this computer remembers them; otherwise it opens their password step.
         signedIn = sessions.remembered(getCookie(c, rememberCookie(user.player_id)) ?? '', user.player_id);
 
-        if (!signedIn) return gamePage(c, runtime, unlockPage(c, user));
+        if (!signedIn) return runtime.effects.runPromise(gamePage(c, unlockPage(c, user)));
       } else if (user && (await accounts.verify(user, password))) signedIn = user;
 
       if (signedIn) {
@@ -315,14 +317,14 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
           { playerId: user.player_id, flow: 'browser' },
         );
 
-        return gamePage(c, runtime, unlockPage(c, user, 'Wrong password. Try again.'));
+        return runtime.effects.runPromise(gamePage(c, unlockPage(c, user, 'Wrong password. Try again.')));
       }
 
       runtime.world.lifecycle.log.warn('auth.login_failed', 'Login failed: unknown rider', { flow: 'browser' });
       error = 'That user no longer exists. Choose another user.';
     }
 
-    return gamePage(c, runtime, loginPage(c, error));
+    return runtime.effects.runPromise(gamePage(c, loginPage(c, error)));
   });
 
   app.post('/riders/switch/', async (c) => {
@@ -336,25 +338,26 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
   const appRoutes = effectRoutes(app, runtime);
   appRoutes.get('/user/:username/', (c) =>
     Effect.gen(function* () {
+      const filesService = yield* FilesService;
+
       const recordsService = yield* RecordsService;
 
       const user = authenticated(c);
       yield* Effect.promise(() => runtime.services.workouts.syncWorkoutsAutomatically(user.player_id));
 
-      const climbs = readClimbs(runtime);
+      const climbs = yield* readClimbs(runtime);
 
       const ridden = new Set(yield* recordsService.riddenClimbRoads(user.player_id));
 
       const calendar = calendarLabels(
-        runtime.services.files.read(resolve(runtime.assets, 'cdn/gameassets/MapSchedule_v2.xml'), 'utf8'),
-        runtime.services.files.read(resolve(runtime.assets, 'cdn/gameassets/PortalRoadSchedule_v1.xml'), 'utf8'),
+        yield* filesService.readText(resolve(runtime.assets, 'cdn/gameassets/MapSchedule_v2.xml')),
+        yield* filesService.readText(resolve(runtime.assets, 'cdn/gameassets/PortalRoadSchedule_v1.xml')),
         climbs,
       );
 
-      return yield* Effect.promise(() =>
+      return yield* Effect.suspend(() =>
         gamePage(
           c,
-          runtime,
           model(c, 'dashboard', `${user.first_name} ${user.last_name}`, [
             makeForm(
               'launch',

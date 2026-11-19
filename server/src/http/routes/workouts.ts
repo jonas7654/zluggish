@@ -1,9 +1,14 @@
+import { Effect } from 'effect';
+import { effectRoutes } from '#src/http/effect';
+import { FilesService } from '#src/services/files.service';
 import { authenticated } from '#src/http/routes/accounts';
 import type { HttpRuntime as Runtime, RuntimeEnv } from '#src/http/runtime';
 import type { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 
 export function workoutRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
+  const appRoutes = effectRoutes(app, runtime);
+
   const workouts = runtime.services.workouts;
 
   const selected = (id: number, sport = 'CYCLING') => (sport.toUpperCase() === 'CYCLING' ? workouts.list(id) : []);
@@ -53,15 +58,19 @@ export function workoutRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
     return c.json(workout.schedule.workoutSummary);
   });
-  app.get('/tp-workouts/intervalsicu/:id', (c) => {
-    const file = workouts.file(c.req.param('id').replace(/\.zwo$/, ''));
+  appRoutes.get('/tp-workouts/intervalsicu/:id', (c) =>
+    Effect.gen(function* () {
+      const filesService = yield* FilesService;
 
-    if (!file || !runtime.services.files.exists(file)) throw new HTTPException(404);
+      const file = workouts.file(c.req.param('id').replace(/\.zwo$/, ''));
 
-    return c.body(runtime.services.files.read(file), 200, {
-      'Content-Type': 'application/xml',
-    });
-  });
+      if (!file || !(yield* filesService.exists(file))) throw new HTTPException(404);
+
+      return c.body(yield* filesService.read(file), 200, {
+        'Content-Type': 'application/xml',
+      });
+    }),
+  );
   app.get('/api/assetcms/*', (c) =>
     c.json(c.req.path.endsWith('/partner_name_map.json/download') ? { intervalsicu: 'Intervals.icu' } : null),
   );

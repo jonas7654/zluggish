@@ -175,7 +175,11 @@ export function webProfileRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
     Effect.gen(function* () {
       const settings = yield* SettingsService;
       const { user } = context(c);
-      const resolved = SettingsService.resolveRiderSettings(runtime.config.riderDefaults, yield* settings.read(user.player_id));
+
+      const resolved = SettingsService.resolveRiderSettings(
+        runtime.config.riderDefaults,
+        yield* settings.read(user.player_id),
+      );
 
       return c.json({
         connected: yield* (yield* ConnectionsService).has(user.player_id, 'zwift'),

@@ -7,7 +7,7 @@ type Method = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
 /** A Hono handler written as an Effect that may use any application service. */
 export type EffectHandler<E extends Env, P extends string> = (
   c: Context<E, P>,
-) => Effect.Effect<Response, unknown, AppServices>;
+) => Effect.Effect<Response | Promise<Response>, unknown, AppServices>;
 
 /** Register Hono routes whose handlers are Effects. Each runs with the application services, and a
 failure reaches `app.onError` as the original error.
