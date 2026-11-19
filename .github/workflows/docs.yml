@@ -54,4 +54,5 @@ jobs:
       - run: pnpm exec cf deploy --prebuilt --dry-run
       - name: Link production site
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: echo 'Production site: https://docs.zluggish.com' >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          echo 'Production site: https://docs.zluggish.com' >> "$GITHUB_STEP_SUMMARY"
