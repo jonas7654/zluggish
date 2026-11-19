@@ -34,13 +34,11 @@ const make = Effect.gen(function* () {
 
   /** Connect to Matrix with the configured credentials. */
   const start = Effect.fn('MatrixService.start')(function* () {
-    let receiver: Effect.Success<ReturnType<typeof bridge>> | undefined;
-
     const transport = context.accounts.repositories.matrixRepository.openMatrixTransport(
       settings(),
       context.config.storageDir,
       {
-        receive: (author, content) => receiver?.receive(author, content),
+        receive: (author, content) => receiver.receive(author, content),
         onlineCount: () => context.world.online.size,
         encrypted: () =>
           context.world.lifecycle.log.warn(
@@ -57,7 +55,7 @@ const make = Effect.gen(function* () {
       },
     );
 
-    receiver = yield* bridge(transport);
+    const receiver = yield* bridge(transport);
 
     return receiver;
   });

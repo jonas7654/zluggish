@@ -1,4 +1,3 @@
-import { SessionsService } from '#src/services/browser-session.service';
 import { AccountsService } from '#src/services/auth.service';
 import { WorkoutsService } from '#src/services/workout.service';
 import { FilesService } from '#src/services/files.service';
@@ -12,7 +11,7 @@ import { browserJson, gameRedirect } from '#src/http/game/results';
 import { readClimbs } from '#src/http/climbs';
 import type { HttpRuntime as Runtime, RuntimeEnv } from '#src/http/runtime';
 import type { User } from '#src/repositories/accounts.repository';
-import { REMEMBER_SECONDS } from '#src/services/browser-session.service';
+import { REMEMBER_SECONDS, SessionsService } from '#src/services/browser-session.service';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import type { Context, Hono } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';

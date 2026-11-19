@@ -67,6 +67,19 @@ This site is in [`docs/`](https://github.com/zluggish/zluggish/tree/main/docs). 
 
 Write new text in [ASD-STE100](https://www.asd-ste100.org/) Simplified Technical English. Give one action in each step.
 
+## Server architecture
+
+The server uses [Effect](https://effect.website/):
+
+- Each service in `server/src/services` is a `Context.Service` with a `layer`. `server/src/layers.ts` builds every layer from the runtime context, in tiers: a service can use only the services in the tiers below it.
+- The runtime (`server/src/runtime.ts`) acquires its resources into an Effect scope. Closing the runtime releases them in reverse order.
+- HTTP handlers are Effects. Register them with `effectRoutes` from `server/src/http/effect.ts`. A handler failure goes to the Hono error handler unchanged.
+- Code that is not an Effect, such as socket callbacks and the world loop, runs effects with `runtime.effects.runSync` or `runtime.effects.runPromise`.
+- Errors are `Schema.TaggedError` classes in `server/src/errors.ts`. Validation uses Effect Schema; the shared helpers are in `server/src/schema.ts`.
+- Repositories and database transactions stay synchronous. See the [database notes](https://github.com/zluggish/zluggish/blob/main/server/src/db/README.md).
+
+In tests, the fixture gives `f.effects`, the application runtime. Get a service with `f.effects.runSync(Service)`, or run one call with `f.effects.runSync(Service.use((service) => service.method()))`.
+
 ## Lint rules
 
 ESLint uses TypeScript-aware correctness rules, import checks and Unicorn conventions. The first configuration came from the `server/eslint.config.mjs` file of `immich-app/immich`. The vendored Oxlint rules record their source revision in [UPSTREAM.md](https://github.com/zluggish/zluggish/blob/main/server/tools/oxlint/anti-slop/UPSTREAM.md).

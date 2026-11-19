@@ -1,125 +1,156 @@
-import { RideCompletionService } from '#src/services/ride-completion.service';
-import { RideRecoveryService } from '#src/services/ride-recovery.service';
-import { UploadsService } from '#src/services/uploads.service';
-import { RetentionService } from '#src/services/retention.service';
-import { JobsService } from '#src/services/jobs.service';
-import { DurabilityService } from '#src/services/durability.service';
-import { MetricsService } from '#src/services/metrics.service';
-import { Resources } from '#src/node/lifecycle/resources';
-import { makeAppRuntime } from '#src/layers';
+import { Effect, Schema, Scope } from 'effect';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { ResolvedConfig } from '#src/config/index';
 import { packageRoot } from '#src/config/load';
 import type { RepositoryContext } from '#src/context';
 import type { Runtime } from '#src/http/runtime';
+import { makeAppRuntime } from '#src/layers';
+import { Resources } from '#src/node/lifecycle/resources';
 import { CheckpointRepository } from '#src/repositories/checkpoint.repository';
 import { LockRepository } from '#src/repositories/lock.repository';
 import { AccountsService } from '#src/services/auth.service';
 import { SessionsService } from '#src/services/browser-session.service';
+import type { Bridge } from '#src/services/chat-bridge.service';
+import { DiscordService } from '#src/services/discord.service';
+import { DurabilityService } from '#src/services/durability.service';
+import { JobsService } from '#src/services/jobs.service';
+import { MatrixService } from '#src/services/matrix.service';
+import { MetricsService } from '#src/services/metrics.service';
 import { ImportsService } from '#src/services/profile-import.service';
+import { RetentionService } from '#src/services/retention.service';
+import { RideCompletionService } from '#src/services/ride-completion.service';
+import { RideRecoveryService } from '#src/services/ride-recovery.service';
+import { UploadsService } from '#src/services/uploads.service';
 import { Simulation } from '#src/world/simulation';
 import { World } from '#src/world/state';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { Schema } from 'effect';
 
-import { DiscordService } from '#src/services/discord.service';
-import { MatrixService } from '#src/services/matrix.service';
+const tokensSchema = Schema.Struct({ access: Schema.String, refresh: Schema.String, id: Schema.String });
 
-export async function openRuntime(config: ResolvedConfig, assets: string) {
-  const resources = new Resources();
-  const release = await new LockRepository().acquireStorageLock(config.storageDir);
-  resources.defer(release);
+/** Release with a plain cleanup function, which may be async. */
+const releasing = (dispose: () => void | Promise<void>): Effect.Effect<void, never, Scope.Scope> =>
+  Effect.addFinalizer(() =>
+    Effect.promise(async () => {
+      await dispose();
+    }),
+  );
 
-  try {
-    const accounts = AccountsService.open(config.storageDir);
-    resources.defer(() => accounts.close());
-    const settings = accounts.repositories.settingsRepository;
-    resources.defer(() => settings.close());
-    const sessions = SessionsService.open(accounts);
-    const profiles = accounts.repositories.profileRepository;
-    const world = new World();
+/** A chat bridge that starts, or a warning when its configuration fails: local riding stays available. */
+const optionalBridge = (world: World, name: string, start: Effect.Effect<Bridge>) =>
+  start.pipe(
+    Effect.map((bridge): Bridge[] => [bridge]),
+    Effect.catchCause(() =>
+      Effect.sync((): Bridge[] => {
+        world.lifecycle.log.warn(
+          `${name.toLowerCase()}.configuration_failed`,
+          `${name} configuration failed; local riding remains available`,
+        );
 
-    const tokens = Schema.decodeUnknownSync(
-      Schema.Struct({ access: Schema.String, refresh: Schema.String, id: Schema.String }),
-    )(JSON.parse(readFileSync(resolve(packageRoot(), '../assets/tokens.json'), 'utf8')));
+        return [];
+      }),
+    ),
+  );
 
-    const context: RepositoryContext = {
-      config,
-      assets,
-      accounts,
-      sessions,
-      profiles,
-      settings,
-      world,
-      tokens,
+/** Acquire the server runtime into the current scope. Closing the scope releases everything in reverse
+order: background work stops before the final flush, and the storage lock goes last.
+*/
+const acquireRuntime = Effect.fn('runtime.acquire')(function* (config: ResolvedConfig, assets: string) {
+  const release = yield* Effect.promise(() => new LockRepository().acquireStorageLock(config.storageDir));
+  yield* releasing(release);
+
+  const accounts = yield* Effect.acquireRelease(
+    Effect.sync(() => AccountsService.open(config.storageDir)),
+    (opened) => Effect.sync(() => opened.close()),
+  );
+
+  const settings = accounts.repositories.settingsRepository;
+  yield* releasing(() => settings.close());
+  const world = new World();
+
+  const context: RepositoryContext = {
+    config,
+    assets,
+    accounts,
+    sessions: SessionsService.open(accounts),
+    profiles: accounts.repositories.profileRepository,
+    settings,
+    world,
+    tokens: Schema.decodeUnknownSync(tokensSchema)(
+      JSON.parse(readFileSync(resolve(packageRoot(), '../assets/tokens.json'), 'utf8')),
+    ),
+  };
+
+  const effects = yield* Effect.acquireRelease(
+    Effect.sync(() => makeAppRuntime(context)),
+    (opened) => Effect.promise(() => opened.dispose()),
+  );
+
+  const runtime: Runtime = Object.assign(context, { effects });
+  yield* effects.runSync(ImportsService).recover();
+
+  const simulation = new Simulation(runtime);
+  const checkpoints = new CheckpointRepository(accounts.db, resolve(config.storageDir, 'zluggish.db'));
+  yield* releasing(() => checkpoints.close());
+
+  // Stops after the job runner and the simulation: the last flush covers their commits.
+  const durability = effects.runSync(DurabilityService);
+  yield* Effect.addFinalizer(() => durability.close());
+  yield* releasing(async () => {
+    await Promise.all((runtime.bridges ?? []).map((bridge) => bridge.close()));
+  });
+  const jobs = effects.runSync(JobsService);
+  yield* Effect.addFinalizer(() => jobs.close());
+  yield* releasing(() => simulation.close());
+  const recovery = effects.runSync(RideRecoveryService);
+  yield* Effect.addFinalizer(() => recovery.close());
+  yield* releasing(() => world.lifecycle.close());
+  const stopMetrics = yield* effects.runSync(MetricsService).start(config.logging.metricsIntervalSeconds);
+  yield* releasing(stopMetrics);
+
+  yield* Effect.promise(() => simulation.ready);
+  simulation.start();
+
+  // Ride completion permissions expire on a one-second sweep.
+  yield* Effect.sleep(1000).pipe(
+    Effect.andThen(effects.runSync(RideCompletionService).sweep()),
+    Effect.forever,
+    Effect.forkScoped,
+  );
+
+  yield* durability.start();
+  yield* recovery.start();
+  yield* effects.runSync(UploadsService).start();
+  yield* effects.runSync(RetentionService).schedule();
+  yield* jobs.start();
+  checkpoints.start();
+
+  const bridges = [
+    ...(config.integrations.discord.enabled
+      ? yield* optionalBridge(world, 'Discord', effects.runSync(DiscordService).start())
+      : []),
+    ...(config.integrations.matrix.enabled
+      ? yield* optionalBridge(world, 'Matrix', effects.runSync(MatrixService).start())
+      : []),
+  ];
+
+  runtime.bridges = bridges;
+
+  if (bridges.length > 0)
+    world.presence = (id, joining) => {
+      for (const bridge of bridges) bridge.online(id, joining);
     };
 
-    const effects = makeAppRuntime(context);
-    resources.defer(() => effects.dispose());
-    const runtime: Runtime = Object.assign(context, { effects });
+  return runtime;
+});
 
-    effects.runSync(ImportsService.use((imports) => imports.recover()));
-    const simulation = new Simulation(runtime);
-    const checkpoints = new CheckpointRepository(accounts.db, resolve(config.storageDir, 'zluggish.db'));
-    resources.defer(() => checkpoints.close());
-    // Stops after the job runner and the simulation: the last flush covers their commits.
-    resources.defer(() => runtime.effects.runPromise(DurabilityService.use((service) => service.close())));
-    resources.defer(async () => {
-      await Promise.all((runtime.bridges ?? []).map((bridge) => bridge.close()));
-    });
-    resources.defer(() => runtime.effects.runPromise(JobsService.use((service) => service.close())));
-    resources.defer(() => simulation.close());
-    resources.defer(() => runtime.effects.runPromise(RideRecoveryService.use((service) => service.close())));
-    resources.defer(() => world.lifecycle.close());
-    resources.defer(
-      runtime.effects.runSync(MetricsService.use((service) => service.start(config.logging.metricsIntervalSeconds))),
-    );
-    await simulation.ready;
-    simulation.start();
+/** Open the server runtime. Close releases it once, however often it is called; a failed open releases
+what it acquired before it rejects.
+*/
+export async function openRuntime(config: ResolvedConfig, assets: string) {
+  const resources = new Resources();
 
-    const completionTimer = setInterval(
-      () => runtime.effects.runSync(RideCompletionService.use((service) => service.sweep())),
-      1000,
-    );
-
-    completionTimer.unref();
-    resources.defer(() => clearInterval(completionTimer));
-    runtime.effects.runSync(DurabilityService.use((service) => service.start()));
-    runtime.effects.runSync(RideRecoveryService.use((service) => service.start()));
-    runtime.effects.runSync(UploadsService.use((service) => service.start()));
-    runtime.effects.runSync(RetentionService.use((service) => service.schedule()));
-    runtime.effects.runSync(JobsService.use((service) => service.start()));
-    checkpoints.start();
-
-    const bridges: NonNullable<Runtime['bridges']> = [];
-    runtime.bridges = bridges;
-
-    if (config.integrations.discord.enabled) {
-      try {
-        bridges.push(runtime.effects.runSync(DiscordService.use((discord) => discord.start())));
-      } catch {
-        world.lifecycle.log.warn(
-          'discord.configuration_failed',
-          'Discord configuration failed; local riding remains available',
-        );
-      }
-    }
-
-    if (config.integrations.matrix.enabled) {
-      try {
-        bridges.push(runtime.effects.runSync(MatrixService.use((matrix) => matrix.start())));
-      } catch {
-        world.lifecycle.log.warn(
-          'matrix.configuration_failed',
-          'Matrix configuration failed; local riding remains available',
-        );
-      }
-    }
-
-    if (bridges.length > 0)
-      world.presence = (id, joining) => {
-        for (const bridge of bridges) bridge.online(id, joining);
-      };
+  try {
+    const runtime = await Effect.runPromise(acquireRuntime(config, assets).pipe(Scope.provide(resources.scope)));
 
     return { runtime, close: () => resources.close() };
   } catch (error) {

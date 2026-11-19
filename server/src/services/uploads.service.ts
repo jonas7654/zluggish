@@ -642,5 +642,6 @@ export class UploadsService extends Context.Service<UploadsService, Effect.Succe
   'zluggish/UploadsService',
 ) {
   static readonly layer = Layer.effect(UploadsService, make);
+
   static readonly pairedEvent = pairedEvent;
 }

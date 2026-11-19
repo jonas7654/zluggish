@@ -38,11 +38,9 @@ const make = Effect.gen(function* () {
 
   /** Connect to Discord with the configured credentials. */
   const start = Effect.fn('DiscordService.start')(function* () {
-    let receiver: Effect.Success<ReturnType<typeof bridge>> | undefined;
-
     const transport = context.accounts.repositories.discordRepository.openDiscordTransport(settings(), {
-      receive: (channel, author, bot, content) => receiver?.receive(channel, author, bot, content),
-      welcome: (member) => receiver?.welcome(member),
+      receive: (channel, author, bot, content) => receiver.receive(channel, author, bot, content),
+      welcome: (member) => receiver.welcome(member),
       onlineCount: () => context.world.online.size,
       connectionFailed: () =>
         context.world.lifecycle.log.warn('discord.connection_failed', 'Discord connection failed'),
@@ -53,7 +51,7 @@ const make = Effect.gen(function* () {
         ),
     });
 
-    receiver = yield* bridge(transport);
+    const receiver = yield* bridge(transport);
 
     return receiver;
   });

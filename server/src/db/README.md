@@ -12,8 +12,10 @@ const account = executor.get(query.selectFrom('user').select('first_name').where
 ```
 
 Services coordinate workflows, including repository calls and filesystem
-persistence. Repositories receive the shared SQLite connection and can compose
-other persistence repositories. Keep schema initialization in `open.ts` and
+persistence. They are Effect services (see `../layers.ts`); repositories stay
+synchronous classes that services reach through `AccountsService.repositories`.
+Repositories receive the shared SQLite connection and can compose other
+persistence repositories. Keep schema initialization in `open.ts` and
 `ddl.ts`, and legacy database upgrades in `../migrations`.
 
 Transactions must use the same connection for all participating repositories.
@@ -37,6 +39,11 @@ in ordinary queries use Kysely's parameterized `sql` template.
 Use `immediate(db, operation)` from `transaction.ts` for a write transaction, or
 `atomic(db, operation)` to join a caller's transaction. Both record the duration in
 the metrics summary.
+
+In an Effect, use `transaction(db)(effect)`. It runs the effect synchronously between
+`BEGIN IMMEDIATE` and `COMMIT`, and joins a transaction that is already open. A failure
+rolls back. An effect that does asynchronous work cannot run in a transaction: it
+rolls back and fails.
 
 Connections use WAL with `synchronous=FULL` and foreign keys (`configureConnection`).
 While the runtime runs, the checkpoint worker (`checkpoint.repository.ts`) owns WAL
