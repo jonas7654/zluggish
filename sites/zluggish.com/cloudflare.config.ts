@@ -5,7 +5,7 @@ export default defineConfig({
     name: 'zluggish-com',
     compatibilityDate: '2026-11-18',
     workersDev: false,
-    domains: ['zluggish.com'],
+    domains: [{ hostname: 'zluggish.com', production: true, previews: true }],
     observability: {
       enabled: true,
       headSamplingRate: 1,
