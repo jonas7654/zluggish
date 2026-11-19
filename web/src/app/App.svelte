@@ -127,6 +127,9 @@
   let targetConfirm = $state('');
 
   // Server.
+  let backingUp = $state(false);
+  let backupMessage = $state('');
+  let backupOperation = crypto.randomUUID();
   let serverConfig = $state<{ rows: [string, string][] } | null>(null);
   let worldSettings = $state<WorldSetting[]>([]);
   let worldSetting = $state<WorldSetting | null>(null);
@@ -300,6 +303,29 @@
     worldSettings = body.worldSettings;
     serverConfig = { rows: body.configuration };
     events = (await api('/api/manage/events')).events;
+  }
+
+  async function createBackup() {
+    backingUp = true;
+    backupMessage = 'Requesting backup…';
+
+    try {
+      let result = await api('/api/manage/server/backups', 'POST', { operation: backupOperation });
+
+      while (result.state === 'queued' || result.state === 'running') {
+        backupMessage = result.state === 'queued' ? 'Backup queued…' : 'Creating backup…';
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        result = await api(`/api/manage/server/backups/${backupOperation}`);
+      }
+
+      backupOperation = crypto.randomUUID();
+      backupMessage =
+        result.state === 'done' ? `Backup saved in backups/${result.name}.` : 'Backup failed. Check the server log.';
+    } catch (error) {
+      backupMessage = error instanceof Error ? error.message : 'Backup request failed.';
+    } finally {
+      backingUp = false;
+    }
   }
 
   /** The values in effect: the user's own choice, or the server default. */
@@ -953,6 +979,13 @@
     {:else if manage && administrator}
       <div>
         {#if path === '/manage/server'}
+          <section class="panel">
+            <h2>Backups</h2>
+            <p class="muted">Backups are saved beside storage. The server keeps the 10 most recent nightly backups.</p>
+            <button disabled={busy || backingUp} onclick={() => void createBackup()}>Create backup</button>
+            {#if backupMessage}<p role="status">{backupMessage}</p>{/if}
+          </section>
+
           <div class="columns">
             <section class="panel">
               <h2>Bots</h2>

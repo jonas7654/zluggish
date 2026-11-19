@@ -27,7 +27,7 @@ if (values.config !== undefined) options.path = values.config;
 
 if (values['storage-dir'] !== undefined) options.storageDir = values['storage-dir'];
 
-const { config } = await loadConfig(prepareContainerConfig(options)).catch((error) => {
+const { config, path: configPath } = await loadConfig(prepareContainerConfig(options)).catch((error) => {
   if (!(error instanceof ConfigError)) throw error;
   console.error(`ConfigError: ${error.message}`);
   // This is the server CLI entry point; config failure must stop before runtime startup.
@@ -88,7 +88,7 @@ const serve = Effect.fn('server.start')(function* () {
     throw new ConfigError('The web port must differ from every game listener port.');
 
   const owner = yield* Effect.acquireRelease(
-    Effect.promise(() => openRuntime(config, assets)),
+    Effect.promise(() => openRuntime(config, assets, configPath)),
     (opened) => Effect.promise(() => opened.close()),
   );
 

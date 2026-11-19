@@ -5,17 +5,23 @@ description: Back up and restore the Zluggish storage.
 
 # Back up and restore
 
-Use the CLI to back up and restore the storage. The CLI commands are in [Storage and upload commands](../reference/cli/storage.md).
+## Automatic and on-demand backups
 
-Stop the server before you use these commands.
+Zluggish makes a backup every night at 02:00 UTC while the server is running. It keeps the 10 most recent nightly backups under `backups/`, next to `storage/`.
 
-## Back up
+To create a backup at any time, sign in as an administrator and select **Manage → Server → Backups → Create backup**. The page shows when the backup finishes and where it was saved. Manual backups remain until you remove them.
+
+When Zluggish migrates legacy data, it also saves a snapshot of the original storage to the same backup directory before making changes. See [Migrate from zwift-offline](migrating.md) for rollback instructions.
+
+## Back up with the CLI
+
+Stop the server before running the [storage command](../reference/cli/storage.md).
 
 ```sh
-node server/dist/src/cli/bin.js --storage-dir ./storage storage backup --output /backups/zluggish-2026-11-16
+node server/dist/src/cli/bin.js --storage-dir ./storage storage backup --output ./backups/zluggish-2026-11-16
 ```
 
-The backup has the database (a consistent SQLite copy), media, FIT exports, charts, encryption keys and the selected config. It also has a checksum manifest.
+Nightly, manual and CLI backups use the same restore format. They contain a consistent SQLite snapshot, copies of the storage files such as media and FIT exports, the selected config when available, and a checksum manifest.
 
 ## Restore
 
@@ -23,7 +29,7 @@ The backup has the database (a consistent SQLite copy), media, FIT exports, char
 2. Restore the backup:
 
    ```sh
-   node server/dist/src/cli/bin.js --storage-dir ./storage storage restore --input /backups/zluggish-2026-11-16
+   node server/dist/src/cli/bin.js --storage-dir ./storage storage restore --input ./backups/zluggish-2026-11-16
    ```
 
 3. Show the deliveries that are not complete:

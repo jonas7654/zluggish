@@ -12,7 +12,8 @@ import type { TestContext } from 'node:test';
 import { Schema } from 'effect';
 
 export function runtimeFixture(t: TestContext) {
-  const storage = mkdtempSync(resolve(tmpdir(), 'zluggish-accounts-'));
+  const root = mkdtempSync(resolve(tmpdir(), 'zluggish-accounts-'));
+  const storage = resolve(root, 'storage');
   const accounts = AccountsService.open(storage);
   const sessions = SessionsService.open(accounts);
   const profiles = accounts.repositories.profileRepository;
@@ -45,7 +46,7 @@ export function runtimeFixture(t: TestContext) {
     await effects.dispose();
     accounts.close();
     settings.close();
-    rmSync(storage, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
   });
 
   return { ...runtime, app };

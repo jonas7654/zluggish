@@ -1,5 +1,6 @@
 *.pyc
 storage/*
+/backups/
 !storage/force_dir_in_git.txt
 __pycache__/
 build/

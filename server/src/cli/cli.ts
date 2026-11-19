@@ -113,7 +113,7 @@ export async function run(argv: string[], output: (message: string) => void = co
     try {
       if (action === 'migrate') {
         const selected = values['solo-player'];
-        await migrateAccounts(storage, selected === undefined ? undefined : decodeId(selected));
+        migrateAccounts(storage, selected === undefined ? undefined : decodeId(selected));
         output('Accounts migrated');
       } else if (action === 'recover') {
         const playerId = decodeId(values.user);
@@ -426,7 +426,7 @@ async function storageCommand(
     if (!values.output) throw new ConfigError('Choose a backup directory with --output DIR');
     // Opening the database applies pending migrations, so the backup has the current schema.
     openDatabase(storage).close();
-    const files = backupStorage(storage, resolve(values.output), config);
+    const files = await backupStorage(storage, resolve(values.output), config);
     output(`Backup complete: ${files} files`);
 
     return 0;

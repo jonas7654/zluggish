@@ -1,5 +1,5 @@
 import { ConfigError } from '#src/config/index';
-import { storageSchemaSQL } from '#src/db/ddl';
+import { completionSchemaSQL, storageSchemaSQL } from '#src/db/ddl';
 import { RiderDocumentName, SecretDocuments } from '#src/enum';
 import { UnreadableCredentialsError } from '#src/errors';
 import { ActivitySchema } from '#src/protocol/generated/activity_pb';
@@ -15,7 +15,7 @@ import {
   copyFileSync,
   existsSync,
   fsyncSync,
-  linkSync,
+  mkdtempSync,
   mkdirSync,
   openSync,
   readdirSync,
@@ -27,6 +27,7 @@ import {
 } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { backupDirectory, backupManifest, excludedStorageEntry, legacyDatabases } from '#src/migrations/backup-paths';
 import { Schema } from 'effect';
 import type { Types } from 'effect';
 
@@ -71,12 +72,8 @@ type Manifest = (typeof manifestSchema)['Type'];
 
 const crypto = new CryptoRepository();
 
-function sha256File(path: string) {
-  return crypto.sha256(readFileSync(path));
-}
-
 function syncFile(path: string) {
-  const fd = openSync(path, 'r+');
+  const fd = openSync(path, process.platform === 'win32' ? 'r+' : 'r');
 
   try {
     fsyncSync(fd);
@@ -142,64 +139,62 @@ function checkpointSource(path: string) {
     throw new ConfigError(`${basename(path)} has unapplied WAL changes; open it with SQLite and checkpoint`);
 }
 
-/** Recursive copy for backups. Rider files are replaced by rename, never changed in
-place, so a hard link is a stable copy; other file systems get a byte copy.
-*/
-function copyTree(source: string, target: string, checksums: Record<string, string>, root: string) {
-  mkdirSync(target, { recursive: true });
+function copyLegacyFile(source: string, target: string) {
+  copyFileSync(source, target);
+  syncFile(target);
+}
 
+function copyLegacyTree(source: string, target: string, checksums: Record<string, string>, root: string) {
   for (const entry of readdirSync(source, { withFileTypes: true })) {
+    if (source === root && excludedStorageEntry(entry.name)) continue;
     const from = resolve(source, entry.name);
     const to = resolve(target, entry.name);
 
-    if (entry.isDirectory()) copyTree(from, to, checksums, root);
-    else if (entry.isFile()) {
-      try {
-        linkSync(from, to);
-      } catch {
-        copyFileSync(from, to);
-      }
+    if (entry.isDirectory()) {
+      mkdirSync(to);
+      copyLegacyTree(from, to, checksums, root);
+      syncDirectory(to);
+    } else if (entry.isFile()) {
+      if (source === root && legacyDatabases.includes(entry.name)) {
+        const db = new DatabaseSync(from, { readOnly: true, timeout: 5000 });
 
-      checksums[relative(root, to)] = sha256File(to);
+        try {
+          db.prepare('VACUUM INTO ?').run(to);
+        } finally {
+          db.close();
+        }
+
+        syncFile(to);
+      } else copyLegacyFile(from, to);
+
+      checksums[relative(root, from)] = crypto.sha256File(to);
     }
   }
 }
 
-/** Snapshot the legacy stores before a migration changes data. */
-export function backupLegacyStorage(storage: string, target: string) {
-  mkdirSync(target, { recursive: true });
-  const checksums: Record<string, string> = {};
+/** Snapshot the legacy storage while the caller owns the storage lock. */
+export function backupLegacyStorage(storage: string, prefix: string) {
+  const source = resolve(storage);
+  const directory = backupDirectory(source);
+  const created = mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const started = new Date().toISOString().replaceAll(/[:.]/g, '-');
+  const name = `${prefix}-${started}-${crypto.randomUUID()}`;
+  const target = resolve(directory, name);
+  const stage = mkdtempSync(resolve(directory, '.migration-'));
 
-  for (const name of [StorageFile.Database, StorageFile.Settings]) {
-    const source = resolve(storage, name);
+  try {
+    const checksums: Record<string, string> = Object.create(null);
+    copyLegacyTree(source, stage, checksums, source);
+    writeDurable(resolve(stage, backupManifest), `${JSON.stringify({ version: 1, checksums }, null, 2)}\n`);
+    renameSync(stage, target);
+    syncDirectory(directory);
 
-    if (!existsSync(source)) continue;
-    const db = new DatabaseSync(source, { readOnly: true });
+    if (created) syncDirectory(dirname(directory));
 
-    try {
-      db.prepare('VACUUM INTO ?').run(resolve(target, name));
-    } finally {
-      db.close();
-    }
-
-    checksums[name] = sha256File(resolve(target, name));
+    return target;
+  } finally {
+    rmSync(stage, { recursive: true, force: true });
   }
-
-  for (const entry of readdirSync(storage, { withFileTypes: true }))
-    if (entry.isDirectory() && (/^\d+$/.test(entry.name) || entry.name === 'activities'))
-      copyTree(resolve(storage, entry.name), resolve(target, entry.name), checksums, target);
-
-  for (const name of [StorageFile.CredentialsKey, 'secret-key.txt']) {
-    const source = resolve(storage, name);
-
-    if (!existsSync(source)) continue;
-    copyFileSync(source, resolve(target, name));
-    checksums[name] = sha256File(resolve(target, name));
-  }
-
-  writeDurable(resolve(target, 'backup-manifest.json'), `${JSON.stringify({ version: 1, checksums }, null, 2)}\n`);
-
-  for (const name of Object.keys(checksums)) syncFile(resolve(target, name));
 }
 
 function credentialsKey(storage: string) {
@@ -574,12 +569,15 @@ function validate(source: string, destination: DatabaseSync, report: Report, che
       'activity_upload',
       'segment_result',
       'route_result',
-    ])
-      if (
-        count(original, `SELECT count(*) AS n FROM ${table}`) !==
-        count(destination, `SELECT count(*) AS n FROM ${table}`)
-      )
+    ]) {
+      const optional = table === 'activity_completion' || table === 'activity_upload';
+      const exists = original.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table);
+      const sql = `SELECT count(*) AS n FROM ${table}`;
+      const originalCount = optional && !exists ? 0 : count(original, sql);
+
+      if (originalCount !== count(destination, sql))
         throw new ConfigError(`Migrated ${table} rows differ from the source`);
+    }
 
     const ids = (db: DatabaseSync) =>
       db
@@ -633,7 +631,7 @@ export function resolvePendingMigration(storage: string) {
     return;
   }
 
-  const current = existsSync(database) ? sha256File(database) : null;
+  const current = existsSync(database) ? crypto.sha256File(database) : null;
 
   if (current !== null && current === manifest.destination) {
     removeDatabase(temporary);
@@ -679,14 +677,15 @@ export function migrateStorage(storage: string, reached: (step: MigrationStep) =
   const database = resolve(storage, StorageFile.Database);
   const temporary = resolve(storage, StorageFile.Temporary);
   const started = new Date().toISOString();
-  const backup = resolve(storage, 'backups', `storage-v${STORAGE_VERSION}-${started.replaceAll(/[:.]/g, '-')}`);
 
   for (const source of [database, resolve(storage, StorageFile.Settings)]) checkpointSource(source);
   reached('checkpointed');
 
+  const backup = backupLegacyStorage(storage, `storage-v${STORAGE_VERSION}`);
+
   const sources = Object.fromEntries(
     [StorageFile.Database, StorageFile.Settings].flatMap((name) =>
-      existsSync(resolve(storage, name)) ? [[name, sha256File(resolve(storage, name))]] : [],
+      existsSync(resolve(storage, name)) ? [[name, crypto.sha256File(resolve(storage, name))]] : [],
     ),
   );
 
@@ -703,7 +702,6 @@ export function migrateStorage(storage: string, reached: (step: MigrationStep) =
 
   writeManifest(storage, manifest);
   reached('importing');
-  backupLegacyStorage(storage, backup);
   reached('backed-up');
   removeDatabase(temporary);
 
@@ -734,6 +732,7 @@ export function migrateStorage(storage: string, reached: (step: MigrationStep) =
 
   try {
     db.exec('PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL; BEGIN IMMEDIATE');
+    db.exec(completionSchemaSQL);
     db.exec(storageSchemaSQL);
     report.settings = importSettings(storage, db);
     rollbackLegacyImports(storage, db, report);
@@ -767,13 +766,13 @@ export function migrateStorage(storage: string, reached: (step: MigrationStep) =
     throw new ConfigError('The migrated database still needs a journal file');
   syncFile(temporary);
   reached('flushed');
-  writeManifest(storage, { ...manifest, state: 'publishing', destination: sha256File(temporary), report });
+  writeManifest(storage, { ...manifest, state: 'publishing', destination: crypto.sha256File(temporary), report });
   reached('publishing');
   renameSync(temporary, database);
   reached('renamed');
   syncDirectory(storage);
   reached('directory-flushed');
-  writeManifest(storage, { ...manifest, state: 'published', destination: sha256File(database), report });
+  writeManifest(storage, { ...manifest, state: 'published', destination: crypto.sha256File(database), report });
   reached('published');
 
   return report;

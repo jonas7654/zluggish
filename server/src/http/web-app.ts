@@ -1,3 +1,4 @@
+import { BackupService } from '#src/services/backup.service';
 import { AccountsService } from '#src/services/auth.service';
 import { ManagementService } from '#src/services/management.service';
 import { WebSessionsService } from '#src/services/web-session.service';
@@ -623,6 +624,32 @@ export function createWebApp(runtime: HttpRuntime) {
         worldSettings: yield* managementService.worldSettings(),
         readOnly: true,
       });
+    }),
+  );
+
+  const backupOperation = Schema.String.check(Schema.isUUID());
+
+  appRoutes.post('/api/manage/server/backups', (c) =>
+    Effect.gen(function* () {
+      const input = Schema.decodeUnknownSync(Strict({ operation: backupOperation }))(
+        yield* Effect.promise(() => c.req.json()),
+      );
+
+      const service = yield* BackupService;
+      yield* sessions.require(c.get('sessionId'), true);
+
+      return c.json(yield* service.request(input.operation), 202);
+    }),
+  );
+  appRoutes.get('/api/manage/server/backups/:operation', (c) =>
+    Effect.gen(function* () {
+      const operation = Schema.decodeUnknownSync(backupOperation)(c.req.param('operation'));
+      const service = yield* BackupService;
+      const backup = yield* service.status(operation);
+
+      if (!backup) throw new ApplicationError({ status: 404, message: 'Backup request not found.' });
+
+      return c.json(backup);
     }),
   );
 

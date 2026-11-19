@@ -72,11 +72,13 @@ function write(storage: string, path: string, data: string | Uint8Array) {
 
 /** A version 5 storage directory with every legacy store the merge must import. */
 function legacy(t: TestContext) {
-  const storage = mkdtempSync(resolve(tmpdir(), 'zluggish-legacy-'));
+  const root = mkdtempSync(resolve(tmpdir(), 'zluggish-legacy-'));
+  const storage = resolve(root, 'storage');
+  mkdirSync(storage);
   const databases: DatabaseSync[] = [];
   t.after(() => {
     for (const database of databases) if (database.isOpen) database.close();
-    rmSync(storage, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
   });
   const db = legacyDatabase(storage);
   db.exec(`INSERT INTO user (player_id, username, first_name, last_name, pass_hash, auth_version, official_player_id, is_admin)
@@ -257,12 +259,40 @@ await test('legacy credentials written with another key are reported and left in
   );
 });
 
+await test('a legacy backup preserves the storage tree and the original schema', (t) => {
+  const { storage, open } = legacy(t);
+  const db = openLegacy(storage);
+  db.exec('DROP TABLE activity_completion; DROP TABLE activity_upload;');
+  db.close();
+  write(storage, 'custom/local.cfg', 'original setting');
+
+  open().close();
+
+  const manifest = Schema.decodeUnknownSync(Schema.Struct({ backup: Schema.String }))(
+    JSON.parse(readFileSync(resolve(storage, StorageFile.Manifest), 'utf8')),
+  );
+
+  assert.equal(resolve(manifest.backup, '..'), resolve(storage, '..', 'backups'));
+  assert.equal(existsSync(resolve(storage, 'backups')), false);
+  write(storage, 'custom/local.cfg', 'changed setting');
+  assert.equal(readFileSync(resolve(manifest.backup, 'custom/local.cfg'), 'utf8'), 'original setting');
+
+  const saved = new DatabaseSync(resolve(manifest.backup, StorageFile.Database), { readOnly: true });
+
+  try {
+    assert.equal(saved.prepare('SELECT version FROM version').get()?.version, 5);
+    assert.equal(saved.prepare("SELECT name FROM sqlite_master WHERE name='activity_completion'").get(), undefined);
+  } finally {
+    saved.close();
+  }
+});
+
 await test('a repeated start does not migrate again', (t) => {
   const { storage, open } = legacy(t);
   open().close();
-  const before = readdirSync(resolve(storage, 'backups'));
+  const before = readdirSync(resolve(storage, '..', 'backups'));
   const db = open();
-  assert.deepEqual(readdirSync(resolve(storage, 'backups')), before);
+  assert.deepEqual(readdirSync(resolve(storage, '..', 'backups')), before);
   assert.equal(db.prepare('SELECT count(*) AS n FROM rider_document').get()?.n, 6);
 });
 

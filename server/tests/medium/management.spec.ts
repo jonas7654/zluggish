@@ -459,7 +459,7 @@ await test('backup and restore preserve complete setup, operation results and th
   const { resolve } = await import('node:path');
   const backup = mkdtempSync(resolve(tmpdir(), 'zluggish-management-backup-'));
   t.after(() => rmSync(backup, { recursive: true, force: true }));
-  backupStorage(f.accounts.storage, backup, null);
+  await backupStorage(f.accounts.storage, backup, null);
   f.accounts.close();
   restoreStorage(f.config.storageDir, backup, null);
   const restored = AccountsService.open(f.config.storageDir);

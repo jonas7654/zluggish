@@ -97,6 +97,11 @@ await test('direct migration generates loadable TS and preferences with no JSONC
   writeFileSync(resolve(f.storage, 'solo_blob.txt'), JSON.stringify({ enabled: true, riders: 12 }));
   const original = snapshot(f.storage);
   await migrateConfig(f);
+  const directory = resolve(f.root, 'backups');
+  const [name] = readdirSync(directory);
+  assert.match(name!, /^config-migration-/);
+  assert.equal(readFileSync(resolve(directory, name!, '42/profile.bin'), 'utf8'), 'keep exact bytes');
+  assert.equal(existsSync(resolve(directory, name!, 'settings.db')), false);
   const loaded = await loadConfig({ path: f.output });
   assert.equal(loaded.config.server.advertisedIp, '192.0.2.5');
   assert.equal(loaded.config.equipment.unlockBikeUpgrades, true);

@@ -8,22 +8,22 @@ import { CryptoRepository } from '#src/repositories/crypto.repository';
 import { fromBinary } from '@bufbuild/protobuf';
 import { existsSync, readdirSync, readFileSync, renameSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { backup, DatabaseSync } from 'node:sqlite';
+import { DatabaseSync } from 'node:sqlite';
+import { backupLegacyStorage } from '#src/migrations/storage';
 
 /** Explicit legacy upgrade: backup -> transactional identity/schema conversion ->
 commit -> publish current filename. Rollback preserves the old DB; reruns retain
 current hashes and revoke only identities whose password protection changes.
 */
-export async function migrateAccounts(storage: string, soloPlayer?: number) {
+export function migrateAccounts(storage: string, soloPlayer?: number) {
   const destination = resolve(storage, 'zluggish.db');
   const legacyPath = resolve(storage, 'zwift-offline.db');
   const path = existsSync(destination) || !existsSync(legacyPath) ? destination : legacyPath;
-  const fresh = !existsSync(path);
+
+  if (readdirSync(storage).some((name) => name !== '.server.lock')) backupLegacyStorage(storage, 'accounts-migration');
   const db = new DatabaseSync(path);
 
   try {
-    if (!fresh) await backup(db, `${path}.accounts-${Date.now()}.bak`);
-
     const versionTable = db.prepare("SELECT 1 FROM sqlite_master WHERE name='version'").get();
     let version = 5;
 
