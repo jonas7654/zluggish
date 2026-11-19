@@ -7,6 +7,7 @@ import {
   isNightlyBackup,
   legacyDatabases,
 } from '#src/migrations/backup-paths';
+import { BackupSnapshotWorker } from '#src/migrations/backup-snapshot-worker';
 import { ConfigError } from '#src/config/index';
 import { configureConnection, SCHEMA_VERSION } from '#src/db/open';
 import { StorageFile } from '#src/migrations/storage';
@@ -182,20 +183,36 @@ export async function backupStorage(storage: string, output: string, config: str
   return Object.keys(checksums).length;
 }
 
-/** Publish only complete backups. A retried job reuses the published snapshot. */
-export async function publishBackup(storage: string, config: string | null, name: string, signal: AbortSignal) {
+/** Build a private snapshot off-thread and publish only while the job can still commit. */
+export async function publishBackup(
+  storage: string,
+  config: string | null,
+  name: string,
+  signal: AbortSignal,
+  assertCurrent: () => void,
+) {
   const directory = backupDirectory(storage);
   const target = backupPath(directory, name);
   const archive = target + archiveSuffix;
+  await mkdir(directory, { recursive: true, mode: 0o700 });
 
-  const created = await mkdir(directory, { recursive: true, mode: 0o700 });
+  // The storage lock and serial backup runner exclude another publisher for this name.
+  const stagingPrefix = `.${name}.tmp-`;
+
+  for (const entry of await readdir(directory))
+    if (entry.startsWith(stagingPrefix) && entry.length === stagingPrefix.length + 6)
+      await rm(resolve(directory, entry), { recursive: true, force: true });
 
   if (!existsSync(archive) && !existsSync(resolve(target, backupManifest))) {
-    const stage = resolve(directory, `.${name}.tmp`);
-    await rm(stage, { recursive: true, force: true });
+    const stage = await mkdtemp(resolve(directory, stagingPrefix));
 
     try {
-      await writeBackupArchive(storage, archive, stage, config, signal);
+      const snapshot = resolve(stage, 'snapshot');
+      await new BackupSnapshotWorker().run({ storage, config, snapshot }, signal);
+      const temporary = await prepareArchive(snapshot, stage, signal);
+      signal.throwIfAborted();
+      assertCurrent();
+      await rename(temporary, archive);
     } finally {
       await rm(stage, { recursive: true, force: true });
     }
@@ -203,27 +220,17 @@ export async function publishBackup(storage: string, config: string | null, name
 
   await flush(directory, true);
 
-  if (created) await flush(dirname(directory), true);
+  await flush(dirname(directory), true);
 }
 
-/** The private staging directory stays on the same filesystem as the final archive. */
-async function writeBackupArchive(
-  storage: string,
-  output: string,
-  stage: string,
-  config: string | null,
-  signal?: AbortSignal,
-) {
-  const snapshot = resolve(stage, 'snapshot');
+async function prepareArchive(snapshot: string, stage: string, signal?: AbortSignal) {
   const temporary = resolve(stage, 'backup.tar.gz');
-  const files = await backupStorage(storage, snapshot, config, signal);
+  signal?.throwIfAborted();
   await compressBackup(snapshot, temporary, signal);
   await chmod(temporary, 0o600);
   await flush(temporary);
-  signal?.throwIfAborted();
-  await rename(temporary, output);
 
-  return files;
+  return temporary;
 }
 
 /** Create an archive for the offline CLI, without overwriting an existing backup. */
@@ -236,7 +243,9 @@ export async function backupStorageArchive(storage: string, output: string, conf
   const stage = await mkdtemp(resolve(directory, '.backup-'));
 
   try {
-    const files = await writeBackupArchive(storage, output, stage, config);
+    const snapshot = resolve(stage, 'snapshot');
+    const files = await backupStorage(storage, snapshot, config);
+    await rename(await prepareArchive(snapshot, stage), output);
     await flush(directory, true);
 
     return files;
