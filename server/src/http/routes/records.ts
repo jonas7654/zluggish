@@ -1,3 +1,4 @@
+import { RecordDataService } from '#src/services/record-data.service';
 import { effectRoutes } from '#src/http/effect';
 import { RecordsService } from '#src/services/records.service';
 import { routeCompletionStatsSchema, meetupStartSchema } from '#src/dtos/records.dto';
@@ -50,43 +51,46 @@ function resultJSON(result: SegmentResult, count: number) {
 }
 
 export function recordRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
-  const records = runtime.services.recordData;
+  const appRoutes = effectRoutes(app, runtime);
 
   // Absent -> accumulating by subgroup/rider -> pruned on a later POST after one hour. GET is observational.
   const races = new Map<bigint, { touched: number; riders: Map<number, RaceResultEntrySaveRequest> }>();
 
-  app.post('/api/segment-results', async (c) => {
-    const user = authenticated(c);
-    const bytes = new Uint8Array(await c.req.arrayBuffer());
-    const result = parseProtobuf(SegmentResultSchema, bytes);
+  appRoutes.post('/api/segment-results', (c) =>
+    Effect.gen(function* () {
+      const recordDataService = yield* RecordDataService;
 
-    if (result.segmentId === 1n) throw new HTTPException(400);
-    result.playerId = BigInt(user.player_id);
-    result.worldTime = worldTime();
-    result.finishTimeStr = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
-    result.id = BigInt(records.insert('segment_result', SegmentResultSchema, result));
-    const sender = runtime.world.online.get(result.playerId);
+      const user = authenticated(c);
+      const bytes = new Uint8Array(yield* Effect.promise(() => c.req.arrayBuffer()));
+      const result = parseProtobuf(SegmentResultSchema, bytes);
 
-    if (sender)
-      runtime.world.enqueue(
-        create(WorldAttributeSchema, {
-          serverRealm: 1n,
-          waType: WA_TYPE.WAT_SR,
-          payload: toBinary(SegmentResultSchema, result),
-          worldTimeBorn: worldTime(),
-          worldTimeExpire: worldTime() + 60_000n,
-          timestamp: BigInt(Date.now()) * 1000n,
-        }),
-        [...runtime.world.online].flatMap(([id, state]) =>
-          id !== result.playerId && (course(sender) === course(state) || state.watchingRiderId === result.playerId)
-            ? id
-            : [],
-        ),
-      );
+      if (result.segmentId === 1n) throw new HTTPException(400);
+      result.playerId = BigInt(user.player_id);
+      result.worldTime = worldTime();
+      result.finishTimeStr = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+      result.id = BigInt(yield* recordDataService.insert('segment_result', SegmentResultSchema, result));
+      const sender = runtime.world.online.get(result.playerId);
 
-    return c.json({ id: Number(result.id) });
-  });
-  const appRoutes = effectRoutes(app, runtime);
+      if (sender)
+        runtime.world.enqueue(
+          create(WorldAttributeSchema, {
+            serverRealm: 1n,
+            waType: WA_TYPE.WAT_SR,
+            payload: toBinary(SegmentResultSchema, result),
+            worldTimeBorn: worldTime(),
+            worldTimeExpire: worldTime() + 60_000n,
+            timestamp: BigInt(Date.now()) * 1000n,
+          }),
+          [...runtime.world.online].flatMap(([id, state]) =>
+            id !== result.playerId && (course(sender) === course(state) || state.watchingRiderId === result.playerId)
+              ? id
+              : [],
+          ),
+        );
+
+      return c.json({ id: Number(result.id) });
+    }),
+  );
   appRoutes.get('/api/personal-records/my-records', (c) =>
     Effect.gen(function* () {
       const recordsService = yield* RecordsService;
@@ -263,6 +267,8 @@ export function recordRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     ['/live-segment-results-service/leaders', '/live-segment-results-service/leaderboard/:segment'],
     (c) =>
       Effect.gen(function* () {
+        const recordDataService = yield* RecordDataService;
+
         const recordsService = yield* RecordsService;
 
         const segment = c.req.path.split('/', 4)[3];
@@ -272,7 +278,7 @@ export function recordRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
         const since = runtime.config.leaderboards.allTime ? null : worldTime() - 3_600_000n;
 
         for (const row of yield* recordsService.segmentLeaderboard(segment ? BigInt(segment) : null, since)) {
-          const result = records.decode(SegmentResultSchema, row);
+          const result = yield* recordDataService.decode(SegmentResultSchema, row);
           const key = `${result.segmentId}:${result.playerId}`;
 
           if (best.has(key)) continue;
@@ -299,6 +305,8 @@ export function recordRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
   );
   appRoutes.post('/api/route-results', (c) =>
     Effect.gen(function* () {
+      const recordDataService = yield* RecordDataService;
+
       const recordsService = yield* RecordsService;
 
       const user = authenticated(c);
@@ -308,7 +316,7 @@ export function recordRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
         new Uint8Array(yield* Effect.promise(() => c.req.arrayBuffer())),
       );
 
-      const id = records.insert('route_result', RouteResultSaveRequestSchema, result);
+      const id = yield* recordDataService.insert('route_result', RouteResultSaveRequestSchema, result);
 
       yield* recordsService.updateRouteResult(user.player_id, id);
 

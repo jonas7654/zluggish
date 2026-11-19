@@ -1,3 +1,5 @@
+import { effectRoutes } from '#src/http/effect';
+import { RecordDataService } from '#src/services/record-data.service';
 import { parseProtobuf } from '#src/http/protobuf';
 import { authenticated } from '#src/http/routes/accounts';
 import type { HttpRuntime as Runtime, RuntimeEnv } from '#src/http/runtime';
@@ -11,49 +13,60 @@ import {
 import { create, toBinary } from '@bufbuild/protobuf';
 import type { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
-import { Schema } from 'effect';
+import { Effect, Schema } from 'effect';
 import { NumberFromInput } from '#src/schema';
 
 export function activityRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
   const service = runtime.services.activities;
 
-  const records = runtime.services.recordData;
+  const appRoutes = effectRoutes(app, runtime);
+  appRoutes.on(['GET', 'POST'], ['/api/profiles/:id/activities', '/api/profiles/:id/activities/'], (c) =>
+    Effect.gen(function* () {
+      const recordDataService = yield* RecordDataService;
 
-  app.on(['GET', 'POST'], ['/api/profiles/:id/activities', '/api/profiles/:id/activities/'], async (c) => {
-    const user = authenticated(c);
-    const id = BigInt(c.req.param('id'));
+      const user = authenticated(c);
+      const id = BigInt(c.req.param('id'));
 
-    if (c.req.method === 'POST') {
-      if (id !== BigInt(user.player_id)) throw new HTTPException(401);
+      if (c.req.method === 'POST') {
+        if (id !== BigInt(user.player_id)) throw new HTTPException(401);
 
-      const activity = parseProtobuf(ActivitySchema, new Uint8Array(await c.req.arrayBuffer()));
+        const activity = parseProtobuf(
+          ActivitySchema,
+          new Uint8Array(yield* Effect.promise(() => c.req.arrayBuffer())),
+        );
 
-      if (!runtime.services.accounts.identity(runtime.services.accounts.identityOf(user))) throw new HTTPException(401);
-      activity.playerId = id;
+        if (!runtime.services.accounts.identity(runtime.services.accounts.identityOf(user)))
+          throw new HTTPException(401);
+        activity.playerId = id;
 
-      if (!activity.date) activity.date = new Date().toISOString();
+        if (!activity.date) activity.date = new Date().toISOString();
 
-      const activityId = records.insert('activity', ActivitySchema, activity, ['fit']);
-      runtime.services.rideCompletion.register(user.player_id, BigInt(activityId), c.req.header('Authorization') ?? '');
+        const activityId = yield* recordDataService.insert('activity', ActivitySchema, activity, ['fit']);
+        runtime.services.rideCompletion.register(
+          user.player_id,
+          BigInt(activityId),
+          c.req.header('Authorization') ?? '',
+        );
 
-      return c.body(JSON.stringify({ id: Number(activityId) }), 200, {
-        'Content-Type': 'text/html; charset=utf-8',
-      });
-    }
+        return c.body(JSON.stringify({ id: Number(activityId) }), 200, {
+          'Content-Type': 'text/html; charset=utf-8',
+        });
+      }
 
-    return c.body(
-      toBinary(
-        ActivityListSchema,
-        create(ActivityListSchema, {
-          activities: (() => {
-            return service
-              .recentActivities(id, user.player_id)
-              .map((row) => service.forViewer(records.decode(ActivitySchema, row), user.player_id));
-          })(),
-        }),
-      ),
-    );
-  });
+      return c.body(
+        toBinary(
+          ActivityListSchema,
+          create(ActivityListSchema, {
+            activities: yield* Effect.forEach(service.recentActivities(id, user.player_id), (row) =>
+              recordDataService
+                .decode(ActivitySchema, row)
+                .pipe(Effect.map((activity) => service.forViewer(activity, user.player_id))),
+            ),
+          }),
+        ),
+      );
+    }),
+  );
 
   app.on(['PUT', 'DELETE'], '/api/profiles/:id/activities/:activityId', async (c) => {
     const user = authenticated(c);
@@ -90,85 +103,103 @@ export function activityRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     });
   });
 
-  app.get('/api/activities/:activityId', (c) => {
-    const user = authenticated(c);
+  appRoutes.get('/api/activities/:activityId', (c) =>
+    Effect.gen(function* () {
+      const recordDataService = yield* RecordDataService;
 
-    const row = service.activityById(c.req.param('activityId'));
+      const user = authenticated(c);
 
-    if (!row) throw new HTTPException(404);
-    const activity = service.forViewer(records.decode(ActivitySchema, row), user.player_id);
+      const row = service.activityById(c.req.param('activityId'));
 
-    if (!service.visible(activity, user.player_id)) throw new HTTPException(404);
-    const fitness = service.fitnessVisible(activity, user.player_id);
-    const data = service.companion(activity, fitness);
+      if (!row) throw new HTTPException(404);
+      const activity = service.forViewer(yield* recordDataService.decode(ActivitySchema, row), user.player_id);
 
-    // Charts come from the canonical FIT payload. A missing chart is created by a job;
-    // the details omit fitness data until it is ready.
-    const fileId = fitness ? service.chartFile(activity.id) : null;
+      if (!service.visible(activity, user.player_id)) throw new HTTPException(404);
+      const fitness = service.fitnessVisible(activity, user.player_id);
+      const data = service.companion(activity, fitness);
 
-    if (fileId !== null) {
-      const url = `https://us-or-rly101.zwift.com/api/activities/${activity.id}/file/${fileId}`;
+      // Charts come from the canonical FIT payload. A missing chart is created by a job;
+      // the details omit fitness data until it is ready.
+      const fileId = fitness ? service.chartFile(activity.id) : null;
 
-      return c.json({
-        ...data,
-        fitnessData: {
-          status: 'AVAILABLE',
-          fullDataUrl: url,
-          smallDataUrl: url,
-        },
-      });
-    }
+      if (fileId !== null) {
+        const url = `https://us-or-rly101.zwift.com/api/activities/${activity.id}/file/${fileId}`;
 
-    return c.json(data);
-  });
-  app.on(
+        return c.json({
+          ...data,
+          fitnessData: {
+            status: 'AVAILABLE',
+            fullDataUrl: url,
+            smallDataUrl: url,
+          },
+        });
+      }
+
+      return c.json(data);
+    }),
+  );
+  appRoutes.on(
     'GET',
     [
       '/api/activity-feed-service-v2/feed/:feedType',
       '/api/activity-feed-service-v2/feed/:feedType/:profileId',
       '/api/activity-feed/feed/',
     ],
-    (c) => {
-      const user = authenticated(c);
+    (c) =>
+      Effect.gen(function* () {
+        const recordDataService = yield* RecordDataService;
 
-      const type = c.req.param('feedType') ?? c.req.query('feedType')?.toLowerCase().replaceAll('_', '-');
+        const user = authenticated(c);
 
-      const limit = Schema.decodeUnknownSync(
-        NumberFromInput.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0), Schema.isLessThanOrEqualTo(1000)),
-      )(c.req.query('limit') ?? 50);
+        const type = c.req.param('feedType') ?? c.req.query('feedType')?.toLowerCase().replaceAll('_', '-');
 
-      const id =
-        type === 'just-me' ? user.player_id : Number(c.req.param('profileId') ?? c.req.query('profile_id')) || null;
+        const limit = Schema.decodeUnknownSync(
+          NumberFromInput.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0), Schema.isLessThanOrEqualTo(1000)),
+        )(c.req.query('limit') ?? 50);
 
-      const before = c.req.query('start_after_activity_id');
+        const id =
+          type === 'just-me' ? user.player_id : Number(c.req.param('profileId') ?? c.req.query('profile_id')) || null;
 
-      const activities = service
-        .activityFeed(id, before ?? null, type === 'preview' ? 1 : 0, user.player_id, limit)
-        .map((row) => service.forViewer(records.decode(ActivitySchema, row), user.player_id));
+        const before = c.req.query('start_after_activity_id');
 
-      return c.json(activities.map((activity) => service.companion(activity)));
-    },
+        const activities = yield* Effect.forEach(
+          service.activityFeed(id, before ?? null, type === 'preview' ? 1 : 0, user.player_id, limit),
+          (row) =>
+            recordDataService
+              .decode(ActivitySchema, row)
+              .pipe(Effect.map((activity) => service.forViewer(activity, user.player_id))),
+        );
+
+        return c.json(activities.map((activity) => service.companion(activity)));
+      }),
   );
-  app.get('/api/activities/:activityId/file/:fileId', (c) => {
-    const user = authenticated(c);
-    const activity = service.activityById(c.req.param('activityId'));
+  appRoutes.get('/api/activities/:activityId/file/:fileId', (c) =>
+    Effect.gen(function* () {
+      const recordDataService = yield* RecordDataService;
 
-    if (!activity || !service.fitnessVisible(records.decode(ActivitySchema, activity), user.player_id))
-      throw new HTTPException(404);
+      const user = authenticated(c);
+      const activity = service.activityById(c.req.param('activityId'));
 
-    const id = Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(
-      c.req.param('fileId'),
-    );
+      if (
+        !activity ||
+        !service.fitnessVisible(yield* recordDataService.decode(ActivitySchema, activity), user.player_id)
+      )
+        throw new HTTPException(404);
 
-    if (!service.findOwnedActivityFile(id, c.req.param('activityId'))) throw new HTTPException(404);
-    const file = service.chartPath(id);
+      const id = Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(
+        c.req.param('fileId'),
+      );
 
-    if (!runtime.services.files.exists(file)) throw new HTTPException(404);
+      if (!service.findOwnedActivityFile(id, c.req.param('activityId'))) throw new HTTPException(404);
+      const file = service.chartPath(id);
 
-    return c.body(runtime.services.files.read(file), 200, {
-      'Content-Type': 'application/json',
-    });
-  });
+      if (!runtime.services.files.exists(file)) throw new HTTPException(404);
+
+      return c.body(runtime.services.files.read(file), 200, {
+        'Content-Type': 'application/json',
+      });
+    }),
+  );
   app.post('/api/profiles/:id/activities/:activityId/images', async (c) => {
     const user = authenticated(c);
 

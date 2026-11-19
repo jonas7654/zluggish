@@ -5,21 +5,14 @@ import { ActivitiesService } from '#src/services/activities.service';
 import { ConnectionsService } from '#src/services/connections.service';
 import { EventsService } from '#src/services/events.service';
 import { FilesService } from '#src/services/files.service';
-import { FitnessService } from '#src/services/fitness.service';
-import { GoalService } from '#src/services/goals.service';
 import { DocumentsService } from '#src/services/documents.service';
 import { DurabilityService } from '#src/services/durability.service';
 import { IntegrationsService } from '#src/services/integrations.service';
 import { JobsService } from '#src/services/jobs.service';
-import { MetricsService } from '#src/services/metrics.service';
 import { ImportsService } from '#src/services/profile-import.service';
 import { ProfilesService } from '#src/services/profile.service';
-import { RecordDataService } from '#src/services/record-data.service';
 import { RetentionService } from '#src/services/retention.service';
 import { RideRecoveryService } from '#src/services/ride-recovery.service';
-import { SettingsService } from '#src/services/settings.service';
-import { SocialService } from '#src/services/social.service';
-import { StorageService } from '#src/services/storage.service';
 import { UploadsService } from '#src/services/uploads.service';
 import { WorkoutsService } from '#src/services/workout.service';
 
@@ -38,7 +31,6 @@ export function createServices(context: RepositoryContext) {
     management: new ManagementService(context, rideCompletion),
     sessions: context.sessions,
     profiles: new ProfilesService(context),
-    settings: new SettingsService(context),
     connections: new ConnectionsService(context),
     documents: new DocumentsService(context),
     durability: new DurabilityService(context),
@@ -46,15 +38,9 @@ export function createServices(context: RepositoryContext) {
     workouts: new WorkoutsService(context),
     uploads: new UploadsService(context),
     files: new FilesService(context.accounts.repositories),
-    recordData: new RecordDataService(context),
-    goals: new GoalService(context),
-    fitness: new FitnessService(context),
-    storage: new StorageService(context),
     events: new EventsService(context),
     activities: new ActivitiesService(context),
-    social: new SocialService(context),
     integrations: new IntegrationsService(context),
-    metrics: new MetricsService(context),
     jobs: new JobsService(context),
     recovery: new RideRecoveryService(context),
     retention: new RetentionService(context.accounts.repositories, context.config.retention, context.config.storageDir),

@@ -1,3 +1,4 @@
+import { RecordDataService } from '#src/services/record-data.service';
 import { StravaRepository } from '#src/repositories/strava.repository';
 import { UploadsService } from '#src/services/uploads.service';
 import { openRuntime } from '#src/runtime';
@@ -109,7 +110,10 @@ await test('media upload claims serialize requests and deletion during body read
     playerId: BigInt(f.rider.player_id),
   });
 
-  const id = f.services.recordData.insert('activity', ActivitySchema, activity, ['fit']);
+  const id = f.effects.runSync(
+    RecordDataService.use((service) => service.insert('activity', ActivitySchema, activity, ['fit'])),
+  );
+
   const media = f.services.activities.insertActivityMedia(f.rider.player_id, id, 'video/mp4').lastInsertRowid;
   const issued = f.services.activities.issueMedia(String(media));
   const gate = Promise.withResolvers<ArrayBuffer>();
@@ -127,16 +131,20 @@ await test('media upload claims serialize requests and deletion during body read
 await test('failed media body reads release the claim; successful uploads consume it', async (t) => {
   const f = await mediumFixture(t);
 
-  const id = f.services.recordData.insert(
-    'activity',
-    ActivitySchema,
-    create(ActivitySchema, {
-      courseId: 6n,
-      name: 'Test',
-      startDate: '2026-11-14T08:00:00Z',
-      playerId: BigInt(f.rider.player_id),
-    }),
-    ['fit'],
+  const id = f.effects.runSync(
+    RecordDataService.use((service) =>
+      service.insert(
+        'activity',
+        ActivitySchema,
+        create(ActivitySchema, {
+          courseId: 6n,
+          name: 'Test',
+          startDate: '2026-11-14T08:00:00Z',
+          playerId: BigInt(f.rider.player_id),
+        }),
+        ['fit'],
+      ),
+    ),
   );
 
   const media = f.services.activities.insertActivityMedia(f.rider.player_id, id, 'video/mp4').lastInsertRowid;

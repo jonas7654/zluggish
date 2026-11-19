@@ -1,3 +1,4 @@
+import { RuntimeContext } from '#src/context';
 import { validateConfig } from '#src/config/index';
 import { StorageService } from '#src/services/storage.service';
 import { createCdn } from '#src/node/network/cdn';
@@ -13,7 +14,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
-import { Schema } from 'effect';
+import { Effect, Layer, Schema } from 'effect';
 
 for (const companion of [false, true])
   for (const json of [false, true]) {
@@ -330,13 +331,20 @@ await test('bike upgrade unlocks include extra frames, preserve settings and lea
   });
   const before = f.services.documents.get(id, 'user_storage.bin');
 
-  const service = new StorageService({
-    ...f,
-    config: validateConfig({ storageDir: f.config.storageDir, equipment: { unlockBikeUpgrades: true } }),
-  });
+  const unlocked = StorageService.layer.pipe(
+    Layer.provide(
+      Layer.succeed(RuntimeContext, {
+        ...f,
+        config: validateConfig({ storageDir: f.config.storageDir, equipment: { unlockBikeUpgrades: true } }),
+      }),
+    ),
+  );
+
+  const attributes = (types: Set<number>) =>
+    Effect.runSync(StorageService.use((storage) => storage.attributes(id, types)).pipe(Effect.provide(unlocked)));
 
   const start = BigInt(Date.now());
-  const result = service.attributes(id, new Set([24, 22]));
+  const result = attributes(new Set([24, 22]));
 
   const dictionary = Schema.decodeUnknownSync(
     Schema.Struct({
@@ -363,8 +371,8 @@ await test('bike upgrade unlocks include extra frames, preserve settings and lea
   }
 
   assert.equal(result.attributes.filter((a) => a.gameSettings).length, 1);
-  assert.equal(service.attributes(id, new Set([22])).attributes.length, 1);
-  assert.equal(service.attributes(id, new Set()).attributes.length, 0);
+  assert.equal(attributes(new Set([22])).attributes.length, 1);
+  assert.equal(attributes(new Set()).attributes.length, 0);
   assert.deepEqual(f.services.documents.get(id, 'user_storage.bin'), before);
 
   const original = await decode(

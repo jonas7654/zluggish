@@ -1,3 +1,5 @@
+import { FitnessService } from '#src/services/fitness.service';
+import { StorageService } from '#src/services/storage.service';
 import { RecordsService } from '#src/services/records.service';
 import { runtimeFixture } from '#tests/support/runtime';
 import assert from 'node:assert/strict';
@@ -95,12 +97,17 @@ await test('the main queries use an index on several years of history', async (t
     }),
   );
   f.accounts.repositories.fitnessRepository.findPowerCurve(rider.player_id, '300', 0);
-  services.fitness.week(rider.player_id, start + 700 * day);
-  services.fitness.powerCurve(rider.player_id, 'all', 90);
+  f.effects.runSync(
+    Effect.gen(function* () {
+      const fitness = yield* FitnessService;
+      yield* fitness.week(rider.player_id, start + 700 * day);
+      yield* fitness.powerCurve(rider.player_id, 'all', 90);
+    }),
+  );
   services.uploads.status(rider.player_id);
   f.accounts.repositories.uploadsRepository.waiting();
   f.accounts.repositories.jobsRepository.ready();
-  services.storage.list(rider.player_id, 'customworkouts');
+  f.effects.runSync(StorageService.use((storage) => storage.list(rider.player_id, 'customworkouts')));
   db.prepare('SELECT 1').get();
 
   const plans = new Map<string, string[]>();

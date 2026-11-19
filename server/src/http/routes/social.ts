@@ -1,3 +1,5 @@
+import { effectRoutes } from '#src/http/effect';
+import { SocialService } from '#src/services/social.service';
 import {
   profileSearchSchema,
   privacyUpdateSchema,
@@ -23,12 +25,10 @@ import { create, toBinary } from '@bufbuild/protobuf';
 import type { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { resolve } from 'node:path';
-import { Schema } from 'effect';
+import { Effect, Schema } from 'effect';
 import { NumberFromInput } from '#src/schema';
 
 export function socialRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
-  const service = runtime.services.social;
-
   const summary = (id: number) => {
     const profile = runtime.services.profiles.get(id);
 
@@ -89,22 +89,27 @@ export function socialRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       );
     },
   );
-  app.on('POST', ['/api/search/profiles', '/api/search/profiles/restricted'], async (c) => {
-    authenticated(c);
-    const input = Schema.decodeUnknownSync(profileSearchSchema)(await c.req.json());
+  const appRoutes = effectRoutes(app, runtime);
+  appRoutes.on('POST', ['/api/search/profiles', '/api/search/profiles/restricted'], (c) =>
+    Effect.gen(function* () {
+      const socialService = yield* SocialService;
 
-    const start = Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)))(
-      c.req.query('start') ?? 0,
-    );
+      authenticated(c);
+      const input = Schema.decodeUnknownSync(profileSearchSchema)(yield* Effect.promise(() => c.req.json()));
 
-    const limit = Schema.decodeUnknownSync(
-      NumberFromInput.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0), Schema.isLessThanOrEqualTo(1000)),
-    )(c.req.query('limit') ?? 100);
+      const start = Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)))(
+        c.req.query('start') ?? 0,
+      );
 
-    const rows = service.listUser(`%${input.query}%`, `%${input.query}%`, limit, start);
+      const limit = Schema.decodeUnknownSync(
+        NumberFromInput.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0), Schema.isLessThanOrEqualTo(1000)),
+      )(c.req.query('limit') ?? 100);
 
-    return c.json(rows.map((row) => summary(Schema.decodeUnknownSync(Schema.Finite)(row.player_id))));
-  });
+      const rows = yield* socialService.listUser(`%${input.query}%`, `%${input.query}%`, limit, start);
+
+      return c.json(rows.map((row) => summary(Schema.decodeUnknownSync(Schema.Finite)(row.player_id))));
+    }),
+  );
   app.post('/api/profiles/:id/privacy', async (c) => {
     const user = authenticated(c);
 
@@ -129,11 +134,15 @@ export function socialRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
     return c.body(null, 200);
   });
-  app.get('/api/profiles/:id/statistics', (c) => {
-    const row = service.findActivity(c.req.param('id'), c.req.query('startDateTime') ?? '1970-01-01');
+  appRoutes.get('/api/profiles/:id/statistics', (c) =>
+    Effect.gen(function* () {
+      const socialService = yield* SocialService;
 
-    return c.json(Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.NullOr(Schema.Finite)))(row));
-  });
+      const row = yield* socialService.findActivity(c.req.param('id'), c.req.query('startDateTime') ?? '1970-01-01');
+
+      return c.json(Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.NullOr(Schema.Finite)))(row));
+    }),
+  );
   app.post('/api/profiles/:id/photo', async (c) => {
     const user = authenticated(c);
 
@@ -218,108 +227,130 @@ export function socialRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
     return c.text('{}');
   });
-  app.post('/relay/worlds/attributes', async (c) => {
-    const user = authenticated(c);
-    const id = BigInt(user.player_id);
+  appRoutes.post('/relay/worlds/attributes', (c) =>
+    Effect.gen(function* () {
+      const socialService = yield* SocialService;
 
-    const update = parseProtobuf(WorldAttributeSchema, new Uint8Array(await c.req.arrayBuffer()));
+      const user = authenticated(c);
+      const id = BigInt(user.player_id);
 
-    update.worldTimeExpire = worldTime() + 60_000n;
-    update.waF12 = 1n;
-    update.timestamp = BigInt(Date.now()) * 1000n;
-    let recipients: bigint[] | undefined;
+      const update = parseProtobuf(
+        WorldAttributeSchema,
+        new Uint8Array(yield* Effect.promise(() => c.req.arrayBuffer())),
+      );
 
-    if (update.waType === WA_TYPE.WAT_SPA) {
-      const action = parseProtobuf(SocialPlayerActionSchema, update.payload);
-      action.playerId = id;
-      const profile = runtime.services.profiles.get(user.player_id);
-      action.firstName = profile.firstName;
-      action.lastName = profile.lastName;
-      update.payload = toBinary(SocialPlayerActionSchema, action);
+      update.worldTimeExpire = worldTime() + 60_000n;
+      update.waF12 = 1n;
+      update.timestamp = BigInt(Date.now()) * 1000n;
+      let recipients: bigint[] | undefined;
 
-      if (action.message.startsWith('.')) {
-        const reply = runtime.world.simulation?.command(id, action.message.slice(1)) ?? 'Simulation is unavailable.';
+      if (update.waType === WA_TYPE.WAT_SPA) {
+        const action = parseProtobuf(SocialPlayerActionSchema, update.payload);
+        action.playerId = id;
+        const profile = runtime.services.profiles.get(user.player_id);
+        action.firstName = profile.firstName;
+        action.lastName = profile.lastName;
+        update.payload = toBinary(SocialPlayerActionSchema, action);
 
-        runtime.services.social.sendMessage(reply, [id]);
+        if (action.message.startsWith('.')) {
+          const reply = runtime.world.simulation?.command(id, action.message.slice(1)) ?? 'Simulation is unavailable.';
 
-        return c.body(null, 201);
+          yield* socialService.sendMessage(reply, [id]);
+
+          return c.body(null, 201);
+        }
+
+        for (const bridge of runtime.bridges ?? [])
+          bridge.send(action.message, `${profile.firstName} ${profile.lastName}`);
+        const state = runtime.world.online.get(id);
+        recipients = [...runtime.world.online].flatMap(([peerId, peer]) =>
+          state &&
+          course(state) === course(peer) &&
+          Math.hypot(state.x - peer.x, state.z - peer.z, state.yAltitude - peer.yAltitude) <= 100_000
+            ? peerId
+            : [],
+        );
+      } else if (update.waType === WA_TYPE.WAT_B_ACT) {
+        const reply = runtime.world.simulation?.gesture(id, update.payload);
+
+        if (reply) yield* socialService.sendMessage(reply, [id]);
       }
 
-      for (const bridge of runtime.bridges ?? [])
-        bridge.send(action.message, `${profile.firstName} ${profile.lastName}`);
-      const state = runtime.world.online.get(id);
-      recipients = [...runtime.world.online].flatMap(([peerId, peer]) =>
-        state &&
-        course(state) === course(peer) &&
-        Math.hypot(state.x - peer.x, state.z - peer.z, state.yAltitude - peer.yAltitude) <= 100_000
-          ? peerId
-          : [],
+      runtime.world.enqueue(update, recipients);
+
+      return c.body(null, 201);
+    }),
+  );
+  appRoutes.post('/api/player-playbacks/player/playback', (c) =>
+    Effect.gen(function* () {
+      const socialService = yield* SocialService;
+
+      const user = authenticated(c);
+      const bytes = new Uint8Array(yield* Effect.promise(() => c.req.arrayBuffer()));
+      const playback = parseProtobuf(PlaybackDataSchema, bytes);
+
+      if (!playback.time) return c.body(null, 200);
+      const id = new CryptoRepository().randomUUID();
+      runtime.services.files.write(resolve(runtime.config.storageDir, 'playbacks', `${id}.playback`), bytes);
+      yield* socialService.insertPlayback(
+        user.player_id,
+        id,
+        playback.segmentId,
+        playback.time,
+        playback.worldTime,
+        playback.type,
       );
-    } else if (update.waType === WA_TYPE.WAT_B_ACT) {
-      const reply = runtime.world.simulation?.gesture(id, update.payload);
 
-      if (reply) runtime.services.social.sendMessage(reply, [id]);
-    }
+      return c.text(id, 201);
+    }),
+  );
+  appRoutes.get('/api/player-playbacks/player/:player/playbacks/:segment/:option', (c) =>
+    Effect.gen(function* () {
+      const socialService = yield* SocialService;
 
-    runtime.world.enqueue(update, recipients);
+      const user = authenticated(c);
 
-    return c.body(null, 201);
-  });
-  app.post('/api/player-playbacks/player/playback', async (c) => {
-    const user = authenticated(c);
-    const bytes = new Uint8Array(await c.req.arrayBuffer());
-    const playback = parseProtobuf(PlaybackDataSchema, bytes);
+      const player =
+        c.req.param('player') === 'me'
+          ? user.player_id
+          : Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(
+              c.req.param('player'),
+            );
 
-    if (!playback.time) return c.body(null, 200);
-    const id = new CryptoRepository().randomUUID();
-    runtime.services.files.write(resolve(runtime.config.storageDir, 'playbacks', `${id}.playback`), bytes);
-    service.insertPlayback(user.player_id, id, playback.segmentId, playback.time, playback.worldTime, playback.type);
+      const after = c.req.query('after') ?? '18446744065933551616';
+      const before = c.req.query('before') ?? '0';
+      const type = c.req.query('type') === 'ROUTE' ? 1 : 0;
 
-    return c.text(id, 201);
-  });
-  app.get('/api/player-playbacks/player/:player/playbacks/:segment/:option', (c) => {
-    const user = authenticated(c);
+      const row = yield* socialService.playbackForSegment(
+        player,
+        BigInt(c.req.param('segment')),
+        type,
+        after === '18446744065933551616' || runtime.config.leaderboards.allTime ? 1 : 0,
+        BigInt.asIntN(64, BigInt(after)),
+        before === '0' ? 1 : 0,
+        BigInt.asIntN(64, BigInt(before)),
+        c.req.param('option') === 'pr' ? 1 : 0,
+      );
 
-    const player =
-      c.req.param('player') === 'me'
-        ? user.player_id
-        : Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(
-            c.req.param('player'),
-          );
+      if (!row) return c.body(null, 200);
 
-    const after = c.req.query('after') ?? '18446744065933551616';
-    const before = c.req.query('before') ?? '0';
-    const type = c.req.query('type') === 'ROUTE' ? 1 : 0;
+      const parsed = Schema.decodeUnknownSync(playbackRecordSchema)(row);
 
-    const row = service.playbackForSegment(
-      player,
-      BigInt(c.req.param('segment')),
-      type,
-      after === '18446744065933551616' || runtime.config.leaderboards.allTime ? 1 : 0,
-      BigInt.asIntN(64, BigInt(after)),
-      before === '0' ? 1 : 0,
-      BigInt.asIntN(64, BigInt(before)),
-      c.req.param('option') === 'pr' ? 1 : 0,
-    );
-
-    if (!row) return c.body(null, 200);
-
-    const parsed = Schema.decodeUnknownSync(playbackRecordSchema)(row);
-
-    return c.body(
-      toBinary(
-        PlaybackMetadataSchema,
-        create(PlaybackMetadataSchema, {
-          uuid: parsed.uuid,
-          segmentId: parsed.segment_id,
-          time: parsed.time,
-          worldTime: parsed.world_time,
-          type,
-          url: `https://cdn.zwift.com/player-playback/playbacks/${parsed.uuid}.playback`,
-        }),
-      ),
-    );
-  });
+      return c.body(
+        toBinary(
+          PlaybackMetadataSchema,
+          create(PlaybackMetadataSchema, {
+            uuid: parsed.uuid,
+            segmentId: parsed.segment_id,
+            time: parsed.time,
+            worldTime: parsed.world_time,
+            type,
+            url: `https://cdn.zwift.com/player-playback/playbacks/${parsed.uuid}.playback`,
+          }),
+        ),
+      );
+    }),
+  );
   app.get('/player-playback/playbacks/:filename', (c) => {
     const file = c.req.param('filename');
 

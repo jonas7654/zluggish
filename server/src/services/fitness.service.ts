@@ -1,23 +1,23 @@
+import { RuntimeContext } from '#src/context';
 import { goalSchema } from '#src/dtos/fitness.dto';
 
-import type { RepositoryContext } from '#src/context';
 import { BestEffortPointMsgSchema, PowerCurveAggregationMsgSchema } from '#src/protocol/generated/profile_pb';
 import type { FitnessRepository } from '#src/repositories/fitness.repository';
-import { BaseService } from '#src/services/base.service';
 import { StreakService } from '#src/services/streak.service';
 import { create } from '@bufbuild/protobuf';
-import { Schema } from 'effect';
+import { Context, Effect, Layer, Schema } from 'effect';
 
-export class FitnessService extends BaseService {
-  constructor(context: RepositoryContext) {
-    super(context.accounts.repositories);
-  }
+const make = Effect.gen(function* () {
+  const context = yield* RuntimeContext;
+  const repositories = context.accounts.repositories;
 
-  findActivity(...values: Parameters<FitnessRepository['findActivity']>) {
-    return this.fitnessRepository.findActivity(...values);
-  }
+  const findActivity = Effect.fn('FitnessService.findActivity')(function* (
+    ...values: Parameters<FitnessRepository['findActivity']>
+  ) {
+    return repositories.fitnessRepository.findActivity(...values);
+  });
 
-  private totals(id: number, start: number, end: number) {
+  function totals(id: number, start: number, end: number) {
     const row = Schema.decodeUnknownSync(
       Schema.Struct({
         distance: Schema.NullOr(Schema.Finite),
@@ -27,7 +27,7 @@ export class FitnessService extends BaseService {
         calories: Schema.NullOr(Schema.Finite),
         tss: Schema.NullOr(Schema.Finite),
       }),
-    )(this.fitnessRepository.findActivity(id, new Date(start).toISOString(), new Date(end).toISOString()));
+    )(repositories.fitnessRepository.findActivity(id, new Date(start).toISOString(), new Date(end).toISOString()));
 
     return {
       distance: row.distance ?? 0,
@@ -40,7 +40,7 @@ export class FitnessService extends BaseService {
     };
   }
 
-  private ewma(id: number, date: number, days: number) {
+  function ewma(id: number, date: number, days: number) {
     let score = 0;
 
     for (let i = days - 1; i >= 0; i--) {
@@ -48,18 +48,18 @@ export class FitnessService extends BaseService {
       day.setUTCHours(0, 0, 0, 0);
       score =
         score * Math.exp(-1 / days) +
-        this.totals(id, day.getTime(), day.getTime() + 86_400_000 - 1).tss * (1 - Math.exp(-1 / days));
+        totals(id, day.getTime(), day.getTime() + 86_400_000 - 1).tss * (1 - Math.exp(-1 / days));
     }
 
     return score;
   }
 
-  week(id: number, date: number) {
+  const week = Effect.fn('FitnessService.week')(function* (id: number, date: number) {
     const range = StreakService.weekRange(date);
-    const sum = this.totals(id, range.start, range.end);
+    const sum = totals(id, range.start, range.end);
     const end = Math.min(range.end, Date.now());
-    const score = this.ewma(id, end, 42);
-    const delta = score - this.ewma(id, end, 7);
+    const score = ewma(id, end, 42);
+    const delta = score - ewma(id, end, 7);
 
     const status =
       score === 0
@@ -76,12 +76,12 @@ export class FitnessService extends BaseService {
 
     for (let i = 0; i < 7; i++) {
       const start = range.start + i * 86_400_000;
-      const sum = this.totals(id, start, start + 86_400_000 - 1);
+      const sum = totals(id, start, start + 86_400_000 - 1);
 
       if (!sum.distance) continue;
       const zones = [0, 0, 0, 0, 0, 0, 0];
 
-      for (const row of this.fitnessRepository.listActivity(
+      for (const row of repositories.fitnessRepository.listActivity(
         id,
         new Date(start).toISOString(),
         new Date(start + 86_400_000 - 1).toISOString(),
@@ -115,28 +115,33 @@ export class FitnessService extends BaseService {
       status,
       days,
     };
-  }
+  });
 
-  streaks(id: number) {
-    return new StreakService(this.repositories).streaksFor(id);
-  }
+  const streaks = Effect.fn('FitnessService.streaks')(function* (id: number) {
+    return new StreakService(repositories).streaksFor(id);
+  });
 
-  metrics(id: number, date: number, historical: boolean) {
-    const weeks = [this.week(id, date), this.week(id, date - 604_800_000)];
+  const metrics = Effect.fn('FitnessService.metrics')(function* (id: number, date: number, historical: boolean) {
+    const weeks = [yield* week(id, date), yield* week(id, date - 604_800_000)];
 
-    const row = this.fitnessRepository.findGoalMetrics(
+    const row = repositories.fitnessRepository.findGoalMetrics(
       id,
       new Date(historical ? StreakService.weekRange(date).end : Date.now()).toISOString(),
     );
 
     const goals = Schema.decodeUnknownSync(goalSchema)(row ?? {});
 
-    return { weeks, goals, streak: this.streaks(id).curStreak, useMetric: this.profileRepository.get(id).useMetric };
-  }
+    return {
+      weeks,
+      goals,
+      streak: (yield* streaks(id)).curStreak,
+      useMetric: repositories.profileRepository.get(id).useMetric,
+    };
+  });
 
-  saveGoals(id: number, input: (typeof goalSchema)['Type']) {
+  const saveGoals = Effect.fn('FitnessService.saveGoals')(function* (id: number, input: (typeof goalSchema)['Type']) {
     const goals = { ...Schema.decodeUnknownSync(goalSchema)(input), lastUpdated: new Date().toISOString() };
-    this.fitnessRepository.insertGoalMetrics(
+    repositories.fitnessRepository.insertGoalMetrics(
       id,
       goals.weekGoalTSS,
       goals.weekGoalCalories,
@@ -148,14 +153,14 @@ export class FitnessService extends BaseService {
       goals.currentGoalSetting,
       goals.currentGoalSource,
     );
-  }
+  });
 
-  powerCurve(id: number, option: string, days: number) {
+  const powerCurve = Effect.fn('FitnessService.powerCurve')(function* (id: number, option: string, days: number) {
     const cutoff = option === 'last' ? Math.floor(Date.now() / 1000) - days * 86_400 : 0;
     const response = create(PowerCurveAggregationMsgSchema);
 
     for (const time of ['5', '60', '300', '1200']) {
-      const row = this.fitnessRepository.findPowerCurve(id, time, cutoff);
+      const row = repositories.fitnessRepository.findPowerCurve(id, time, cutoff);
 
       if (row)
         response.watts[time] = create(BestEffortPointMsgSchema, {
@@ -164,5 +169,13 @@ export class FitnessService extends BaseService {
     }
 
     return response;
-  }
+  });
+
+  return { findActivity, week, streaks, metrics, saveGoals, powerCurve };
+});
+
+export class FitnessService extends Context.Service<FitnessService, Effect.Success<typeof make>>()(
+  'zluggish/FitnessService',
+) {
+  static readonly layer = Layer.effect(FitnessService, make);
 }

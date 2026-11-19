@@ -1,3 +1,4 @@
+import { MetricsService } from '#src/services/metrics.service';
 import { Resources } from '#src/node/lifecycle/resources';
 import { createServices } from '#src/composition';
 import { makeAppRuntime } from '#src/layers';
@@ -65,7 +66,9 @@ export async function openRuntime(config: ResolvedConfig, assets: string) {
     resources.defer(() => simulation.close());
     resources.defer(() => runtime.services.recovery.close());
     resources.defer(() => world.lifecycle.close());
-    resources.defer(runtime.services.metrics.start(config.logging.metricsIntervalSeconds));
+    resources.defer(
+      runtime.effects.runSync(MetricsService.use((service) => service.start(config.logging.metricsIntervalSeconds))),
+    );
     await simulation.ready;
     simulation.start();
     const completionTimer = setInterval(() => runtime.services.rideCompletion.sweep(), 1000);

@@ -1,4 +1,6 @@
-import { Schema } from 'effect';
+import { effectRoutes } from '#src/http/effect';
+import { resolveRiderSettings, SettingsService } from '#src/services/settings.service';
+import { Effect, Schema } from 'effect';
 import { Strict, withDefault } from '#src/schema';
 import { DownloadFile } from '#src/enum';
 import type { Hono, Context } from 'hono';
@@ -10,7 +12,7 @@ import { providerFailure } from '#src/http/web-connections';
 import type { WebEnv } from '#src/http/web-app';
 
 export function webProfileRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
-  const { management, accounts, imports, connections, settings, integrations } = runtime.services;
+  const { management, accounts, imports, connections, integrations } = runtime.services;
   const { sessions } = management;
 
   function context(c: Context<WebEnv>) {
@@ -152,47 +154,54 @@ export function webProfileRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
     return c.json({ user: management.publicUser(accounts.get(user.player_id)!), review: null });
   });
 
-  function connection(c: Context<WebEnv>) {
-    const { user } = context(c);
-    const resolved = settings.resolveRiderSettings(runtime.config.riderDefaults, settings.read(user.player_id));
+  const connection = (c: Context<WebEnv>) =>
+    Effect.gen(function* () {
+      const settings = yield* SettingsService;
+      const { user } = context(c);
+      const resolved = resolveRiderSettings(runtime.config.riderDefaults, yield* settings.read(user.player_id));
 
-    return c.json({
-      connected: connections.has(user.player_id, 'zwift'),
-      upload: resolved.uploads.zwift.enabled,
-      click: resolved.devices.zwiftClick.enabled,
-    });
-  }
-
-  app.get('/api/me/zwift', connection);
-  app.put('/api/me/zwift', async (c) => {
-    const input = Schema.decodeUnknownSync(
-      Strict({
-        username: Schema.String.check(Schema.isMaxLength(500)),
-        password: Schema.String.check(Schema.isMaxLength(1000)),
-        upload: Schema.Boolean,
-        click: Schema.Boolean,
-      }),
-    )(await c.req.json());
-
-    const { user } = context(c);
-    const username = input.username.trim();
-
-    if (Boolean(username) !== Boolean(input.password))
-      throw new ApplicationError({ status: 400, message: 'Enter both username and password.' });
-
-    if (!username && !connections.has(user.player_id, 'zwift') && (input.upload || input.click))
-      throw new ApplicationError({ status: 400, message: 'Save credentials before enabling uploads or Click.' });
-
-    if (username) connections.save(user.player_id, 'zwift', [username, input.password]);
-    settings.save(user.player_id, {
-      ...settings.read(user.player_id),
-      'uploads.zwift.enabled': input.upload,
-      'devices.zwiftClick.enabled': input.click,
+      return c.json({
+        connected: connections.has(user.player_id, 'zwift'),
+        upload: resolved.uploads.zwift.enabled,
+        click: resolved.devices.zwiftClick.enabled,
+      });
     });
 
-    return connection(c);
-  });
-  app.delete('/api/me/zwift', (c) => {
+  const appRoutes = effectRoutes(app, runtime);
+  appRoutes.get('/api/me/zwift', connection);
+  appRoutes.put('/api/me/zwift', (c) =>
+    Effect.gen(function* () {
+      const settingsService = yield* SettingsService;
+
+      const input = Schema.decodeUnknownSync(
+        Strict({
+          username: Schema.String.check(Schema.isMaxLength(500)),
+          password: Schema.String.check(Schema.isMaxLength(1000)),
+          upload: Schema.Boolean,
+          click: Schema.Boolean,
+        }),
+      )(yield* Effect.promise(() => c.req.json()));
+
+      const { user } = context(c);
+      const username = input.username.trim();
+
+      if (Boolean(username) !== Boolean(input.password))
+        throw new ApplicationError({ status: 400, message: 'Enter both username and password.' });
+
+      if (!username && !connections.has(user.player_id, 'zwift') && (input.upload || input.click))
+        throw new ApplicationError({ status: 400, message: 'Save credentials before enabling uploads or Click.' });
+
+      if (username) connections.save(user.player_id, 'zwift', [username, input.password]);
+      yield* settingsService.save(user.player_id, {
+        ...(yield* settingsService.read(user.player_id)),
+        'uploads.zwift.enabled': input.upload,
+        'devices.zwiftClick.enabled': input.click,
+      });
+
+      return yield* connection(c);
+    }),
+  );
+  appRoutes.delete('/api/me/zwift', (c) => {
     const { user } = context(c);
     runtime.services.uploads.disconnect(user.player_id, 'zwift_credentials.bin');
 

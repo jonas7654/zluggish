@@ -1,3 +1,4 @@
+import { SettingsService } from '#src/services/settings.service';
 // Repeatable persistence and riding-latency load test. Run with `pnpm test:load`.
 // It drives the riding path in process, finishes a group of riders at once while
 // others keep riding, and can add a slow disk, large media and a slow provider.
@@ -186,7 +187,7 @@ const fleet: LoadRider[] = [];
 for (let index = 0; index < riders; index++) {
   const rider = await accounts.create(`Load Rider ${index}`, '');
   const id = BigInt(rider.player_id);
-  runtime.services.settings.save(rider.player_id, { 'ghosts.enabled': true });
+  runtime.effects.runSync(SettingsService.use((service) => service.save(rider.player_id, { 'ghosts.enabled': true })));
   runtime.services.connections.save(rider.player_id, 'intervals', ['1', 'key']);
 
   for (let file = 0; file < ghostFiles; file++) {

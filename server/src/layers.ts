@@ -1,10 +1,26 @@
 import { RuntimeContext } from '#src/context';
 import type { RepositoryContext } from '#src/context';
 import { RecordsService } from '#src/services/records.service';
+import { SettingsService } from '#src/services/settings.service';
+import { GoalService } from '#src/services/goals.service';
+import { MetricsService } from '#src/services/metrics.service';
+import { RecordDataService } from '#src/services/record-data.service';
+import { SocialService } from '#src/services/social.service';
+import { FitnessService } from '#src/services/fitness.service';
+import { StorageService } from '#src/services/storage.service';
 import { Layer, ManagedRuntime } from 'effect';
 
 /** Every application service, built from the runtime context. */
-export const servicesLayer = Layer.mergeAll(RecordsService.layer);
+export const servicesLayer = Layer.mergeAll(
+  StorageService.layer,
+  FitnessService.layer,
+  SocialService.layer,
+  RecordDataService.layer,
+  MetricsService.layer,
+  GoalService.layer,
+  SettingsService.layer,
+  RecordsService.layer,
+);
 
 export type AppServices = Layer.Success<typeof servicesLayer> | RuntimeContext;
 
