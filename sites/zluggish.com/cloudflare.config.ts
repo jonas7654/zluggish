@@ -6,6 +6,23 @@ export default defineConfig({
     compatibilityDate: '2026-11-18',
     workersDev: false,
     domains: ['zluggish.com'],
+    observability: {
+      enabled: true,
+      headSamplingRate: 1,
+      logs: {
+        enabled: true,
+        invocationLogs: true,
+        headSamplingRate: 1,
+        persist: true,
+      },
+      traces: {
+        enabled: true,
+        headSamplingRate: 1,
+      },
+      issues: {
+        enabled: true,
+      },
+    },
     assets: {
       htmlHandling: 'auto-trailing-slash',
       notFoundHandling: '404-page',
