@@ -17,7 +17,7 @@ import { clone, fromBinary, toBinary } from '@bufbuild/protobuf';
 import { readFileSync } from 'node:fs';
 import { appendFile, rename, stat } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
-import { Schema } from 'effect';
+import { Effect, Fiber, Schedule, Schema } from 'effect';
 import { botCommand } from '#src/dtos/management.dto';
 
 const isBikeAction = Schema.is(Schema.Enum(UserBikeAction));
@@ -68,7 +68,8 @@ export class Simulation {
 
   readonly rng = new Random();
 
-  timer: NodeJS.Timeout | null = null;
+  /** The tick loop while it runs. */
+  private ticker: Fiber.Fiber<unknown> | null = null;
 
   lastPacer = 0;
 
@@ -129,23 +130,43 @@ export class Simulation {
     await this.recording.queue;
   }
 
-  start() {
-    if (this.timer) return;
-    this.closed = false;
+  /** One tick. A failed tick is logged and skipped: the world keeps moving and the server keeps running. */
+  private readonly tickOnce = Effect.sync(() => this.tick()).pipe(
+    Effect.catchDefect((error) =>
+      Effect.sync(() => {
+        this.runtime.world.lifecycle.log.error('simulation.tick_failed', 'Simulation tick failed', {
+          error: error instanceof Error ? error : String(error),
+        });
+      }),
+    ),
+  );
+
+  /** Tick every 500 ms on a fixed cadence, starting 500 ms from now, and record how late each tick runs. */
+  private loop() {
     let expected = performance.now() + 500;
-    this.timer = setInterval(() => {
+
+    const measured = Effect.sync(() => {
       const now = performance.now();
       metrics.record(Metric.SimulationTickDelay, Math.max(0, now - expected));
       expected = now + 500;
-      this.tick();
-    }, 500);
+    }).pipe(Effect.andThen(this.tickOnce));
+
+    return Effect.sleep(500).pipe(Effect.andThen(Effect.repeat(measured, Schedule.fixed(500))));
+  }
+
+  start() {
+    if (this.ticker) return;
+    this.closed = false;
+    this.ticker = Effect.runFork(this.loop());
   }
 
   /** Stop ticking, then wait for background loads and writes to finish. */
-  close() {
-    if (this.timer) clearInterval(this.timer);
-    this.timer = null;
+  async close() {
+    const ticker = this.ticker;
+    this.ticker = null;
     this.closed = true;
+
+    if (ticker) await Effect.runPromise(Fiber.interrupt(ticker));
 
     return this.idle();
   }
