@@ -355,7 +355,7 @@ const make = Effect.gen(function* () {
     if (!credentials) return 'Intervals.icu credentials are missing.';
     const [athlete, key] = credentials;
 
-    if (!/^\d+$/.test(athlete)) throw new Error('Invalid athlete ID');
+    if (!/^i?\d+$/.test(athlete)) throw new Error('Invalid athlete ID');
 
     const headers = {
       Authorization: `Basic ${Buffer.from(`API_KEY:${key}`).toString('base64')}`,

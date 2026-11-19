@@ -130,7 +130,7 @@ function stubFetch(t: TestContext) {
 await test('Intervals.icu upload pairs the planned workout and removes only that workout', async (t) => {
   const f = runtimeFixture(t);
   const user = await f.accounts.create('Interval Rider', 'test-password');
-  f.accounts.repositories.connectionsRepository.save(user.player_id, 'intervals', ['42', 'key']);
+  f.accounts.repositories.connectionsRepository.save(user.player_id, 'intervals', ['i42', 'key']);
   const folder = f.profiles.folder(user.player_id);
   const cached = resolve(f.config.storageDir, 'tp-workouts/intervalsicu');
   mkdirSync(cached, { recursive: true });
@@ -168,7 +168,7 @@ await test('Intervals.icu upload pairs the planned workout and removes only that
 
   const upload = calls.find((call) => call.url.includes('intervals.icu'));
   assert.ok(upload);
-  assert.match(upload.url, /athlete\/42\/activities\?name=Tempo&paired_event_id=5$/);
+  assert.match(upload.url, /athlete\/i42\/activities\?name=Tempo&paired_event_id=5$/);
   assert.equal(upload.headers.get('Authorization'), `Basic ${Buffer.from('API_KEY:key').toString('base64')}`);
 
   const remaining = Schema.decodeUnknownSync(

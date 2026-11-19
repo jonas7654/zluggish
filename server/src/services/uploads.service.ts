@@ -433,7 +433,7 @@ const make = Effect.gen(function* () {
     if (!credentials) throw new DeliveryRefusedError({ code: 'intervals_unauthorized' });
     const [athlete, key] = credentials;
 
-    if (!/^\d+$/.test(athlete)) throw new DeliveryRefusedError({ code: 'intervals_invalid_athlete' });
+    if (!/^i?\d+$/.test(athlete)) throw new DeliveryRefusedError({ code: 'intervals_invalid_athlete' });
     const workouts = workoutsService;
     const paired = pairedEvent(activity, Effect.runSync(workouts.stored(player)));
     const query = new URLSearchParams({ name: activity.name });

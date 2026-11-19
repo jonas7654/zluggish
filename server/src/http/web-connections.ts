@@ -105,7 +105,7 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
       const input = Schema.decodeUnknownSync(credentials)(yield* Effect.promise(() => c.req.json()));
 
       if (name === 'intervals')
-        Schema.decodeUnknownSync(Schema.String.check(Schema.isPattern(/^\d+$/)))(input.username);
+        Schema.decodeUnknownSync(Schema.String.check(Schema.isPattern(/^i?\d+$/)))(input.username);
       const secret = input.secret || (yield* connectionsService.inspect(player, name)).credentials?.[1];
 
       if (!secret) throw new ApplicationError({ status: 400, message: 'Enter a secret.' });
