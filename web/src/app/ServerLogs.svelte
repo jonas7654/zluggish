@@ -1,0 +1,79 @@
+<script lang="ts">
+  let { load }: { load: () => Promise<{ entries: string[] }> } = $props();
+
+  let open = $state(false);
+  let loading = $state(false);
+  let error = $state('');
+  let entries = $state<string[]>([]);
+
+  async function refresh() {
+    loading = true;
+    error = '';
+
+    try {
+      entries = (await load()).entries;
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : 'Could not load server logs.';
+    } finally {
+      loading = false;
+    }
+  }
+
+  function toggle() {
+    open = !open;
+
+    if (open && !loading) void refresh();
+  }
+</script>
+
+<div class="actions">
+  <button type="button" aria-expanded={open} aria-controls="server-log-output" onclick={toggle}>
+    {open ? 'Hide logs' : 'View logs'}
+  </button>
+  {#if open}
+    <button type="button" disabled={loading} onclick={refresh}>Refresh logs</button>
+  {/if}
+</div>
+<div id="server-log-output" hidden={!open}>
+  {#if open}
+    <p>Recent entries from this server process, newest first.</p>
+    {#if loading}<p role="status">Loading logs…</p>{/if}
+    {#if error}<p role="alert">{error}</p>{/if}
+    {#if entries.length}
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex (the scroll region needs keyboard focus) -->
+      <div class="output" role="region" tabindex="0" aria-label="Server log entries">
+        <pre>{entries.join('\n')}</pre>
+      </div>
+    {:else if !loading && !error}
+      <p>No server logs yet.</p>
+    {/if}
+  {/if}
+</div>
+
+<style>
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  p {
+    color: var(--muted);
+  }
+  p[role='alert'] {
+    color: var(--alarm);
+  }
+  .output {
+    max-height: 28rem;
+    overflow: auto;
+    padding: 0.75rem;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--well);
+  }
+  pre {
+    margin: 0;
+    font-size: 0.8125rem;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+</style>
