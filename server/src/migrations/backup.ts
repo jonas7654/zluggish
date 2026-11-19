@@ -106,6 +106,7 @@ async function copyTree(
   target: string,
   root: string,
   checksums: Record<string, string>,
+  durable: boolean,
   signal?: AbortSignal,
 ) {
   for (const entry of await readdir(source, { withFileTypes: true })) {
@@ -120,13 +121,14 @@ async function copyTree(
 
     if (entry.isDirectory()) {
       await mkdir(to);
-      await copyTree(from, to, root, checksums, signal);
-      await flush(to, true);
+      await copyTree(from, to, root, checksums, durable, signal);
+
+      if (durable) await flush(to, true);
     } else if (entry.isFile()) {
       if (top && legacyDatabases.includes(entry.name)) await snapshotDatabase(from, to, signal);
       else await copyFile(from, to);
 
-      await flush(to);
+      if (durable) await flush(to);
       checksums[relative(root, from)] = await crypto.sha256FileAsync(to);
     }
   }
@@ -140,7 +142,22 @@ function requireOutsideStorage(storage: string, output: string) {
 }
 
 /** Copy a live SQLite database and the storage files into the CLI restore format. */
-export async function backupStorage(storage: string, output: string, config: string | null, signal?: AbortSignal) {
+export function backupStorage(storage: string, output: string, config: string | null) {
+  return writeSnapshot(storage, output, config, true);
+}
+
+/** A private archive input is disposable. The final archive supplies the durability boundary. */
+export function stageBackup(storage: string, output: string, config: string | null, signal?: AbortSignal) {
+  return writeSnapshot(storage, output, config, false, signal);
+}
+
+async function writeSnapshot(
+  storage: string,
+  output: string,
+  config: string | null,
+  durable: boolean,
+  signal?: AbortSignal,
+) {
   storage = resolve(storage);
   output = resolve(output);
   requireOutsideStorage(storage, output);
@@ -154,10 +171,11 @@ export async function backupStorage(storage: string, output: string, config: str
   const checksums: Record<string, string> = Object.create(null);
   const database = resolve(output, StorageFile.Database);
   const schemaVersion = await snapshotDatabase(resolve(storage, StorageFile.Database), database, signal, true);
-  await flush(database);
+
+  if (durable) await flush(database);
   checksums[StorageFile.Database] = await crypto.sha256FileAsync(database);
 
-  await copyTree(storage, output, storage, checksums, signal);
+  await copyTree(storage, output, storage, checksums, durable, signal);
 
   const configName = config && existsSync(config) ? basename(config) : null;
 
@@ -165,8 +183,12 @@ export async function backupStorage(storage: string, output: string, config: str
     const target = resolve(output, CONFIG, configName);
     await mkdir(dirname(target), { recursive: true });
     await copyFile(config, target);
-    await flush(target);
-    await flush(dirname(target), true);
+
+    if (durable) {
+      await flush(target);
+      await flush(dirname(target), true);
+    }
+
     checksums[`${CONFIG}/${configName}`] = await crypto.sha256FileAsync(target);
   }
 
@@ -177,8 +199,11 @@ export async function backupStorage(storage: string, output: string, config: str
     `${JSON.stringify({ version: 2, created: new Date().toISOString(), schemaVersion, config: configName, checksums }, null, 2)}\n`,
     { mode: 0o600 },
   );
-  await flush(manifest);
-  await flush(output, true);
+
+  if (durable) {
+    await flush(manifest);
+    await flush(output, true);
+  }
 
   return Object.keys(checksums).length;
 }
@@ -244,7 +269,7 @@ export async function backupStorageArchive(storage: string, output: string, conf
 
   try {
     const snapshot = resolve(stage, 'snapshot');
-    const files = await backupStorage(storage, snapshot, config);
+    const files = await stageBackup(storage, snapshot, config);
     await rename(await prepareArchive(snapshot, stage), output);
     await flush(directory, true);
 
