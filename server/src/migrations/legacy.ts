@@ -1,3 +1,4 @@
+import { archiveSuffix, readArchivedFile } from '#src/migrations/backup-archive';
 import { Schema } from 'effect';
 import { ConfigError } from '#src/config/index';
 import { RiderDocumentName } from '#src/enum';
@@ -25,13 +26,14 @@ export function legacyPlan(storage: string): LegacyPlan {
 
   if (manifest?.state !== 'published') throw new ConfigError('No published storage migration; nothing to clean');
 
-  const backupPath = resolve(manifest.backup, 'backup-manifest.json');
+  const archived = manifest.backup.endsWith(archiveSuffix);
+  const backupPath = archived ? manifest.backup : resolve(manifest.backup, 'backup-manifest.json');
 
   if (!existsSync(backupPath))
     throw new ConfigError(`The migration backup ${manifest.backup} is missing; keep the legacy files`);
 
   const backup = Schema.decodeUnknownSync(Schema.Struct({ checksums: Schema.Record(Schema.String, Schema.String) }))(
-    JSON.parse(readFileSync(backupPath, 'utf8')),
+    JSON.parse(archived ? readArchivedFile(backupPath, 'backup-manifest.json') : readFileSync(backupPath, 'utf8')),
   ).checksums;
 
   const plan: LegacyPlan = { removable: [], kept: [] };

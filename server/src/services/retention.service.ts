@@ -1,3 +1,4 @@
+import { backupDirectory } from '#src/migrations/backup-paths';
 import type { ResolvedConfig } from '#src/config/index';
 import { immediate } from '#src/db/transaction';
 import { RiderDocumentName } from '#src/enum';
@@ -103,20 +104,24 @@ function cleanup({ repositories, retention, storage }: RetentionScope) {
         files.push({ path, bytes: info.bytes, reason: 'temporary file' });
     }
 
-    const entries = await repositories.filesRepository.entriesAsync(resolve(storage, 'backups'));
+    for (const directory of [backupDirectory(storage), resolve(storage, 'backups')]) {
+      const entries = await repositories.filesRepository.entriesAsync(directory);
 
-    const backups = entries
-      .filter((entry) => entry.isDirectory() && entry.name.startsWith('storage-v'))
-      .map((entry) => entry.name)
-      .toSorted()
-      .toReversed();
+      const backups = entries
+        .filter(
+          (entry) =>
+            (entry.isDirectory() || (entry.isFile() && entry.name.endsWith('.tar.gz'))) &&
+            entry.name.startsWith('storage-v'),
+        )
+        .map((entry) => entry.name)
+        .toSorted()
+        .toReversed();
 
-    for (const name of backups.slice(retention.migrationBackups))
-      files.push({
-        path: resolve(storage, 'backups', name),
-        bytes: await size(resolve(storage, 'backups', name)),
-        reason: 'old migration backup',
-      });
+      for (const name of backups.slice(retention.migrationBackups)) {
+        const path = resolve(directory, name);
+        files.push({ path, bytes: await size(path), reason: 'old migration backup' });
+      }
+    }
 
     return {
       jobs: repositories.jobsRepository.prunable(now - retention.finishedJobsDays * day),
@@ -181,7 +186,7 @@ function cleanup({ repositories, retention, storage }: RetentionScope) {
       fitExports: 0,
       charts: 0,
       ghosts: 0,
-      backups: 0,
+      backups: await size(backupDirectory(storage)),
       legacy: 0,
       other: 0,
     };

@@ -238,6 +238,7 @@ export const JobType = {
   Delivery: 'delivery',
   ArtifactCleanup: 'artifact_cleanup',
   Retention: 'retention',
+  StorageBackup: 'storage_backup',
   CompletionDeliveries: 'completion_deliveries',
 } as const;
 

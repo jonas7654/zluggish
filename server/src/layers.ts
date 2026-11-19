@@ -24,6 +24,7 @@ import { WorkoutsService } from '#src/services/workout.service';
 import { JobsService } from '#src/services/jobs.service';
 import { ImportsService } from '#src/services/profile-import.service';
 import { DurabilityService } from '#src/services/durability.service';
+import { BackupService } from '#src/services/backup.service';
 import { RetentionService } from '#src/services/retention.service';
 import { UploadsService } from '#src/services/uploads.service';
 import { ActivitiesService } from '#src/services/activities.service';
@@ -67,6 +68,7 @@ const featuresLayer = Layer.mergeAll(
   RideRecoveryService.layer,
   RideCompletionService.layer,
   RetentionService.layer,
+  BackupService.layer,
   ConnectionsService.layer,
   IntegrationsService.layer,
   EventsService.layer,
@@ -103,6 +105,7 @@ export type AppServices =
   | ImportsService
   | DurabilityService
   | RetentionService
+  | BackupService
   | StreakService
   | FitService
   | AchievementService

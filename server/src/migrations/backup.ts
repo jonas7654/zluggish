@@ -1,3 +1,12 @@
+import { archiveSuffix, compressBackup, withBackupDirectory } from '#src/migrations/backup-archive';
+import {
+  backupDirectory,
+  backupManifest,
+  backupPath,
+  excludedStorageEntry,
+  isNightlyBackup,
+  legacyDatabases,
+} from '#src/migrations/backup-paths';
 import { ConfigError } from '#src/config/index';
 import { configureConnection, SCHEMA_VERSION } from '#src/db/open';
 import { StorageFile } from '#src/migrations/storage';
@@ -10,18 +19,18 @@ import {
   fsyncSync,
   mkdirSync,
   openSync,
-  readdirSync,
   readFileSync,
   renameSync,
   rmSync,
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { basename, dirname, relative, resolve } from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
+import { chmod, copyFile, mkdir, mkdtemp, open, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
+import { backup, DatabaseSync } from 'node:sqlite';
 import { Schema } from 'effect';
 
-const MANIFEST = 'backup-manifest.json';
+const crypto = new CryptoRepository();
 const CONFIG = 'config';
 const RESTORING = 'zluggish.db.restoring';
 
@@ -32,8 +41,6 @@ const manifestSchema = Schema.Struct({
   config: Schema.NullOr(Schema.String),
   checksums: Schema.Record(Schema.String, Schema.String),
 });
-
-const crypto = new CryptoRepository();
 
 function sync(path: string, flags = 'r+') {
   if (process.platform === 'win32' && flags === 'r') return;
@@ -54,111 +61,229 @@ function writeDurable(path: string, data: string) {
   sync(dirname(path), 'r');
 }
 
-/** Storage entries that a backup holds as files. The database is copied with VACUUM INTO;
-WAL sidecars, locks, migration state and older backups are never copied.
-*/
-function included(name: string) {
-  return ![
-    StorageFile.Database,
-    `${StorageFile.Database}-wal`,
-    `${StorageFile.Database}-shm`,
-    StorageFile.Temporary,
-    StorageFile.RestoreMarker,
-    StorageFile.Manifest,
-    RESTORING,
-    '.server.lock',
-    'backups',
-  ].includes(name);
-}
-
-function copyTree(source: string, target: string, root: string, checksums: Record<string, string>) {
-  mkdirSync(target, { recursive: true });
-
-  for (const entry of readdirSync(source, { withFileTypes: true })) {
-    const from = resolve(source, entry.name);
-    const to = resolve(target, entry.name);
-
-    if (entry.isDirectory()) copyTree(from, to, root, checksums);
-    else if (entry.isFile()) {
-      copyFileSync(from, to);
-      sync(to);
-      checksums[relative(root, to)] = crypto.sha256(readFileSync(to));
-    }
-  }
-
-  sync(target, 'r');
-}
-
-/** Offline backup: the caller holds the storage lock. The database is a consistent
-snapshot; media, FIT exports, configuration and encryption keys are copied beside it.
-*/
-export function backupStorage(storage: string, output: string, config: string | null) {
-  if (existsSync(output) && readdirSync(output).length > 0) throw new ConfigError('The backup directory is not empty');
-  mkdirSync(output, { recursive: true });
-  const checksums: Record<string, string> = {};
-  const db = new DatabaseSync(resolve(storage, StorageFile.Database), { readOnly: true });
-  let schemaVersion: number;
+async function flush(path: string, directory = false) {
+  if (process.platform === 'win32' && directory) return;
+  const file = await open(path, process.platform === 'win32' ? 'r+' : 'r');
 
   try {
-    schemaVersion = Schema.decodeUnknownSync(Schema.Finite)(db.prepare('SELECT version FROM version').get()?.version);
+    await file.sync();
+  } finally {
+    await file.close();
+  }
+}
 
-    if (schemaVersion !== SCHEMA_VERSION) throw new ConfigError('Start the server once to upgrade storage first');
-    db.prepare('VACUUM INTO ?').run(resolve(output, StorageFile.Database));
+async function snapshotDatabase(source: string, target: string, signal?: AbortSignal, current = false) {
+  const db = new DatabaseSync(source, { readOnly: true, timeout: 5000 });
+
+  try {
+    if (current) db.exec('BEGIN');
+
+    const version = current
+      ? Schema.decodeUnknownSync(Schema.Finite)(db.prepare('SELECT version FROM version').get()?.version)
+      : null;
+
+    if (current && version !== SCHEMA_VERSION) throw new ConfigError('Start the server once to upgrade storage first');
+
+    signal?.throwIfAborted();
+    await backup(db, target, { progress: () => signal?.throwIfAborted() });
+    const destination = new DatabaseSync(target);
+
+    try {
+      destination.exec('PRAGMA journal_mode=DELETE');
+    } finally {
+      destination.close();
+    }
+
+    return version;
   } finally {
     db.close();
   }
+}
 
-  sync(resolve(output, StorageFile.Database));
-  checksums[StorageFile.Database] = crypto.sha256(readFileSync(resolve(output, StorageFile.Database)));
+async function copyTree(
+  source: string,
+  target: string,
+  root: string,
+  checksums: Record<string, string>,
+  signal?: AbortSignal,
+) {
+  for (const entry of await readdir(source, { withFileTypes: true })) {
+    signal?.throwIfAborted();
+    const top = source === root;
 
-  for (const entry of readdirSync(storage, { withFileTypes: true })) {
-    if (!included(entry.name)) continue;
-    const from = resolve(storage, entry.name);
-    const to = resolve(output, entry.name);
+    if (/\.[a-f0-9-]{36}\.tmp$/.test(entry.name)) continue;
 
-    if (entry.isDirectory()) copyTree(from, to, output, checksums);
-    else if (entry.isFile()) {
-      copyFileSync(from, to);
-      sync(to);
-      checksums[entry.name] = crypto.sha256(readFileSync(to));
+    if (top && (excludedStorageEntry(entry.name) || entry.name === StorageFile.Database)) continue;
+    const from = resolve(source, entry.name);
+    const to = resolve(target, entry.name);
+
+    if (entry.isDirectory()) {
+      await mkdir(to);
+      await copyTree(from, to, root, checksums, signal);
+      await flush(to, true);
+    } else if (entry.isFile()) {
+      if (top && legacyDatabases.includes(entry.name)) await snapshotDatabase(from, to, signal);
+      else await copyFile(from, to);
+
+      await flush(to);
+      checksums[relative(root, from)] = await crypto.sha256FileAsync(to);
     }
   }
+}
 
-  if (config && existsSync(config)) {
-    mkdirSync(resolve(output, CONFIG));
-    copyFileSync(config, resolve(output, CONFIG, basename(config)));
-    sync(resolve(output, CONFIG, basename(config)));
-    checksums[`${CONFIG}/${basename(config)}`] = crypto.sha256(readFileSync(config));
+function requireOutsideStorage(storage: string, output: string) {
+  const location = relative(storage, output);
+
+  if (!isAbsolute(location) && location !== '..' && !location.startsWith(`..${sep}`))
+    throw new ConfigError('Choose a backup directory outside storage');
+}
+
+/** Copy a live SQLite database and the storage files into the CLI restore format. */
+export async function backupStorage(storage: string, output: string, config: string | null, signal?: AbortSignal) {
+  storage = resolve(storage);
+  output = resolve(output);
+  requireOutsideStorage(storage, output);
+
+  await mkdir(output, { recursive: true, mode: 0o700 });
+
+  const entries = await readdir(output);
+
+  if (entries.length > 0) throw new ConfigError('The backup directory is not empty');
+
+  const checksums: Record<string, string> = Object.create(null);
+  const database = resolve(output, StorageFile.Database);
+  const schemaVersion = await snapshotDatabase(resolve(storage, StorageFile.Database), database, signal, true);
+  await flush(database);
+  checksums[StorageFile.Database] = await crypto.sha256FileAsync(database);
+
+  await copyTree(storage, output, storage, checksums, signal);
+
+  const configName = config && existsSync(config) ? basename(config) : null;
+
+  if (config && configName) {
+    const target = resolve(output, CONFIG, configName);
+    await mkdir(dirname(target), { recursive: true });
+    await copyFile(config, target);
+    await flush(target);
+    await flush(dirname(target), true);
+    checksums[`${CONFIG}/${configName}`] = await crypto.sha256FileAsync(target);
   }
 
-  writeDurable(
-    resolve(output, MANIFEST),
-    `${JSON.stringify(
-      {
-        version: 2,
-        created: new Date().toISOString(),
-        schemaVersion,
-        config: config ? basename(config) : null,
-        checksums,
-      },
-      null,
-      2,
-    )}\n`,
+  signal?.throwIfAborted();
+  const manifest = resolve(output, backupManifest);
+  await writeFile(
+    manifest,
+    `${JSON.stringify({ version: 2, created: new Date().toISOString(), schemaVersion, config: configName, checksums }, null, 2)}\n`,
+    { mode: 0o600 },
   );
+  await flush(manifest);
+  await flush(output, true);
 
   return Object.keys(checksums).length;
 }
 
+/** Publish only complete backups. A retried job reuses the published snapshot. */
+export async function publishBackup(storage: string, config: string | null, name: string, signal: AbortSignal) {
+  const directory = backupDirectory(storage);
+  const target = backupPath(directory, name);
+  const archive = target + archiveSuffix;
+
+  const created = await mkdir(directory, { recursive: true, mode: 0o700 });
+
+  if (!existsSync(archive) && !existsSync(resolve(target, backupManifest))) {
+    const stage = resolve(directory, `.${name}.tmp`);
+    await rm(stage, { recursive: true, force: true });
+
+    try {
+      await writeBackupArchive(storage, archive, stage, config, signal);
+    } finally {
+      await rm(stage, { recursive: true, force: true });
+    }
+  }
+
+  await flush(directory, true);
+
+  if (created) await flush(dirname(directory), true);
+}
+
+/** The private staging directory stays on the same filesystem as the final archive. */
+async function writeBackupArchive(
+  storage: string,
+  output: string,
+  stage: string,
+  config: string | null,
+  signal?: AbortSignal,
+) {
+  const snapshot = resolve(stage, 'snapshot');
+  const temporary = resolve(stage, 'backup.tar.gz');
+  const files = await backupStorage(storage, snapshot, config, signal);
+  await compressBackup(snapshot, temporary, signal);
+  await chmod(temporary, 0o600);
+  await flush(temporary);
+  signal?.throwIfAborted();
+  await rename(temporary, output);
+
+  return files;
+}
+
+/** Create an archive for the offline CLI, without overwriting an existing backup. */
+export async function backupStorageArchive(storage: string, output: string, config: string | null) {
+  requireOutsideStorage(storage, output);
+  const directory = dirname(output);
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+
+  if (existsSync(output)) throw new ConfigError('The backup already exists');
+  const stage = await mkdtemp(resolve(directory, '.backup-'));
+
+  try {
+    const files = await writeBackupArchive(storage, output, stage, config);
+    await flush(directory, true);
+
+    return files;
+  } finally {
+    await rm(stage, { recursive: true, force: true });
+  }
+}
+
+/** Retain the 10 newest completed nights. */
+export async function pruneNightlyBackups(storage: string) {
+  const directory = backupDirectory(storage);
+  const entries = await readdir(directory, { withFileTypes: true });
+
+  const nightly = entries
+    .filter((entry) =>
+      entry.isFile()
+        ? entry.name.endsWith(archiveSuffix) && isNightlyBackup(entry.name.slice(0, -archiveSuffix.length))
+        : entry.isDirectory() &&
+          isNightlyBackup(entry.name) &&
+          existsSync(resolve(directory, entry.name, backupManifest)),
+    )
+    .map((entry) => entry.name)
+    .toSorted()
+    .toReversed();
+
+  for (const name of nightly.slice(10)) await rm(resolve(directory, name), { recursive: true, force: true });
+
+  await flush(directory, true);
+}
+
 function validateBackup(input: string) {
-  const path = resolve(input, MANIFEST);
+  const path = resolve(input, backupManifest);
 
   if (!existsSync(path)) throw new ConfigError('The backup has no manifest');
   const manifest = Schema.decodeUnknownSync(manifestSchema)(JSON.parse(readFileSync(path, 'utf8')));
 
+  if (manifest.config && (basename(manifest.config) !== manifest.config || manifest.config === '..'))
+    throw new ConfigError('The backup manifest contains an invalid config filename');
+
   for (const [name, checksum] of Object.entries(manifest.checksums)) {
     const file = resolve(input, name);
+    const location = relative(input, file);
 
-    if (!existsSync(file) || crypto.sha256(readFileSync(file)) !== checksum)
+    if (isAbsolute(location) || location === '' || location === '..' || location.startsWith(`..${sep}`))
+      throw new ConfigError('The backup manifest contains a path outside the backup');
+
+    if (!existsSync(file) || crypto.sha256File(file) !== checksum)
       throw new ConfigError(`The backup file ${name} is missing or changed`);
   }
 
@@ -219,7 +344,17 @@ export function restoreStorage(
   config: string | null,
   reached: (step: 'marked' | 'prepared' | 'published' | 'copied') => void = () => {},
 ) {
-  const manifest = validateBackup(input);
+  withBackupDirectory(input, (directory) => restoreDirectory(storage, directory, config, reached, input));
+}
+
+function restoreDirectory(
+  storage: string,
+  directory: string,
+  config: string | null,
+  reached: (step: 'marked' | 'prepared' | 'published' | 'copied') => void,
+  input: string,
+) {
+  const manifest = validateBackup(directory);
   mkdirSync(storage, { recursive: true });
   writeDurable(
     resolve(storage, StorageFile.RestoreMarker),
@@ -230,7 +365,7 @@ export function restoreStorage(
   const restoring = resolve(storage, RESTORING);
 
   for (const suffix of ['', '-wal', '-shm', '-journal']) rmSync(`${restoring}${suffix}`, { force: true });
-  copyFileSync(resolve(input, StorageFile.Database), restoring);
+  copyFileSync(resolve(directory, StorageFile.Database), restoring);
   const db = new DatabaseSync(restoring);
 
   try {
@@ -254,13 +389,13 @@ export function restoreStorage(
     if (name === StorageFile.Database || name.startsWith(`${CONFIG}/`)) continue;
     const target = resolve(storage, name);
     mkdirSync(dirname(target), { recursive: true });
-    copyFileSync(resolve(input, name), target);
+    copyFileSync(resolve(directory, name), target);
     sync(target);
     reached('copied');
   }
 
   if (config && manifest.config) {
-    copyFileSync(resolve(input, CONFIG, manifest.config), config);
+    copyFileSync(resolve(directory, CONFIG, manifest.config), config);
     sync(config);
   }
 

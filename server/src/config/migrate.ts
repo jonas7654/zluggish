@@ -11,7 +11,8 @@ import { PositiveInt, strict, withDefault } from '#src/schema';
 import { parse as parseIni } from 'ini';
 import { existsSync, readFileSync, readdirSync, unlinkSync } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
-import { DatabaseSync, backup } from 'node:sqlite';
+import { DatabaseSync } from 'node:sqlite';
+import { backupLegacyStorage } from '#src/migrations/storage';
 import { Exit, Schema } from 'effect';
 
 const journalSchema = Schema.Struct({
@@ -319,19 +320,7 @@ export async function migrateConfig(options: MigrationOptions) {
     } else {
       const candidate = migrationCandidate(options);
       const id = new CryptoRepository().randomUUID();
-      const settingsPath = resolve(options.storage, 'settings.db');
-      let backupPath: string | null = null;
-
-      if (existsSync(settingsPath)) {
-        const db = new DatabaseSync(settingsPath, { readOnly: true });
-
-        try {
-          backupPath = `${settingsPath}.${id}.bak`;
-          await backup(db, backupPath);
-        } finally {
-          db.close();
-        }
-      }
+      const backupPath = backupLegacyStorage(options.storage, 'config-migration');
 
       journal = decodeJournal({
         version: 1,

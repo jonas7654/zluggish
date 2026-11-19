@@ -18,6 +18,7 @@ import { JobsService } from '#src/services/jobs.service';
 import { MatrixService } from '#src/services/matrix.service';
 import { MetricsService } from '#src/services/metrics.service';
 import { ImportsService } from '#src/services/profile-import.service';
+import { BackupService } from '#src/services/backup.service';
 import { RetentionService } from '#src/services/retention.service';
 import { RideCompletionService } from '#src/services/ride-completion.service';
 import { RideRecoveryService } from '#src/services/ride-recovery.service';
@@ -54,7 +55,11 @@ const optionalBridge = (world: World, name: string, start: Effect.Effect<Bridge>
 /** Acquire the server runtime into the current scope. Closing the scope releases everything in reverse
 order: background work stops before the final flush, and the storage lock goes last.
 */
-const acquireRuntime = Effect.fn('runtime.acquire')(function* (config: ResolvedConfig, assets: string) {
+const acquireRuntime = Effect.fn('runtime.acquire')(function* (
+  config: ResolvedConfig,
+  assets: string,
+  configPath?: string,
+) {
   const release = yield* Effect.promise(() => new LockRepository().acquireStorageLock(config.storageDir));
   yield* releasing(release);
 
@@ -70,6 +75,7 @@ const acquireRuntime = Effect.fn('runtime.acquire')(function* (config: ResolvedC
   const context: RepositoryContext = {
     config,
     assets,
+    configPath,
     accounts,
     sessions: SessionsService.open(accounts),
     profiles: accounts.repositories.profileRepository,
@@ -121,6 +127,7 @@ const acquireRuntime = Effect.fn('runtime.acquire')(function* (config: ResolvedC
   yield* recovery.start();
   yield* effects.runSync(UploadsService).start();
   yield* effects.runSync(RetentionService).schedule();
+  yield* effects.runSync(BackupService).schedule();
   yield* jobs.start();
   checkpoints.start();
 
@@ -146,11 +153,13 @@ const acquireRuntime = Effect.fn('runtime.acquire')(function* (config: ResolvedC
 /** Open the server runtime. Close releases it once, however often it is called; a failed open releases
 what it acquired before it rejects.
 */
-export async function openRuntime(config: ResolvedConfig, assets: string) {
+export async function openRuntime(config: ResolvedConfig, assets: string, configPath?: string) {
   const resources = new Resources();
 
   try {
-    const runtime = await Effect.runPromise(acquireRuntime(config, assets).pipe(Scope.provide(resources.scope)));
+    const runtime = await Effect.runPromise(
+      acquireRuntime(config, assets, configPath).pipe(Scope.provide(resources.scope)),
+    );
 
     return { runtime, close: () => resources.close() };
   } catch (error) {

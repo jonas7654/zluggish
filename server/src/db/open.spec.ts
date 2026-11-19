@@ -3,15 +3,17 @@ import { migrateAccounts } from '#src/migrations/accounts';
 import { SettingsStore } from '#src/repositories/settings.repository';
 import { legacyDatabase } from '#tests/support/legacy';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
 
 for (const upgrade of ['startup', 'accounts migrate'] as const) {
-  await test(`${upgrade} removes old account fields and preserves ghost preferences`, async (t) => {
-    const storage = mkdtempSync(resolve(tmpdir(), 'zluggish-account-upgrade-'));
-    t.after(() => rmSync(storage, { recursive: true, force: true }));
+  await test(`${upgrade} removes old account fields and preserves ghost preferences`, (t) => {
+    const root = mkdtempSync(resolve(tmpdir(), 'zluggish-account-upgrade-'));
+    const storage = resolve(root, 'storage');
+    mkdirSync(storage);
+    t.after(() => rmSync(root, { recursive: true, force: true }));
     const db = legacyDatabase(storage);
     db.exec(`ALTER TABLE user ADD COLUMN remember INTEGER DEFAULT 0;
       ALTER TABLE user ADD COLUMN enable_ghosts INTEGER DEFAULT 1;
@@ -23,7 +25,7 @@ for (const upgrade of ['startup', 'accounts migrate'] as const) {
     settings.save(2, { 'ghosts.enabled': false });
     settings.close();
 
-    if (upgrade === 'accounts migrate') await migrateAccounts(storage);
+    if (upgrade === 'accounts migrate') migrateAccounts(storage);
     const reopened = openDatabase(storage);
 
     const columns = new Set(

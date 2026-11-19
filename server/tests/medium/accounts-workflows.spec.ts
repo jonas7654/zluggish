@@ -393,15 +393,8 @@ await test('account migration publishes the renamed database and preserves rider
   const legacy = resolve(f.accounts.storage, 'zwift-offline.db');
   renameSync(current, legacy);
   assert.throws(() => AccountsService.open(f.accounts.storage), /upgrade required/);
-  // SQLite backup work needs a live event loop on newer Node releases.
-  const keepAlive = setInterval(() => {}, 1000);
-
-  try {
-    await migrateAccounts(f.accounts.storage);
-    await migrateAccounts(f.accounts.storage);
-  } finally {
-    clearInterval(keepAlive);
-  }
+  migrateAccounts(f.accounts.storage);
+  migrateAccounts(f.accounts.storage);
 
   assert.ok(existsSync(current));
   assert.ok(!existsSync(legacy));

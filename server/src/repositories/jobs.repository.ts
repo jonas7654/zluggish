@@ -1,4 +1,4 @@
-import { JobType } from '#src/enum';
+import { JobState, JobType } from '#src/enum';
 import { query, SqliteExecutor } from '#src/db/query';
 import { immediate } from '#src/db/transaction';
 import { JobError } from '#src/errors';
@@ -72,7 +72,7 @@ export class JobsRepository {
   }
 
   /** Skip an identical queued job, for work that more than one change can request. */
-  enqueueOnce(type: JobType, payload: JobPayload) {
+  enqueueOnce(type: JobType, payload: JobPayload, delayMs = 0) {
     const serialized = JSON.stringify(payload);
 
     const queued = this.executor.get(
@@ -84,7 +84,21 @@ export class JobsRepository {
         .where('state', 'in', ['queued', 'running']),
     );
 
-    return queued ? queued.id : this.enqueue(type, payload);
+    return queued ? queued.id : this.enqueue(type, payload, delayMs);
+  }
+
+  stateFor(type: JobType, payload: JobPayload): JobState | null {
+    const job = this.executor.get(
+      query
+        .selectFrom('job')
+        .select('state')
+        .where('type', '=', type)
+        .where('payload', '=', JSON.stringify(payload))
+        .orderBy('id', 'desc')
+        .limit(1),
+    );
+
+    return job ? Schema.decodeUnknownSync(Schema.Enum(JobState))(job.state) : null;
   }
 
   /** Job types with claimable work: one read, no write lock. */

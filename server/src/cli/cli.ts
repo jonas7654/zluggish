@@ -4,7 +4,8 @@ import type { LoadOptions } from '#src/config/load';
 import { loadConfig, packageRoot, selectConfigPath } from '#src/config/load';
 import { migrateConfig } from '#src/config/migrate';
 import { openDatabase } from '#src/db/open';
-import { backupStorage, pauseUploads, restoreStorage } from '#src/migrations/backup';
+import { archiveSuffix } from '#src/migrations/backup-archive';
+import { backupStorage, backupStorageArchive, pauseUploads, restoreStorage } from '#src/migrations/backup';
 import { legacyPlan, removeLegacy } from '#src/migrations/legacy';
 import { migrateAccounts } from '#src/migrations/accounts';
 import { SystemFlag } from '#src/repositories/system-flag.repository';
@@ -35,8 +36,8 @@ config init                                 Create a default typed config; never
 config validate                             Evaluate trusted config and validate its values
 config typecheck                            Typecheck the selected operator config
 settings set/reset                          Update SQLite overrides, never TypeScript source
-storage backup --output DIR                 Back up the stopped server's storage and config
-storage restore --input DIR                 Restore a backup while stopped; uploads stay paused
+storage backup --output PATH                 Back up the stopped server's storage and config
+storage restore --input PATH                 Restore a backup while stopped; uploads stay paused
 storage usage                               Show storage use by category
 storage cleanup [--dry-run]                 Apply retention rules, or preview them
 storage clean-legacy [--confirm]            Preview, or remove, legacy files the migration imported
@@ -113,7 +114,7 @@ export async function run(argv: string[], output: (message: string) => void = co
     try {
       if (action === 'migrate') {
         const selected = values['solo-player'];
-        await migrateAccounts(storage, selected === undefined ? undefined : decodeId(selected));
+        migrateAccounts(storage, selected === undefined ? undefined : decodeId(selected));
         output('Accounts migrated');
       } else if (action === 'recover') {
         const playerId = decodeId(values.user);
@@ -423,17 +424,19 @@ async function storageCommand(
   }
 
   if (action === 'backup') {
-    if (!values.output) throw new ConfigError('Choose a backup directory with --output DIR');
+    if (!values.output) throw new ConfigError('Choose a directory or .tar.gz file with --output PATH');
     // Opening the database applies pending migrations, so the backup has the current schema.
     openDatabase(storage).close();
-    const files = backupStorage(storage, resolve(values.output), config);
+    const path = resolve(values.output);
+    const createBackup = path.endsWith(archiveSuffix) ? backupStorageArchive : backupStorage;
+    const files = await createBackup(storage, path, config);
     output(`Backup complete: ${files} files`);
 
     return 0;
   }
 
   if (action === 'restore') {
-    if (!values.input) throw new ConfigError('Choose a backup directory with --input DIR');
+    if (!values.input) throw new ConfigError('Choose a directory or .tar.gz file with --input PATH');
     restoreStorage(storage, resolve(values.input), config);
     output('Restore complete. Uploads stay paused: review them with uploads list, then run uploads resume --confirm');
 

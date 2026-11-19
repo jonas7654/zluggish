@@ -10,7 +10,13 @@ import {
   storageSchemaSQL,
   webSessionSQL,
 } from '#src/db/ddl';
-import { migrateStorage, resolvePendingMigration, STORAGE_VERSION, StorageFile } from '#src/migrations/storage';
+import {
+  backupLegacyStorage,
+  migrateStorage,
+  resolvePendingMigration,
+  STORAGE_VERSION,
+  StorageFile,
+} from '#src/migrations/storage';
 import { existsSync, mkdirSync, readdirSync, renameSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -58,12 +64,15 @@ export function openDatabase(storage: string): DatabaseSync {
   const existingPath = existsSync(path) ? path : legacyPath;
   const fresh = !existsSync(existingPath);
 
+  let legacyVersion: number | undefined;
+
   if (!fresh) {
     const inspection = new DatabaseSync(existingPath, { readOnly: true });
 
     try {
       const row = inspection.prepare('SELECT version FROM version LIMIT 1').get();
       const version = isVersionRow(row) ? row.version : undefined;
+      legacyVersion = version;
 
       const columns = new Set(
         inspection
@@ -93,6 +102,8 @@ export function openDatabase(storage: string): DatabaseSync {
     throw new ConfigError('Legacy rider folders require accounts migrate; refusing to create new identities');
   }
 
+  if (legacyVersion === 4 || (!fresh && existingPath !== path)) backupLegacyStorage(storage, 'pre-migration');
+
   if (!fresh && existingPath !== path) {
     const source = new DatabaseSync(existingPath);
 
@@ -105,9 +116,15 @@ export function openDatabase(storage: string): DatabaseSync {
     renameSync(existingPath, path);
   }
 
-  mkdirSync(storage, { recursive: true });
   // A settings.db from an offline config migration is a legacy store: merge it.
   const legacySettings = existsSync(resolve(storage, StorageFile.Settings));
+
+  if (fresh && legacySettings) backupLegacyStorage(storage, 'pre-migration');
+
+  // Back up an existing v5 store before opening it for writes.
+  if (legacyVersion === 5) migrateStorage(storage);
+
+  mkdirSync(storage, { recursive: true });
   let db = new DatabaseSync(path, { timeout: 5000 });
 
   try {
@@ -133,14 +150,13 @@ export function openDatabase(storage: string): DatabaseSync {
       db.exec('DELETE FROM version; INSERT INTO version VALUES (5); COMMIT;');
     }
 
-    db.exec(completionSchemaSQL);
-
     if (version(db) === 5) {
       db.close();
       migrateStorage(storage);
       db = new DatabaseSync(path, { timeout: 5000 });
     }
 
+    db.exec(completionSchemaSQL);
     configureConnection(db);
 
     for (const migration of migrations) {

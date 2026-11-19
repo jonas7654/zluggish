@@ -9,6 +9,7 @@ import type { World } from '#src/world/state';
 export interface RepositoryContext {
   bridges?: import('#src/services/chat-bridge.service').Bridge[];
   config: ResolvedConfig;
+  configPath?: string | undefined;
   accounts: AccountsService['Service'];
   sessions: SessionsService['Service'];
   world: World;

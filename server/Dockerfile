@@ -27,10 +27,10 @@ COPY --from=build /usr/src/app/zluggish/web/src/game/render.d.ts ../web/src/game
 COPY assets ../assets
 COPY examples ../examples
 COPY examples/container/zluggish.config.ts ./zluggish.config.ts
-RUN chmod +x dist/src/cli/bin.js && ln -s /usr/src/app/zluggish/server/dist/src/cli/bin.js /usr/local/bin/zluggish
+RUN command -v tar && command -v gzip && chmod +x dist/src/cli/bin.js && ln -s /usr/src/app/zluggish/server/dist/src/cli/bin.js /usr/local/bin/zluggish
 ENV ZLUGGISH_CONTAINER_STORAGE_DIR=/usr/src/app/zluggish/storage
 EXPOSE 443 80 3024/udp 3025 53/udp 8080
-VOLUME /usr/src/app/zluggish/storage
+VOLUME ["/usr/src/app/zluggish/storage", "/usr/src/app/zluggish/backups"]
 CMD ["node", "dist/src/main.js"]
 
 FROM runtime AS server

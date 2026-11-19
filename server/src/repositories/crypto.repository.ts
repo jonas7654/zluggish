@@ -10,6 +10,7 @@ import {
   randomUUID,
   timingSafeEqual,
 } from 'node:crypto';
+import { closeSync, createReadStream, openSync, readSync } from 'node:fs';
 
 function packetAlgorithm(key: Uint8Array) {
   switch (key.length) {
@@ -125,6 +126,33 @@ export class CryptoRepository {
 
   sha256(data: Uint8Array | string) {
     return createHash('sha256').update(data).digest('hex');
+  }
+
+  sha256File(path: string) {
+    const hash = createHash('sha256');
+    const buffer = Buffer.alloc(64 * 1024);
+    const file = openSync(path, 'r');
+
+    try {
+      let bytes = readSync(file, buffer);
+
+      while (bytes > 0) {
+        hash.update(buffer.subarray(0, bytes));
+        bytes = readSync(file, buffer);
+      }
+
+      return hash.digest('hex');
+    } finally {
+      closeSync(file);
+    }
+  }
+
+  async sha256FileAsync(path: string) {
+    const hash = createHash('sha256');
+
+    for await (const chunk of createReadStream(path)) hash.update(chunk);
+
+    return hash.digest('hex');
   }
 
   sha1(data: Uint8Array | string) {
