@@ -11,7 +11,10 @@ This procedure makes Windows and Zwift trust the [server certificate](../certifi
 
 1. Install Zwift, if it is not installed.
 2. Sign in to the Zluggish web app and select **Install** in the menu.
-3. Select **Windows**. Check the IP address of the server, then select **Download setup script**.
+3. Select **Windows**. On the next page, check the IP address of the server, then select **Download setup script**.
+
+   ![The Install page: a Windows button marked This computer, and a Linux button](../../../media/screenshots/webapp-install.png)
+
 4. Open the downloaded `.bat` file. Allow it to make changes when Windows asks. If SmartScreen stops it, select **More info**, then **Run anyway**.
 5. Wait until the window says **Done**.
 
@@ -49,7 +52,7 @@ If Zluggish and Zwift run on the same computer, use `127.0.0.1` as the IP addres
 
 Until the administrator [moves away from the shared certificate](../certificate.md#move-away-from-the-shared-certificate), the **Install** page offers setup for the shared certificate, behind a warning.
 
-![The Install page on a server with the shared certificate: a warning, an I understand that this connection is not private checkbox and a Download unsafe setup script button](../../../media/screenshots/webapp-install-shared.png)
+![Windows setup on a server with the shared certificate: a warning with an I understand that this connection is not private checkbox above a Download unsafe setup script button](../../../media/screenshots/webapp-install-windows-shared.png)
 Select **I understand that this connection is not private** to download it. The script installs the certificate without its private key and prints the warning when it runs.
 
 When the server has its own certificate, run the new setup. It removes the shared certificate from the computer.

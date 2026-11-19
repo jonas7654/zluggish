@@ -3,17 +3,32 @@
   import Fingerprint from '../components/Fingerprint.svelte';
   import type { TlsStatus } from './tls';
 
-  let { api }: { api: <Body>(url: string) => Promise<Body> } = $props();
+  let {
+    api,
+    path,
+    navigate,
+  }: {
+    api: <Body>(url: string) => Promise<Body>;
+    /** `/install` chooses the system; `/install/windows` and `/install/linux` set it up. */
+    path: string;
+    navigate: (path: string) => Promise<void>;
+  } = $props();
 
   type Platform = 'windows' | 'linux';
 
+  const systems: { id: Platform; name: string; detail: string }[] = [
+    { id: 'windows', name: 'Windows', detail: 'Zwift installed from zwift.com' },
+    { id: 'linux', name: 'Linux', detail: 'Zwift in Wine, Lutris, Bottles or Steam' },
+  ];
+
+  /** The system this browser runs on, marked on its button. */
+  const here: Platform =
+    /Linux/.test(navigator.userAgent) && !/Android/.test(navigator.userAgent) ? 'linux' : 'windows';
+
+  const platform = $derived(systems.find((system) => path === `/install/${system.id}`) ?? null);
+
   let status = $state<TlsStatus | null>(null);
   let failure = $state('');
-
-  let platform = $state<Platform>(
-    /Linux/.test(navigator.userAgent) && !/Android/.test(navigator.userAgent) ? 'linux' : 'windows',
-  );
-
   let redirect = $state(true);
 
   /** On a server with the shared certificate, the rider confirms the risk before the download unlocks. */
@@ -36,7 +51,7 @@
   );
 
   const script = $derived(
-    `/api/tls/setup/${platform}?${new URLSearchParams({ address: redirect ? address.trim() : '' })}`,
+    `/api/tls/setup/${platform?.id ?? 'windows'}?${new URLSearchParams({ address: redirect ? address.trim() : '' })}`,
   );
 
   const legacy = $derived(status?.mode === 'legacy');
@@ -48,7 +63,7 @@
   onMount(async () => {
     try {
       status = await api<TlsStatus>('/api/tls');
-      // The address this browser reached the web app at is the best guess when the server only knows loopback.
+      // The advertised IP, unless it is loopback: then the address this browser reached the web app at.
       const host = location.hostname.replace(/^\[|\]$/g, '');
       address = loopback(status.serverAddress) && looksLikeIp(host) && !loopback(host) ? host : status.serverAddress;
     } catch (error) {
@@ -60,7 +75,12 @@
 {#if failure}<p class="notice failed" role="alert">{failure}</p>{/if}
 {#if status === null}
   {#if !failure}<p role="status">Loading…</p>{/if}
-{:else if status.mode === 'legacy'}
+{:else if status.mode === 'disabled'}
+  <section class="panel" aria-labelledby="install-plain">
+    <h2 id="install-plain">Nothing to install</h2>
+    <p>This server talks to Zwift without a certificate. Ask the server administrator how to connect.</p>
+  </section>
+{:else if legacy && !platform}
   <section class="panel unsafe" aria-labelledby="install-legacy">
     <h2 id="install-legacy">This server uses an unsafe certificate</h2>
     <p>
@@ -72,108 +92,133 @@
       shared certificate. After the switch, run the new setup from this page.
     </p>
   </section>
-{:else if status.mode === 'disabled'}
-  <section class="panel" aria-labelledby="install-plain">
-    <h2 id="install-plain">Nothing to install</h2>
-    <p>This server talks to Zwift without a certificate. Ask the server administrator how to connect.</p>
-  </section>
 {/if}
 
 {#if status && installable && status.certificate}
-  <section class="panel setup" aria-labelledby="install-title">
-    <h2 id="install-title">Set up a computer</h2>
-    <p class="lead">
-      Zwift only talks to a server it trusts. The setup script makes this computer trust this server's certificate and
-      sends Zwift here instead of to Zwift's own servers.
-    </p>
-
-    <div class="choice" role="radiogroup" aria-label="Operating system">
-      <label class:checked={platform === 'windows'}
-        ><input type="radio" bind:group={platform} value="windows" />
-        <span><strong>Windows</strong><small>Zwift installed from zwift.com</small></span></label
-      >
-      <label class:checked={platform === 'linux'}
-        ><input type="radio" bind:group={platform} value="linux" />
-        <span><strong>Linux</strong><small>Zwift in Wine, Lutris, Bottles or Steam</small></span></label
-      >
-    </div>
-
-    <label class="check"><input type="checkbox" bind:checked={redirect} /> Send Zwift to this server</label>
-    {#if redirect}
-      <label for="install-address">Server IP address</label>
-      <input
-        id="install-address"
-        bind:value={address}
-        inputmode="decimal"
-        autocomplete="off"
-        spellcheck="false"
-        maxlength={45}
-        aria-invalid={!!addressError}
-        aria-describedby="install-address-hint"
-      />
-      <p id="install-address-hint" class="hint" class:failed={!!addressError}>
-        {addressError || 'The script adds this address to the hosts file for the Zwift server names.'}
+  {#if !platform}
+    <section class="panel" aria-labelledby="install-title">
+      <h2 id="install-title">Set up a computer for Zwift</h2>
+      <p class="lead">
+        Zwift only talks to a server it trusts. A setup script makes the computer trust this server and sends Zwift here
+        instead of to Zwift's own servers. Which system is Zwift on?
       </p>
-    {:else}
-      <p class="hint">The script leaves the hosts file alone. Point Zwift at the server some other way, such as DNS.</p>
-    {/if}
-
-    {#if legacy}
-      <label class="check risk"
-        ><input type="checkbox" bind:checked={accepted} /> I understand that this connection is not private</label
-      >
-    {/if}
-
-    {#if blocked}
-      <button class={legacy ? 'danger' : 'primary'} type="button" disabled
-        >{legacy ? 'Download unsafe setup script' : 'Download setup script'}</button
-      >
-    {:else}
-      <a class="download" class:danger={legacy} href={script} download
-        >{legacy ? 'Download unsafe setup script' : 'Download setup script'}</a
-      >
-    {/if}
-
-    <ol class="steps">
-      {#if platform === 'windows'}
-        <li>Open the downloaded <strong>.bat</strong> file. Windows asks for administrator rights. Allow it.</li>
+      <div class="systems">
+        {#each systems as system (system.id)}
+          <button type="button" class="system" onclick={() => navigate(`/install/${system.id}`)}>
+            <span class="name">{system.name}</span>
+            <span class="detail">{system.detail}</span>
+            {#if system.id === here}<span class="here">This computer</span>{/if}
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>
+          </button>
+        {/each}
+      </div>
+      <p class="hint">
+        On a Mac or a rooted Android device? Download the <a href="/api/tls/certificate" download>certificate</a> and follow
+        the guide for your device in the documentation.
+      </p>
+    </section>
+  {:else}
+    <section class="panel" aria-label={`${platform.name} setup steps`}>
+      <ol class="walk">
         <li>
-          If Windows SmartScreen stops the file, select <strong>More info</strong>, then <strong>Run anyway</strong>.
-        </li>
-        <li>When the window says <strong>Done</strong>, start Zwift and sign in.</li>
-      {:else}
-        <li>
-          In a terminal, run <code>sh</code> with the downloaded <strong>.sh</strong> file. It asks for your password through
-          sudo.
-        </li>
-        <li>If it does not find Zwift, run it again with the Zwift folder as the last argument.</li>
-        <li>When it says <strong>Done</strong>, close Zwift's Wine prefix, start Zwift and sign in.</li>
-      {/if}
-    </ol>
-    <p class="hint">
-      {legacy
-        ? 'Run the script again after a Zwift update. When the administrator switches to a server certificate, run the new setup: it removes the shared certificate from the computer.'
-        : 'Run the script again after a Zwift update and after the administrator rotates the certificate. It also removes the old shared Zwift certificate from the computer.'}
-    </p>
-  </section>
+          <h2>Download the setup script</h2>
+          <label class="check"><input type="checkbox" bind:checked={redirect} /> Send Zwift to this server</label>
+          {#if redirect}
+            <label for="install-address">Server IP address</label>
+            <input
+              id="install-address"
+              bind:value={address}
+              inputmode="decimal"
+              autocomplete="off"
+              spellcheck="false"
+              maxlength={45}
+              aria-invalid={!!addressError}
+              aria-describedby="install-address-hint"
+            />
+            <p id="install-address-hint" class="hint" class:failed={!!addressError}>
+              {addressError || 'The script adds this address to the hosts file for the Zwift server names.'}
+            </p>
+          {:else}
+            <p class="hint">
+              The script leaves the hosts file alone. Point Zwift at the server some other way, such as DNS.
+            </p>
+          {/if}
 
-  <section class="panel" aria-labelledby="install-certificate">
-    <h2 id="install-certificate">{legacy ? 'Check the shared certificate' : 'Check the certificate'}</h2>
-    <p>
-      The script prints the thumbprint it installs. Windows shows it as <strong>Thumbprint</strong> in the certificate's
-      details. It should match this one.
-    </p>
-    <div class="prints">
-      <Fingerprint label="Thumbprint (SHA-1)" value={status.certificate.thumbprint} />
-      <Fingerprint label="SHA-256 fingerprint" value={status.certificate.fingerprint256} />
-    </div>
-    <p class="muted">Valid until {day(status.certificate.notAfter)}.</p>
-    <p class="manual">
-      To install it by hand, download the certificate as
-      <a href="/api/tls/certificate?format=der" download>.cer for Windows</a> or
-      <a href="/api/tls/certificate" download>.crt (PEM) for Linux and macOS</a>.
-    </p>
-  </section>
+          {#if legacy}
+            <div class="risk">
+              <p>
+                This server still uses the shared Zwift certificate, whose private key is public. Others on your network
+                could read your Zwift traffic, your password included.
+              </p>
+              <label class="check"
+                ><input type="checkbox" bind:checked={accepted} /> I understand that this connection is not private</label
+              >
+            </div>
+          {/if}
+
+          {#if blocked}
+            <button class={legacy ? 'danger' : 'primary'} type="button" disabled
+              >{legacy ? 'Download unsafe setup script' : 'Download setup script'}</button
+            >
+          {:else}
+            <a class="download" class:danger={legacy} href={script} download
+              >{legacy ? 'Download unsafe setup script' : 'Download setup script'}</a
+            >
+          {/if}
+        </li>
+        <li>
+          <h2>Run it</h2>
+          {#if platform.id === 'windows'}
+            <p>Open the downloaded <strong>.bat</strong> file. Windows asks for administrator rights. Allow it.</p>
+            <p class="hint">
+              If Windows SmartScreen stops the file, select <strong>More info</strong>, then
+              <strong>Run anyway</strong>.
+            </p>
+          {:else}
+            <p>
+              In a terminal, run <code>sh</code> with the downloaded <strong>.sh</strong> file. It asks for your password
+              through sudo.
+            </p>
+            <p class="hint">If it does not find Zwift, run it again with the Zwift folder as the last argument.</p>
+          {/if}
+        </li>
+        <li>
+          <h2>Start Zwift</h2>
+          <p>
+            When the script says <strong>Done</strong>, {platform.id === 'linux'
+              ? "close Zwift's Wine prefix, then "
+              : ''}start Zwift and sign in.
+          </p>
+          <p class="hint">
+            {legacy
+              ? 'Run the script again after a Zwift update. When the administrator switches to a server certificate, run the new setup: it removes the shared certificate from the computer.'
+              : 'Run the script again after a Zwift update and after the administrator rotates the certificate. It also removes the old shared Zwift certificate from the computer.'}
+          </p>
+        </li>
+      </ol>
+    </section>
+
+    <section class="panel" aria-labelledby="install-certificate">
+      <h2 id="install-certificate">{legacy ? 'Check the shared certificate' : 'Check the certificate'}</h2>
+      <p>
+        The script prints the thumbprint it installs.{platform.id === 'windows'
+          ? " Windows shows it as Thumbprint in the certificate's details."
+          : ''} It should match this one.
+      </p>
+      <div class="prints">
+        <Fingerprint label="Thumbprint (SHA-1)" value={status.certificate.thumbprint} />
+        <Fingerprint label="SHA-256 fingerprint" value={status.certificate.fingerprint256} />
+      </div>
+      <p class="muted">Valid until {day(status.certificate.notAfter)}.</p>
+      <p class="manual">
+        To install it by hand, download the certificate as
+        {#if platform.id === 'windows'}<a href="/api/tls/certificate?format=der" download>.cer</a>{:else}<a
+            href="/api/tls/certificate"
+            download>.crt (PEM)</a
+          >{/if}.
+      </p>
+    </section>
+  {/if}
 {/if}
 
 <style>
@@ -212,45 +257,69 @@
     border-left: 3px solid #ff6b57;
   }
 
-  .choice {
+  /* Step 1: one large button per system, the whole row is the target. */
+  .systems {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
-    gap: 0.5rem;
-    margin: 1rem 0 0.5rem;
+    grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+    gap: 0.75rem;
+    margin: 1.25rem 0 1rem;
   }
-  .choice label {
-    display: flex;
-    align-items: flex-start;
-    gap: 0.65rem;
+  button.system {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-rows: auto auto 1fr;
+    align-content: start;
+    align-items: start;
+    gap: 0.2rem 1rem;
     margin: 0;
-    padding: 0.8rem 0.9rem;
+    padding: 1.1rem 1.25rem;
     border: 2px solid var(--line);
-    border-radius: 10px;
-    color: var(--text);
-    cursor: pointer;
+    border-radius: 12px;
+    background: var(--well);
+    text-align: left;
+    text-transform: none;
+    letter-spacing: 0;
   }
-  .choice label.checked {
+  button.system:hover {
     border-color: var(--orange);
     background: var(--glass-raised);
   }
-  .choice label:has(:focus-visible) {
-    outline: 2px solid var(--text);
-    outline-offset: 3px;
-  }
-  .choice input {
-    flex: none;
-    width: auto;
-    margin: 0.2rem 0 0;
-    accent-color: var(--orange);
-  }
-  .choice strong {
-    display: block;
+  .system .name {
+    font-size: 1.375rem;
     font-weight: 800;
   }
-  .choice small {
+  .system .detail {
+    grid-column: 1;
     color: var(--muted);
-    font-size: 0.8125rem;
+    font-weight: 600;
   }
+  .system .here {
+    grid-column: 1;
+    justify-self: start;
+    margin-top: 0.5rem;
+    padding: 0.1rem 0.55rem;
+    border: 1px solid var(--orange);
+    border-radius: 999px;
+    color: var(--text);
+    font-size: 0.75rem;
+  }
+  .system svg {
+    grid-column: 2;
+    grid-row: 1 / span 3;
+    align-self: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    fill: none;
+    stroke: var(--text);
+    stroke-width: 2.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  button.system:hover svg {
+    stroke: var(--orange);
+  }
+
   label.check {
     display: flex;
     align-items: center;
@@ -283,7 +352,7 @@
     transform: translateY(2px);
     box-shadow: 0 1px 0 var(--orange-deep);
   }
-  .setup button {
+  .walk button {
     margin: 1.25rem 0 0;
   }
   /* The unsafe download is never the celebrated orange action: it wears the alarm outline instead. */
@@ -300,27 +369,70 @@
   a.download.danger:hover {
     background: rgb(255 90 70 / 0.14);
   }
-  label.check.risk {
+  /* The shared-certificate warning sits right above the download it guards. */
+  .risk {
     margin-top: 1.25rem;
-    padding: 0.6rem 0.75rem;
-    border-radius: 8px;
+    padding: 0.75rem 0.9rem;
+    border-left: 3px solid #ff6b57;
+    border-radius: 0 8px 8px 0;
     background: rgb(255 90 70 / 0.12);
   }
-  label.check.risk input {
+  .risk p {
+    margin: 0;
+    color: var(--alarm);
+  }
+  .risk label.check {
+    margin-top: 0.6rem;
+  }
+  .risk input {
     accent-color: #ff6b57;
   }
 
-  .steps {
-    margin: 1.25rem 0 0;
-    padding-left: 1.4rem;
+  /* Step 2: the setup is a real sequence, so the steps carry large orange numbers down a rail. */
+  .walk {
+    counter-reset: step;
+    margin: 0;
+    padding: 0;
+    list-style: none;
   }
-  .steps li {
-    margin-bottom: 0.35rem;
-    padding-left: 0.25rem;
+  .walk > li {
+    counter-increment: step;
+    position: relative;
+    padding: 0 0 1.5rem 3.25rem;
   }
-  .steps li::marker {
-    color: var(--orange);
+  .walk > li:last-child {
+    padding-bottom: 0;
+  }
+  .walk > li::before {
+    content: counter(step);
+    position: absolute;
+    left: 0;
+    top: -0.2rem;
+    display: grid;
+    place-items: center;
+    width: 2.1rem;
+    height: 2.1rem;
+    border-radius: 50%;
+    background: var(--orange);
     font-weight: 800;
+  }
+  .walk > li:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    left: calc(1.05rem - 1px);
+    top: 2.2rem;
+    bottom: 0.3rem;
+    border-left: 2px solid var(--line);
+  }
+  .walk h2 {
+    margin-bottom: 0.5rem;
+    padding-top: 0.15rem;
+  }
+  .walk p {
+    margin: 0 0 0.4rem;
+  }
+  .walk label.check:first-of-type {
+    margin-top: 0;
   }
   code {
     padding: 0.05rem 0.35rem;

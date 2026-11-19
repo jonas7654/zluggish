@@ -833,6 +833,7 @@ export function createWebApp(runtime: HttpRuntime) {
     '/activities/*',
     '/climbs',
     '/install',
+    '/install/*',
     '/manage',
     '/manage/*',
   ])

@@ -10,7 +10,7 @@ This procedure makes macOS and Zwift trust the [server certificate](../certifica
 ## Set up the client
 
 1. Install Zwift, if it is not installed.
-2. Sign in to the Zluggish web app and select **Install** in the menu. Under **Check the certificate**, download the certificate as `.crt`.
+2. Sign in to the Zluggish web app and select **Install** in the menu. Under the system buttons, select **certificate** to download it as a `.crt` file.
 3. Open Keychain Access.
 4. Under **Keychains**, select **System**. Under **Category**, select **Certificates**.
 5. Select **File → Import Items…** and import the `.crt` file.

@@ -149,6 +149,17 @@
   let botArgument = $state('');
 
   const manage = $derived(path === '/manage' || path.startsWith('/manage/'));
+  const installing = $derived(path === '/install' || path.startsWith('/install/'));
+
+  /** The link beside the title back to the page above this one. */
+  const back = $derived(
+    manage && path.startsWith('/manage/users/')
+      ? { href: '/manage', label: 'All users' }
+      : path.startsWith('/install/')
+        ? { href: '/install', label: 'Choose another system' }
+        : undefined,
+  );
+
   const administrator = $derived(user?.role === 'administrator');
   const selectedId = $derived(Number(/^\/manage\/users\/(\d+)$/.exec(path)?.[1] ?? 0));
   const selected = $derived(users.find((r) => r.player_id === selectedId) ?? null);
@@ -216,9 +227,13 @@
                             ? 'Settings'
                             : path === '/climbs'
                               ? 'Climbs'
-                              : path === '/install'
-                                ? 'Install'
-                                : 'Profile',
+                              : path === '/install/windows'
+                                ? 'Windows setup'
+                                : path === '/install/linux'
+                                  ? 'Linux setup'
+                                  : installing
+                                    ? 'Install'
+                                    : 'Profile',
   );
 
   const initials = (r: User) => `${r.first_name.charAt(0)}${r.last_name.charAt(0)}`.toUpperCase();
@@ -830,7 +845,7 @@
       {@render link('/export', 'Export', path === '/export')}
       {@render link('/integrations', 'Integrations', path === '/integrations')}
       {@render link('/settings', 'Settings', path === '/settings')}
-      {@render link('/install', 'Install', path === '/install')}
+      {@render link('/install', 'Install', installing)}
       {#if administrator}
         <p class="group">Manage</p>
         {@render link('/manage', 'Users', manage && path !== '/manage/server')}
@@ -846,9 +861,9 @@
     {title}
     heading={!user && title !== 'Profile' && title !== 'Activities'}
     page={manage ? 'manage' : 'account'}
-    back={manage && path.startsWith('/manage/users/') ? { href: '/manage', label: 'All users' } : undefined}
+    {back}
     onback={() => {
-      void navigate('/manage');
+      if (back) void navigate(back.href);
     }}
     {version}
     {zwiftVersion}
@@ -1517,8 +1532,8 @@
         <Activities {path} {api} {go} />
       {:else if path === '/climbs'}
         <Climbs {api} />
-      {:else if path === '/install'}
-        <Install {api} />
+      {:else if installing}
+        <Install {api} {path} {navigate} />
       {:else if path === '/settings'}
         {#if settings}
           <section class="panel narrow ghosts" aria-labelledby="ghosts-title">
