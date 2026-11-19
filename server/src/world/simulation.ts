@@ -188,6 +188,7 @@ export class Simulation {
       try {
         const profile = fromBinary(PlayerProfileSchema, profileBytes);
         const recording = new Recording(routeBytes);
+        profile.privacyBits |= 4n;
         profile.ftp = 400;
 
         if (profile.id > 0n && recording.length > 0)
@@ -210,7 +211,8 @@ export class Simulation {
 
       for (const folder of folders) {
         if (!folder.isDirectory() || !/^\d+$/.test(folder.name)) continue;
-        const owner = this.ownerProfile(Number(folder.name));
+        const ownerId = Number(folder.name);
+        const owner = this.ownerProfile(ownerId);
 
         for (const file of await this.files.filesUnder(resolve(storage, folder.name, 'ghosts'), '.bin')) {
           const bytes = await this.files.readAsync(file);
@@ -226,12 +228,12 @@ export class Simulation {
               const id = BigInt(1_000_000 + index + copy * 10_000);
               const profile = this.pool.profile(id);
               profile.ftp = owner?.ftp || 300;
-              profile.weightInGrams = owner?.weightInGrams || 80_000;
               replays.set(id, {
                 profile,
                 recording,
                 position: Math.floor(this.rng.value() * recording.length),
                 pacer: false,
+                ownerId: owner ? ownerId : undefined,
                 folder: '',
               });
             }
@@ -249,14 +251,14 @@ export class Simulation {
 
     for (const id of this.replays.keys()) {
       this.runtime.world.synthetic.delete(id);
-      this.runtime.profiles.synthetic.delete(id);
+      this.runtime.profiles.deleteReplayProfile(id);
     }
 
     this.replays.clear();
 
     for (const [id, replay] of replays) {
       this.replays.set(id, replay);
-      this.runtime.profiles.synthetic.set(id, replay.profile);
+      this.runtime.profiles.setReplayProfile(replay.profile, replay.ownerId);
     }
 
     this.loadPelotons();
