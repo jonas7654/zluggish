@@ -50,8 +50,6 @@ const gameInfoHash = Schema.decodeUnknownSync(Schema.Struct({ gameInfoHash: Sche
 
 const variants = readFileSync(resolve(assets, 'data/variants.txt'), 'utf8');
 
-await start();
-
 /** Close an HTTP listener; one that never started counts as closed. */
 function closeHttp(listener: ReturnType<typeof startHttp>) {
   return new Promise<void>((resolve, reject) =>
@@ -193,6 +191,8 @@ const serve = Effect.fn('server.start')(function* () {
 
   return { log, server, web, cdn };
 });
+
+await start();
 
 async function start() {
   const resources = new Resources();
