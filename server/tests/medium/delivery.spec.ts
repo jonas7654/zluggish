@@ -1,4 +1,3 @@
-import { RideCompletionService } from '#src/services/ride-completion.service';
 import { ActivitiesService } from '#src/services/activities.service';
 import { JobsService } from '#src/services/jobs.service';
 import { ConnectionsService } from '#src/services/connections.service';
@@ -113,17 +112,19 @@ await test('a rider uploads a finished activity on request, and uploads it again
 
   // Nothing was connected when the activity finished, so it has no deliveries yet.
   assert.deepEqual(f.effects.runSync(uploads.forActivity(player, id)), []);
-  assert.throws(() => f.effects.runPromise(uploads.request(player, id, 'runalyze', false)), { status: 409 });
+  await assert.rejects(f.effects.runPromise(uploads.request(player, id, 'runalyze', false)), { status: 409 });
 
   f.effects.runSync(DocumentsService.use((service) => service.put(player, 'runalyze_token.txt', 'token')));
   assert.deepEqual(f.effects.runSync(uploads.forActivity(player, id)), [
     { provider: 'runalyze', state: null, error: null },
   ]);
-  assert.throws(() => f.effects.runPromise(uploads.request(f.other.player_id, id, 'runalyze', false)), { status: 404 });
+  await assert.rejects(f.effects.runPromise(uploads.request(f.other.player_id, id, 'runalyze', false)), {
+    status: 404,
+  });
 
   await f.effects.runPromise(uploads.request(player, id, 'runalyze', false));
   assert.equal(f.effects.runSync(uploads.forActivity(player, id))[0]?.state, 'sent');
-  assert.throws(() => f.effects.runPromise(uploads.request(player, id, 'runalyze', false)), { status: 409 });
+  await assert.rejects(f.effects.runPromise(uploads.request(player, id, 'runalyze', false)), { status: 409 });
   assert.equal(sends.mock.callCount(), 1);
 
   await f.effects.runPromise(uploads.request(player, id, 'runalyze', true));
@@ -146,13 +147,13 @@ await test('finished activities without completion records upload, while unfinis
   assert.equal(f.accounts.repositories.completionRepository.get(BigInt(id)), null);
 
   f.accounts.db.prepare('UPDATE activity SET end_date=NULL WHERE id=?').run(id);
-  assert.throws(
-    () => f.effects.runPromise(UploadsService.use((service) => service.request(player, id, 'runalyze', true))),
+  await assert.rejects(
+    f.effects.runPromise(UploadsService.use((service) => service.request(player, id, 'runalyze', true))),
     { status: 409 },
   );
   f.accounts.db.prepare('UPDATE activity SET end_date=?, fit=NULL WHERE id=?').run(new Date().toISOString(), id);
-  assert.throws(
-    () => f.effects.runPromise(UploadsService.use((service) => service.request(player, id, 'runalyze', true))),
+  await assert.rejects(
+    f.effects.runPromise(UploadsService.use((service) => service.request(player, id, 'runalyze', true))),
     { status: 409 },
   );
   assert.equal(sends.mock.callCount(), 1);

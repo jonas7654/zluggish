@@ -63,7 +63,6 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
   const appRoutes = effectRoutes(app, runtime);
 
   const { management } = runtime.services;
-  const uploads = runtime.effects.runSync(UploadsService);
   const sessions = management.sessions;
 
   // Credentials the key cannot decrypt stay saved, so the rider is asked to enter them again.
@@ -291,7 +290,7 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
       const uploadsService = yield* UploadsService;
 
       return c.json({
-        uploadsService: yield* uploadsService.forActivity(
+        uploads: yield* uploadsService.forActivity(
           sessions.require(c.get('sessionId')).player_id,
           Schema.decodeUnknownSync(activityId)(c.req.param('id')),
         ),
@@ -311,7 +310,7 @@ export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
 
       void (yield* uploadsService.request(player, id, input.provider, input.again));
 
-      return c.json({ uploadsService: yield* uploadsService.forActivity(player, id) });
+      return c.json({ uploads: yield* uploadsService.forActivity(player, id) });
     }),
   );
   appRoutes.post('/api/me/uploads/retry', (c) =>

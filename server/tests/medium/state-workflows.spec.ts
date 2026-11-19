@@ -6,7 +6,6 @@ import { IntegrationsService } from '#src/services/integrations.service';
 import { DocumentsService } from '#src/services/documents.service';
 import { RecordDataService } from '#src/services/record-data.service';
 import { StravaRepository } from '#src/repositories/strava.repository';
-import { UploadsService } from '#src/services/uploads.service';
 import { openRuntime } from '#src/runtime';
 import { ActivitySchema } from '#src/protocol/generated/activity_pb';
 import { UploadsRepository } from '#src/repositories/uploads.repository';

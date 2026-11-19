@@ -38,7 +38,6 @@ export function createWebApp(runtime: HttpRuntime) {
   const app = new Hono<WebEnv>();
   const appRoutes = effectRoutes(app, runtime);
   const { management, accounts } = runtime.services;
-  const activities = runtime.effects.runSync(ActivitiesService);
   const durability = runtime.effects.runSync(DurabilityService);
   const { sessions } = management;
   const attempts = new Map<string, { count: number; until: number }>();
@@ -243,7 +242,7 @@ export function createWebApp(runtime: HttpRuntime) {
 
       const rows = yield* activitiesService.own(sessions.require(c.get('sessionId')).player_id, undefined, page);
 
-      return c.json({ activitiesService: rows.slice(0, 20), hasMore: rows.length > 20 });
+      return c.json({ activities: rows.slice(0, 20), hasMore: rows.length > 20 });
     }),
   );
   appRoutes.get('/api/me/climbs', (c) =>

@@ -1,5 +1,3 @@
-import { RideCompletionService } from '#src/services/ride-completion.service';
-import { ActivitiesService } from '#src/services/activities.service';
 import { UploadsService } from '#src/services/uploads.service';
 import { WorkoutsService } from '#src/services/workout.service';
 import { Effect } from 'effect';
@@ -151,19 +149,21 @@ await test('web uploads, workout sync and Strava session tests stay with the sig
   const status = t.mock.method(f.effects.runSync(UploadsService), 'status', (id: number) => {
     assert.equal(id, f.rider.player_id);
 
-    return Array.from({ length: 150 }, (_, index) => ({
-      activity_id: index,
-      provider: 'strava',
-      state: 'failed',
-      last_error: null,
-    }));
+    return Effect.succeed(
+      Array.from({ length: 150 }, (_, index) => ({
+        activity_id: index,
+        provider: 'strava',
+        state: 'failed',
+        last_error: null,
+      })),
+    );
   });
 
   const listed = await web.request('/api/me/uploads');
   const { jobs } = await listed.json();
   assert.equal(jobs.length, 100);
   assert.equal(status.mock.callCount(), 1);
-  const retry = t.mock.method(f.effects.runSync(UploadsService), 'retry', () => Promise.resolve());
+  const retry = t.mock.method(f.effects.runSync(UploadsService), 'retry', () => Effect.void);
   assert.equal(await responseStatus(web.request('/api/me/uploads/retry', 'POST', {})), 200);
   assert.equal(await responseStatus(web.request('/api/me/uploads/retry', 'POST', { ambiguous: true })), 200);
   assert.deepEqual(

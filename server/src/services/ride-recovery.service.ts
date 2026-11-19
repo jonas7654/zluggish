@@ -6,7 +6,6 @@ import { course } from '#src/world/state';
 
 const make = Effect.gen(function* () {
   const context = yield* RuntimeContext;
-  const repositories = context.accounts.repositories;
 
   let timer: NodeJS.Timeout | null = null;
 

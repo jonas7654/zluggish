@@ -639,10 +639,11 @@ const make = Effect.gen(function* () {
     if (published) await repositories.filesRepository.syncDirectoryAsync(dirname(path));
   }
 
-  function registerJobs() {
-    const register = (type: JobType, handler: Omit<JobHandler, 'run'> & { run: (job: RunningJob) => Promise<void> }) =>
-      Effect.runSync(jobs.register(type, { ...handler, run: (job) => Effect.promise(() => handler.run(job)) }));
+  /** Register a job handler written as an async function. */
+  const register = (type: JobType, handler: Omit<JobHandler, 'run'> & { run: (job: RunningJob) => Promise<void> }) =>
+    Effect.runSync(jobs.register(type, { ...handler, run: (job) => Effect.promise(() => handler.run(job)) }));
 
+  function registerJobs() {
     register('power_curve', {
       concurrency: 2,
       attempts: 3,
@@ -939,8 +940,12 @@ export class ActivitiesService extends Context.Service<ActivitiesService, Effect
   'zluggish/ActivitiesService',
 ) {
   static readonly layer = Layer.effect(ActivitiesService, make);
+
   static readonly visible = visible;
+
   static readonly fitnessVisible = fitnessVisible;
+
   static readonly forViewer = forViewer;
+
   static readonly withoutFit = withoutFit;
 }

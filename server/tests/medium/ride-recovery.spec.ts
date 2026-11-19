@@ -1,6 +1,4 @@
 import { RuntimeContext } from '#src/context';
-import { RideCompletionService } from '#src/services/ride-completion.service';
-import { UploadsService } from '#src/services/uploads.service';
 import { ActivitiesService } from '#src/services/activities.service';
 import { DocumentsService } from '#src/services/documents.service';
 import { ActivitySchema } from '#src/protocol/generated/activity_pb';

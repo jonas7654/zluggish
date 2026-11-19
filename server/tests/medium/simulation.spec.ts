@@ -1,7 +1,4 @@
 import { Effect } from 'effect';
-import { RideCompletionService } from '#src/services/ride-completion.service';
-import { ActivitiesService } from '#src/services/activities.service';
-import { UploadsService } from '#src/services/uploads.service';
 import { RideRecoveryService } from '#src/services/ride-recovery.service';
 import { validateConfig } from '#src/config/index';
 import { PlayerProfileSchema } from '#src/protocol/generated/profile_pb';
