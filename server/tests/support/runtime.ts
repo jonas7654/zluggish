@@ -1,4 +1,5 @@
 import { createServices } from '#src/composition';
+import { makeAppRuntime } from '#src/layers';
 import { validateConfig } from '#src/config/index';
 import { packageRoot } from '#src/config/load';
 import { createGameApp } from '#src/http/app';
@@ -36,11 +37,13 @@ export function runtimeFixture(t: TestContext) {
     tokens,
   };
 
-  const runtime = Object.assign(context, { services: createServices(context) });
+  const effects = makeAppRuntime(context);
+  const runtime = Object.assign(context, { services: createServices(context), effects });
 
   const app = createGameApp({ gameInfo: '{}', gameInfoHash: '0', variants: '{}' }, runtime);
 
-  t.after(() => {
+  t.after(async () => {
+    await effects.dispose();
     accounts.close();
     settings.close();
     rmSync(storage, { recursive: true, force: true });

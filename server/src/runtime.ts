@@ -1,5 +1,6 @@
 import { Resources } from '#src/node/lifecycle/resources';
 import { createServices } from '#src/composition';
+import { makeAppRuntime } from '#src/layers';
 import type { ResolvedConfig } from '#src/config/index';
 import { packageRoot } from '#src/config/load';
 import type { RepositoryContext } from '#src/context';
@@ -47,7 +48,9 @@ export async function openRuntime(config: ResolvedConfig, assets: string) {
       tokens,
     };
 
-    const runtime: Runtime = Object.assign(context, { services: createServices(context) });
+    const effects = makeAppRuntime(context);
+    resources.defer(() => effects.dispose());
+    const runtime: Runtime = Object.assign(context, { services: createServices(context), effects });
 
     new ImportsService(accounts, world).recover();
     const simulation = new Simulation(runtime);

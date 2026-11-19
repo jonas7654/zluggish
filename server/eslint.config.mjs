@@ -61,6 +61,8 @@ export default defineConfig([
         },
 
         rules: {
+          // Effect.fn and Effect.gen bodies are generators even when a step has nothing to yield.
+          'require-yield': 'off',
           '@typescript-eslint/interface-name-prefix': 'off',
           '@typescript-eslint/explicit-function-return-type': 'off',
           '@typescript-eslint/explicit-module-boundary-types': 'off',

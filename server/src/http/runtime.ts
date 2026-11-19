@@ -1,10 +1,13 @@
 import type { Services } from '#src/composition';
+import type { AppRuntime } from '#src/layers';
 import type { RepositoryContext } from '#src/context';
 import type { User } from '#src/repositories/accounts.repository';
 import type { BrowserSession } from '#src/services/browser-session.service';
 
 export interface Runtime extends RepositoryContext {
   services: Services;
+  /** Runs application effects with every service provided. */
+  effects: AppRuntime;
 }
 
 export type HttpRuntime = Omit<Runtime, 'accounts' | 'sessions' | 'profiles' | 'settings'>;

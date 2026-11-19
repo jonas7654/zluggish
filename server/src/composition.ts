@@ -15,7 +15,6 @@ import { MetricsService } from '#src/services/metrics.service';
 import { ImportsService } from '#src/services/profile-import.service';
 import { ProfilesService } from '#src/services/profile.service';
 import { RecordDataService } from '#src/services/record-data.service';
-import { RecordsService } from '#src/services/records.service';
 import { RetentionService } from '#src/services/retention.service';
 import { RideRecoveryService } from '#src/services/ride-recovery.service';
 import { SettingsService } from '#src/services/settings.service';
@@ -51,7 +50,6 @@ export function createServices(context: RepositoryContext) {
     goals: new GoalService(context),
     fitness: new FitnessService(context),
     storage: new StorageService(context),
-    records: new RecordsService(context),
     events: new EventsService(context),
     activities: new ActivitiesService(context),
     social: new SocialService(context),

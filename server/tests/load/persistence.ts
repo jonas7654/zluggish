@@ -2,6 +2,7 @@
 // It drives the riding path in process, finishes a group of riders at once while
 // others keep riding, and can add a slow disk, large media and a slow provider.
 import { createServices } from '#src/composition';
+import { makeAppRuntime } from '#src/layers';
 import { validateConfig } from '#src/config/index';
 import { packageRoot } from '#src/config/load';
 import { createGameApp } from '#src/http/app';
@@ -159,7 +160,7 @@ const context = {
   tokens,
 };
 
-const runtime = Object.assign(context, { services: createServices(context) });
+const runtime = Object.assign(context, { services: createServices(context), effects: makeAppRuntime(context) });
 const app = createGameApp({ gameInfo: '{}', gameInfoHash: '0', variants: '{}' }, runtime);
 const providerCalls = { started: 0, finished: 0 };
 

@@ -1,3 +1,5 @@
+import { effectRoutes } from '#src/http/effect';
+import { RecordsService } from '#src/services/records.service';
 import { webConnectionRoutes } from '#src/http/web-connections';
 import { webProfileRoutes } from '#src/http/web-profile';
 import { Hono } from 'hono';
@@ -5,7 +7,7 @@ import { HTTPException } from 'hono/http-exception';
 import type { Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
-import { Schema } from 'effect';
+import { Effect, Schema } from 'effect';
 import { fieldErrors, NumberFromInput, Strict } from '#src/schema';
 import { ApplicationError, UnreadableCredentialsError } from '#src/errors';
 import { credentials, password, newUser } from '#src/dtos/management.dto';
@@ -31,7 +33,7 @@ function sameOrigin(origin: string | undefined, url: string, publicUrl: string |
 
 export function createWebApp(runtime: HttpRuntime) {
   const app = new Hono<WebEnv>();
-  const { management, accounts, durability, files, activities, records } = runtime.services;
+  const { management, accounts, durability, files, activities } = runtime.services;
   const { sessions } = management;
   const attempts = new Map<string, { count: number; until: number }>();
   const cookie = 'zluggish_web_session';
@@ -230,34 +232,40 @@ export function createWebApp(runtime: HttpRuntime) {
 
     return c.json({ activities: rows.slice(0, 20), hasMore: rows.length > 20 });
   });
-  app.get('/api/me/climbs', (c) => {
-    const stats = new Map(
-      records
-        .climbPortalStats(sessions.require(c.get('sessionId')).player_id)
-        .map((row) => [String(row.route_hash), row]),
-    );
+  const appRoutes = effectRoutes(app, runtime);
+  appRoutes.get('/api/me/climbs', (c) =>
+    Effect.gen(function* () {
+      const recordsService = yield* RecordsService;
 
-    const climbs = [];
-    const segments = readClimbSegments(runtime);
-    const all = readClimbs(runtime);
+      const stats = new Map(
+        (yield* recordsService.climbPortalStats(sessions.require(c.get('sessionId')).player_id)).map((row) => [
+          String(row.route_hash),
+          row,
+        ]),
+      );
 
-    for (const climb of all) {
-      const row = stats.get(climb.road);
+      const climbs = [];
+      const segments = readClimbSegments(runtime);
+      const all = readClimbs(runtime);
 
-      if (row)
-        climbs.push({
-          road: climb.road,
-          ...climbFacts(climb.name),
-          rides: row.rides,
-          bestMs: row.best_ms,
-          strava: segments[climb.road] ?? null,
-          lastRide:
-            row.last_world_time === null ? null : new Date(row.last_world_time + WORLD_TIME_EPOCH_MS).toISOString(),
-        });
-    }
+      for (const climb of all) {
+        const row = stats.get(climb.road);
 
-    return c.json({ climbs, total: all.length });
-  });
+        if (row)
+          climbs.push({
+            road: climb.road,
+            ...climbFacts(climb.name),
+            rides: row.rides,
+            bestMs: row.best_ms,
+            strava: segments[climb.road] ?? null,
+            lastRide:
+              row.last_world_time === null ? null : new Date(row.last_world_time + WORLD_TIME_EPOCH_MS).toISOString(),
+          });
+      }
+
+      return c.json({ climbs, total: all.length });
+    }),
+  );
   app.get('/api/me/activities/:id', (c) =>
     c.json(
       activities.ownDetail(

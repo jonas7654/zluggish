@@ -1,8 +1,9 @@
+import { RecordsService } from '#src/services/records.service';
 import { runtimeFixture } from '#tests/support/runtime';
 import assert from 'node:assert/strict';
 import type { SQLInputValue, StatementSync } from 'node:sqlite';
 import { test } from 'node:test';
-import { Schema } from 'effect';
+import { Effect, Schema } from 'effect';
 
 const tables = new Set([
   'activity',
@@ -84,10 +85,15 @@ await test('the main queries use an index on several years of history', async (t
   services.activities.activityFeed(rider.player_id, '1000', 0, rider.player_id, 50);
   services.activities.activityById('100');
   services.activities.findActivity(100n, rider.player_id);
-  services.records.mine(rider.player_id, 'CYCLING', '7');
-  services.records.segmentLeaderboard(7n, BigInt(start + 1000 * day));
-  services.records.segmentLeaderboard(null, BigInt(start + 1400 * day));
-  services.records.listRouteResult(rider.player_id);
+  f.effects.runSync(
+    Effect.gen(function* () {
+      const records = yield* RecordsService;
+      yield* records.mine(rider.player_id, 'CYCLING', '7');
+      yield* records.segmentLeaderboard(7n, BigInt(start + 1000 * day));
+      yield* records.segmentLeaderboard(null, BigInt(start + 1400 * day));
+      yield* records.listRouteResult(rider.player_id);
+    }),
+  );
   f.accounts.repositories.fitnessRepository.findPowerCurve(rider.player_id, '300', 0);
   services.fitness.week(rider.player_id, start + 700 * day);
   services.fitness.powerCurve(rider.player_id, 'all', 90);

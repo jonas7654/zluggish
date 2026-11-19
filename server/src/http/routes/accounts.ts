@@ -1,3 +1,5 @@
+import { effectRoutes } from '#src/http/effect';
+import { RecordsService } from '#src/services/records.service';
 import { calendarLabels, mapChoices } from '#src/http/game/calendar';
 import { checkbox, field, form as makeForm, hidden, model } from '#src/http/game/models';
 import { gamePage } from '#src/http/game/render';
@@ -11,7 +13,7 @@ import type { Context, Hono } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { HTTPException } from 'hono/http-exception';
 import { resolve } from 'node:path';
-import { Option, Schema } from 'effect';
+import { Effect, Option, Schema } from 'effect';
 import { orElse, PositiveIntFromString } from '#src/schema';
 
 export function authenticated(c: Context<RuntimeEnv>) {
@@ -327,55 +329,62 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     return gameRedirect(c, '/login/');
   });
 
-  app.get('/user/:username/', async (c) => {
-    const user = authenticated(c);
-    await runtime.services.workouts.syncWorkoutsAutomatically(user.player_id);
+  const appRoutes = effectRoutes(app, runtime);
+  appRoutes.get('/user/:username/', (c) =>
+    Effect.gen(function* () {
+      const recordsService = yield* RecordsService;
 
-    const climbs = readClimbs(runtime);
+      const user = authenticated(c);
+      yield* Effect.promise(() => runtime.services.workouts.syncWorkoutsAutomatically(user.player_id));
 
-    const ridden = new Set(runtime.services.records.riddenClimbRoads(user.player_id));
+      const climbs = readClimbs(runtime);
 
-    const calendar = calendarLabels(
-      runtime.services.files.read(resolve(runtime.assets, 'cdn/gameassets/MapSchedule_v2.xml'), 'utf8'),
-      runtime.services.files.read(resolve(runtime.assets, 'cdn/gameassets/PortalRoadSchedule_v1.xml'), 'utf8'),
-      climbs,
-    );
+      const ridden = new Set(yield* recordsService.riddenClimbRoads(user.player_id));
 
-    return gamePage(
-      c,
-      runtime,
-      model(c, 'dashboard', `${user.first_name} ${user.last_name}`, [
-        makeForm(
-          'launch',
-          '/start-zwift',
-          [
-            field('map', 'Map', {
-              type: 'select',
-              value: 'CALENDAR',
-              options: [
-                { value: 'CALENDAR', label: calendar.map },
-                ...mapChoices.map(({ value, label }) => ({ value, label })),
+      const calendar = calendarLabels(
+        runtime.services.files.read(resolve(runtime.assets, 'cdn/gameassets/MapSchedule_v2.xml'), 'utf8'),
+        runtime.services.files.read(resolve(runtime.assets, 'cdn/gameassets/PortalRoadSchedule_v1.xml'), 'utf8'),
+        climbs,
+      );
+
+      return yield* Effect.promise(() =>
+        gamePage(
+          c,
+          runtime,
+          model(c, 'dashboard', `${user.first_name} ${user.last_name}`, [
+            makeForm(
+              'launch',
+              '/start-zwift',
+              [
+                field('map', 'Map', {
+                  type: 'select',
+                  value: 'CALENDAR',
+                  options: [
+                    { value: 'CALENDAR', label: calendar.map },
+                    ...mapChoices.map(({ value, label }) => ({ value, label })),
+                  ],
+                }),
+                field('climb', 'Climb', {
+                  type: 'select',
+                  value: 'CALENDAR',
+                  options: [
+                    { value: 'CALENDAR', label: calendar.climb },
+                    ...climbs.map((climb) => ({
+                      value: climb.road,
+                      label: ridden.has(climb.road) ? `✓ ${climb.name}` : climb.name,
+                    })),
+                  ],
+                }),
               ],
-            }),
-            field('climb', 'Climb', {
-              type: 'select',
-              value: 'CALENDAR',
-              options: [
-                { value: 'CALENDAR', label: calendar.climb },
-                ...climbs.map((climb) => ({
-                  value: climb.road,
-                  label: ridden.has(climb.road) ? `✓ ${climb.name}` : climb.name,
-                })),
-              ],
-            }),
-          ],
-          'Start Zwift',
-          { navigation: true, primary: true },
+              'Start Zwift',
+              { navigation: true, primary: true },
+            ),
+            makeForm('switch', '/riders/switch/', [], 'Switch rider'),
+          ]),
         ),
-        makeForm('switch', '/riders/switch/', [], 'Switch rider'),
-      ]),
-    );
-  });
+      );
+    }),
+  );
 
   app.get('/ui/status/session', (c) => {
     if (!c.get('browserId')) throw new HTTPException(401);
