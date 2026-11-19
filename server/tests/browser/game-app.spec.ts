@@ -279,11 +279,11 @@ await test('web upload list polls while uploads run, pauses while hidden and ret
   const rider = await f.accounts.create('Uploading Rider', 'test-password');
   let state = 'pending';
 
-  const status = t.mock.method(f.effects.runSync(UploadsService), 'status', () => [
-    { activity_id: 1, provider: 'strava', state, last_error: null },
-  ]);
+  const status = t.mock.method(f.effects.runSync(UploadsService), 'status', () =>
+    Effect.succeed([{ activity_id: 1, provider: 'strava', state, last_error: null }]),
+  );
 
-  const retry = t.mock.method(f.effects.runSync(UploadsService), 'retry', () => Promise.resolve());
+  const retry = t.mock.method(f.effects.runSync(UploadsService), 'retry', () => Effect.void);
   const context = await f.browser.newContext();
   const page = await context.newPage();
   await page.clock.install();

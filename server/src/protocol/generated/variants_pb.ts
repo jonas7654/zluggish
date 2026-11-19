@@ -2,18 +2,15 @@
 // @generated from file variants.proto (syntax proto2)
 /* eslint-disable */
 
-import type { GenEnum, GenFile, GenMessage } from '@bufbuild/protobuf/codegenv2';
-import { enumDesc, fileDesc, messageDesc } from '@bufbuild/protobuf/codegenv2';
-import type { Message } from '@bufbuild/protobuf';
+import type { GenEnum, GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
+import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file variants.proto.
  */
-export const file_variants: GenFile =
-  /*@__PURE__*/
-  fileDesc(
-    'Cg52YXJpYW50cy5wcm90byJkCgZTdHJ1Y3QSIwoGZmllbGRzGAEgAygLMhMuU3RydWN0LkZpZWxkc0VudHJ5GjUKC0ZpZWxkc0VudHJ5EgsKA2tleRgBIAEoCRIVCgV2YWx1ZRgCIAEoCzIGLlZhbHVlOgI4ASKxAQoFVmFsdWUSIAoKbnVsbF92YWx1ZRgBIAEoDjIKLk51bGxWYWx1ZUgAEhYKDG51bWJlcl92YWx1ZRgCIAEoAUgAEhYKDHN0cmluZ192YWx1ZRgDIAEoCUgAEhQKCmJvb2xfdmFsdWUYBCABKAhIABIWCgx2YXJpbnRfdmFsdWUYBSABKARIABIgCgpsaXN0X3ZhbHVlGAYgASgLMgouTGlzdFZhbHVlSABCBgoEa2luZCIjCglMaXN0VmFsdWUSFgoGdmFsdWVzGAEgAygLMgYuVmFsdWUiTgoWRmVhdHVyZVJlc3BvbnNlX1BhcmFtcxIMCgRuYW1lGAEgAigJEg0KBXZhbHVlGAIgASgIEhcKBnZhbHVlcxgDIAEoCzIHLlN0cnVjdCI8Cg9GZWF0dXJlUmVzcG9uc2USKQoIdmFyaWFudHMYASADKAsyFy5GZWF0dXJlUmVzcG9uc2VfUGFyYW1zIiYKFUZlYXR1cmVSZXF1ZXN0X1BhcmFtcxINCgVwYXJhbRgBIAMoCSK1AQoORmVhdHVyZVJlcXVlc3QSJgoGcGFyYW1zGAEgAygLMhYuRmVhdHVyZVJlcXVlc3RfUGFyYW1zEhUKDXN0cl9wbGF5ZXJfaWQYAiABKAkSMgoKdXNlcl9hdHRycxgDIAMoCzIeLkZlYXR1cmVSZXF1ZXN0LlVzZXJBdHRyc0VudHJ5GjAKDlVzZXJBdHRyc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEqGwoJTnVsbFZhbHVlEg4KCk5VTExfVkFMVUUQAA',
-  );
+export const file_variants: GenFile = /*@__PURE__*/
+  fileDesc("Cg52YXJpYW50cy5wcm90byJkCgZTdHJ1Y3QSIwoGZmllbGRzGAEgAygLMhMuU3RydWN0LkZpZWxkc0VudHJ5GjUKC0ZpZWxkc0VudHJ5EgsKA2tleRgBIAEoCRIVCgV2YWx1ZRgCIAEoCzIGLlZhbHVlOgI4ASKxAQoFVmFsdWUSIAoKbnVsbF92YWx1ZRgBIAEoDjIKLk51bGxWYWx1ZUgAEhYKDG51bWJlcl92YWx1ZRgCIAEoAUgAEhYKDHN0cmluZ192YWx1ZRgDIAEoCUgAEhQKCmJvb2xfdmFsdWUYBCABKAhIABIWCgx2YXJpbnRfdmFsdWUYBSABKARIABIgCgpsaXN0X3ZhbHVlGAYgASgLMgouTGlzdFZhbHVlSABCBgoEa2luZCIjCglMaXN0VmFsdWUSFgoGdmFsdWVzGAEgAygLMgYuVmFsdWUiTgoWRmVhdHVyZVJlc3BvbnNlX1BhcmFtcxIMCgRuYW1lGAEgAigJEg0KBXZhbHVlGAIgASgIEhcKBnZhbHVlcxgDIAEoCzIHLlN0cnVjdCI8Cg9GZWF0dXJlUmVzcG9uc2USKQoIdmFyaWFudHMYASADKAsyFy5GZWF0dXJlUmVzcG9uc2VfUGFyYW1zIiYKFUZlYXR1cmVSZXF1ZXN0X1BhcmFtcxINCgVwYXJhbRgBIAMoCSK1AQoORmVhdHVyZVJlcXVlc3QSJgoGcGFyYW1zGAEgAygLMhYuRmVhdHVyZVJlcXVlc3RfUGFyYW1zEhUKDXN0cl9wbGF5ZXJfaWQYAiABKAkSMgoKdXNlcl9hdHRycxgDIAMoCzIeLkZlYXR1cmVSZXF1ZXN0LlVzZXJBdHRyc0VudHJ5GjAKDlVzZXJBdHRyc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEqGwoJTnVsbFZhbHVlEg4KCk5VTExfVkFMVUUQAA");
 
 /**
  * https://github.com/protocolbuffers/protobuf/blob/master/src/google/protobuf/struct.proto {
@@ -28,7 +25,7 @@ export const file_variants: GenFile =
  *
  * @generated from message Struct
  */
-export type Struct = Message<'Struct'> & {
+export type Struct = Message<"Struct"> & {
   /**
    * Unordered map of dynamically typed values.
    *
@@ -41,7 +38,8 @@ export type Struct = Message<'Struct'> & {
  * Describes the message Struct.
  * Use `create(StructSchema)` to create a new message.
  */
-export const StructSchema: GenMessage<Struct> = /*@__PURE__*/ messageDesc(file_variants, 0);
+export const StructSchema: GenMessage<Struct> = /*@__PURE__*/
+  messageDesc(file_variants, 0);
 
 /**
  * `Value` represents a dynamically typed value which can be either
@@ -53,75 +51,69 @@ export const StructSchema: GenMessage<Struct> = /*@__PURE__*/ messageDesc(file_v
  *
  * @generated from message Value
  */
-export type Value = Message<'Value'> & {
+export type Value = Message<"Value"> & {
   /**
    * The kind of value.
    *
    * @generated from oneof Value.kind
    */
-  kind:
-    | {
-        /**
-         * Represents a null value.
-         *
-         * @generated from field: NullValue null_value = 1;
-         */
-        value: NullValue;
-        case: 'nullValue';
-      }
-    | {
-        /**
-         * Represents a double value.
-         *
-         * @generated from field: double number_value = 2;
-         */
-        value: number;
-        case: 'numberValue';
-      }
-    | {
-        /**
-         * Represents a string value.
-         *
-         * @generated from field: string string_value = 3;
-         */
-        value: string;
-        case: 'stringValue';
-      }
-    | {
-        /**
-         * Represents a boolean value.
-         *
-         * @generated from field: bool bool_value = 4;
-         */
-        value: boolean;
-        case: 'boolValue';
-      }
-    | {
-        /**
-         * Represents a integer value.
-         *
-         * @generated from field: uint64 varint_value = 5;
-         */
-        value: bigint;
-        case: 'varintValue';
-      }
-    | {
-        /**
-         * Represents a repeated `Value`.
-         *
-         * @generated from field: ListValue list_value = 6;
-         */
-        value: ListValue;
-        case: 'listValue';
-      }
-    | { case: undefined; value?: undefined };
+  kind: {
+    /**
+     * Represents a null value.
+     *
+     * @generated from field: NullValue null_value = 1;
+     */
+    value: NullValue;
+    case: "nullValue";
+  } | {
+    /**
+     * Represents a double value.
+     *
+     * @generated from field: double number_value = 2;
+     */
+    value: number;
+    case: "numberValue";
+  } | {
+    /**
+     * Represents a string value.
+     *
+     * @generated from field: string string_value = 3;
+     */
+    value: string;
+    case: "stringValue";
+  } | {
+    /**
+     * Represents a boolean value.
+     *
+     * @generated from field: bool bool_value = 4;
+     */
+    value: boolean;
+    case: "boolValue";
+  } | {
+    /**
+     * Represents a integer value.
+     *
+     * @generated from field: uint64 varint_value = 5;
+     */
+    value: bigint;
+    case: "varintValue";
+  } | {
+    /**
+     * Represents a repeated `Value`.
+     *
+     * @generated from field: ListValue list_value = 6;
+     */
+    value: ListValue;
+    case: "listValue";
+  } | { case: undefined; value?: undefined };
 };
 
 /**
  * Describes the message Value.
  * Use `create(ValueSchema)` to create a new message.
  */
-export const ValueSchema: GenMessage<Value> = /*@__PURE__*/ messageDesc(file_variants, 1);
+export const ValueSchema: GenMessage<Value> = /*@__PURE__*/
+  messageDesc(file_variants, 1);
 
 /**
  * `ListValue` is a wrapper around a repeated field of values.
@@ -130,7 +122,7 @@ export const ValueSchema: GenMessage<Value> = /*@__PURE__*/ messageDesc(file_var
  *
  * @generated from message ListValue
  */
-export type ListValue = Message<'ListValue'> & {
+export type ListValue = Message<"ListValue"> & {
   /**
    * Repeated field of dynamically typed values.
    *
@@ -143,12 +135,13 @@ export type ListValue = Message<'ListValue'> & {
  * Describes the message ListValue.
  * Use `create(ListValueSchema)` to create a new message.
  */
-export const ListValueSchema: GenMessage<ListValue> = /*@__PURE__*/ messageDesc(file_variants, 2);
+export const ListValueSchema: GenMessage<ListValue> = /*@__PURE__*/
+  messageDesc(file_variants, 2);
 
 /**
  * @generated from message FeatureResponse_Params
  */
-export type FeatureResponse_Params = Message<'FeatureResponse_Params'> & {
+export type FeatureResponse_Params = Message<"FeatureResponse_Params"> & {
   /**
    * @generated from field: required string name = 1;
    */
@@ -169,14 +162,13 @@ export type FeatureResponse_Params = Message<'FeatureResponse_Params'> & {
  * Describes the message FeatureResponse_Params.
  * Use `create(FeatureResponse_ParamsSchema)` to create a new message.
  */
-export const FeatureResponse_ParamsSchema: GenMessage<FeatureResponse_Params> =
-  /*@__PURE__*/
+export const FeatureResponse_ParamsSchema: GenMessage<FeatureResponse_Params> = /*@__PURE__*/
   messageDesc(file_variants, 3);
 
 /**
  * @generated from message FeatureResponse
  */
-export type FeatureResponse = Message<'FeatureResponse'> & {
+export type FeatureResponse = Message<"FeatureResponse"> & {
   /**
    * @generated from field: repeated FeatureResponse_Params variants = 1;
    */
@@ -187,12 +179,13 @@ export type FeatureResponse = Message<'FeatureResponse'> & {
  * Describes the message FeatureResponse.
  * Use `create(FeatureResponseSchema)` to create a new message.
  */
-export const FeatureResponseSchema: GenMessage<FeatureResponse> = /*@__PURE__*/ messageDesc(file_variants, 4);
+export const FeatureResponseSchema: GenMessage<FeatureResponse> = /*@__PURE__*/
+  messageDesc(file_variants, 4);
 
 /**
  * @generated from message FeatureRequest_Params
  */
-export type FeatureRequest_Params = Message<'FeatureRequest_Params'> & {
+export type FeatureRequest_Params = Message<"FeatureRequest_Params"> & {
   /**
    * @generated from field: repeated string param = 1;
    */
@@ -203,14 +196,13 @@ export type FeatureRequest_Params = Message<'FeatureRequest_Params'> & {
  * Describes the message FeatureRequest_Params.
  * Use `create(FeatureRequest_ParamsSchema)` to create a new message.
  */
-export const FeatureRequest_ParamsSchema: GenMessage<FeatureRequest_Params> =
-  /*@__PURE__*/
+export const FeatureRequest_ParamsSchema: GenMessage<FeatureRequest_Params> = /*@__PURE__*/
   messageDesc(file_variants, 5);
 
 /**
  * @generated from message FeatureRequest
  */
-export type FeatureRequest = Message<'FeatureRequest'> & {
+export type FeatureRequest = Message<"FeatureRequest"> & {
   /**
    * @generated from field: repeated FeatureRequest_Params params = 1;
    */
@@ -231,7 +223,8 @@ export type FeatureRequest = Message<'FeatureRequest'> & {
  * Describes the message FeatureRequest.
  * Use `create(FeatureRequestSchema)` to create a new message.
  */
-export const FeatureRequestSchema: GenMessage<FeatureRequest> = /*@__PURE__*/ messageDesc(file_variants, 6);
+export const FeatureRequestSchema: GenMessage<FeatureRequest> = /*@__PURE__*/
+  messageDesc(file_variants, 6);
 
 /**
  * `NullValue` is a singleton enumeration to represent the null value for the
@@ -253,4 +246,5 @@ export enum NullValue {
 /**
  * Describes the enum NullValue.
  */
-export const NullValueSchema: GenEnum<NullValue> = /*@__PURE__*/ enumDesc(file_variants, 0);
+export const NullValueSchema: GenEnum<NullValue> = /*@__PURE__*/
+  enumDesc(file_variants, 0);

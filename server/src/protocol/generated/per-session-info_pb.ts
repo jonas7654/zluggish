@@ -2,23 +2,20 @@
 // @generated from file per-session-info.proto (syntax proto2)
 /* eslint-disable */
 
-import type { GenFile, GenMessage } from '@bufbuild/protobuf/codegenv2';
-import { fileDesc, messageDesc } from '@bufbuild/protobuf/codegenv2';
-import type { Message } from '@bufbuild/protobuf';
+import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
+import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
+import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file per-session-info.proto.
  */
-export const file_per_session_info: GenFile =
-  /*@__PURE__*/
-  fileDesc(
-    'ChZwZXItc2Vzc2lvbi1pbmZvLnByb3RvIksKClRjcEFkZHJlc3MSCgoCaXAYASABKAkSDAoEcG9ydBgCIAEoBRIQCghsYl9yZWFsbRgDIAEoBRIRCglsYl9jb3Vyc2UYBCABKAUiJwoJVGNwQ29uZmlnEhoKBW5vZGVzGAEgAygLMgsuVGNwQWRkcmVzcyJBCgxQYXJ0bmVyc1VybHMSFgoOdG9kYXlzcGxhbl91cmwYASABKAkSGQoRdHJhaW5pbmdwZWFrc191cmwYAiABKAkigQEKDlBlclNlc3Npb25JbmZvEhEKCXJlbGF5X3VybBgBIAIoCRIbCgRhcGlzGAIgASgLMg0uUGFydG5lcnNVcmxzEgwKBHRpbWUYAyABKAQSGQoFbm9kZXMYBCABKAsyCi5UY3BDb25maWcSFgoObWF4U2VnbVN1YnNjcnMYBSABKAU',
-  );
+export const file_per_session_info: GenFile = /*@__PURE__*/
+  fileDesc("ChZwZXItc2Vzc2lvbi1pbmZvLnByb3RvIksKClRjcEFkZHJlc3MSCgoCaXAYASABKAkSDAoEcG9ydBgCIAEoBRIQCghsYl9yZWFsbRgDIAEoBRIRCglsYl9jb3Vyc2UYBCABKAUiJwoJVGNwQ29uZmlnEhoKBW5vZGVzGAEgAygLMgsuVGNwQWRkcmVzcyJBCgxQYXJ0bmVyc1VybHMSFgoOdG9kYXlzcGxhbl91cmwYASABKAkSGQoRdHJhaW5pbmdwZWFrc191cmwYAiABKAkigQEKDlBlclNlc3Npb25JbmZvEhEKCXJlbGF5X3VybBgBIAIoCRIbCgRhcGlzGAIgASgLMg0uUGFydG5lcnNVcmxzEgwKBHRpbWUYAyABKAQSGQoFbm9kZXMYBCABKAsyCi5UY3BDb25maWcSFgoObWF4U2VnbVN1YnNjcnMYBSABKAU");
 
 /**
  * @generated from message TcpAddress
  */
-export type TcpAddress = Message<'TcpAddress'> & {
+export type TcpAddress = Message<"TcpAddress"> & {
   /**
    * @generated from field: optional string ip = 1;
    */
@@ -48,12 +45,13 @@ export type TcpAddress = Message<'TcpAddress'> & {
  * Describes the message TcpAddress.
  * Use `create(TcpAddressSchema)` to create a new message.
  */
-export const TcpAddressSchema: GenMessage<TcpAddress> = /*@__PURE__*/ messageDesc(file_per_session_info, 0);
+export const TcpAddressSchema: GenMessage<TcpAddress> = /*@__PURE__*/
+  messageDesc(file_per_session_info, 0);
 
 /**
  * @generated from message TcpConfig
  */
-export type TcpConfig = Message<'TcpConfig'> & {
+export type TcpConfig = Message<"TcpConfig"> & {
   /**
    * First server: the TCP telemetry server (34.218.60.145)
    *
@@ -66,12 +64,13 @@ export type TcpConfig = Message<'TcpConfig'> & {
  * Describes the message TcpConfig.
  * Use `create(TcpConfigSchema)` to create a new message.
  */
-export const TcpConfigSchema: GenMessage<TcpConfig> = /*@__PURE__*/ messageDesc(file_per_session_info, 1);
+export const TcpConfigSchema: GenMessage<TcpConfig> = /*@__PURE__*/
+  messageDesc(file_per_session_info, 1);
 
 /**
  * @generated from message PartnersUrls
  */
-export type PartnersUrls = Message<'PartnersUrls'> & {
+export type PartnersUrls = Message<"PartnersUrls"> & {
   /**
    * @generated from field: optional string todaysplan_url = 1;
    */
@@ -87,12 +86,13 @@ export type PartnersUrls = Message<'PartnersUrls'> & {
  * Describes the message PartnersUrls.
  * Use `create(PartnersUrlsSchema)` to create a new message.
  */
-export const PartnersUrlsSchema: GenMessage<PartnersUrls> = /*@__PURE__*/ messageDesc(file_per_session_info, 2);
+export const PartnersUrlsSchema: GenMessage<PartnersUrls> = /*@__PURE__*/
+  messageDesc(file_per_session_info, 2);
 
 /**
  * @generated from message PerSessionInfo
  */
-export type PerSessionInfo = Message<'PerSessionInfo'> & {
+export type PerSessionInfo = Message<"PerSessionInfo"> & {
   /**
    * @generated from field: required string relay_url = 1;
    */
@@ -125,4 +125,5 @@ export type PerSessionInfo = Message<'PerSessionInfo'> & {
  * Describes the message PerSessionInfo.
  * Use `create(PerSessionInfoSchema)` to create a new message.
  */
-export const PerSessionInfoSchema: GenMessage<PerSessionInfo> = /*@__PURE__*/ messageDesc(file_per_session_info, 3);
+export const PerSessionInfoSchema: GenMessage<PerSessionInfo> = /*@__PURE__*/
+  messageDesc(file_per_session_info, 3);

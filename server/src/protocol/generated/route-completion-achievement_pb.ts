@@ -2,23 +2,20 @@
 // @generated from file route-completion-achievement.proto (syntax proto2)
 /* eslint-disable */
 
-import type { GenEnum, GenFile, GenMessage } from '@bufbuild/protobuf/codegenv2';
-import { enumDesc, fileDesc, messageDesc } from '@bufbuild/protobuf/codegenv2';
-import type { Message } from '@bufbuild/protobuf';
+import type { GenEnum, GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
+import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file route-completion-achievement.proto.
  */
-export const file_route_completion_achievement: GenFile =
-  /*@__PURE__*/
-  fileDesc(
-    'CiJyb3V0ZS1jb21wbGV0aW9uLWFjaGlldmVtZW50LnByb3RvIr8BChpSb3V0ZUNvbXBsZXRpb25BY2hpZXZlbWVudBIYChBhY2hpZXZlbWVudF91dWlkGAEgASgJEhIKCnJvdXRlX2hhc2gYAiABKAQSIAoFc3BvcnQYAyABKA4yES5BY2hpZXZlbWVudFNwb3J0EhAKCGJvbnVzX3hwGAQgASgNEhUKDWRpc3BsYXlfdGl0bGUYBSABKAkSFgoOYW5hbHl0aWNzX25hbWUYBiABKAkSEAoIdW5sb2NrZWQYByABKAgiYgotTG9hZFBsYXllclJvdXRlQ29tcGxldGlvbkFjaGlldmVtZW50c1Jlc3BvbnNlEjEKDGFjaGlldmVtZW50cxgBIAMoCzIbLlJvdXRlQ29tcGxldGlvbkFjaGlldmVtZW50IkQKJ1JvdXRlQ29tcGxldGlvbkFjaGlldmVtZW50VW5sb2NrUmVxdWVzdBIZChFhY2hpZXZlbWVudF91dWlkcxgBIAMoCSqRAQoQQWNoaWV2ZW1lbnRTcG9ydBIhCh1BQ0hJRVZFTUVOVF9TUE9SVF9VTlNQRUNJRklFRBAAEh0KGUFDSElFVkVNRU5UX1NQT1JUX0NZQ0xJTkcQARIdChlBQ0hJRVZFTUVOVF9TUE9SVF9SVU5OSU5HEAISHAoYQUNISUVWRU1FTlRfU1BPUlRfUk9XSU5HEAM',
-  );
+export const file_route_completion_achievement: GenFile = /*@__PURE__*/
+  fileDesc("CiJyb3V0ZS1jb21wbGV0aW9uLWFjaGlldmVtZW50LnByb3RvIr8BChpSb3V0ZUNvbXBsZXRpb25BY2hpZXZlbWVudBIYChBhY2hpZXZlbWVudF91dWlkGAEgASgJEhIKCnJvdXRlX2hhc2gYAiABKAQSIAoFc3BvcnQYAyABKA4yES5BY2hpZXZlbWVudFNwb3J0EhAKCGJvbnVzX3hwGAQgASgNEhUKDWRpc3BsYXlfdGl0bGUYBSABKAkSFgoOYW5hbHl0aWNzX25hbWUYBiABKAkSEAoIdW5sb2NrZWQYByABKAgiYgotTG9hZFBsYXllclJvdXRlQ29tcGxldGlvbkFjaGlldmVtZW50c1Jlc3BvbnNlEjEKDGFjaGlldmVtZW50cxgBIAMoCzIbLlJvdXRlQ29tcGxldGlvbkFjaGlldmVtZW50IkQKJ1JvdXRlQ29tcGxldGlvbkFjaGlldmVtZW50VW5sb2NrUmVxdWVzdBIZChFhY2hpZXZlbWVudF91dWlkcxgBIAMoCSqRAQoQQWNoaWV2ZW1lbnRTcG9ydBIhCh1BQ0hJRVZFTUVOVF9TUE9SVF9VTlNQRUNJRklFRBAAEh0KGUFDSElFVkVNRU5UX1NQT1JUX0NZQ0xJTkcQARIdChlBQ0hJRVZFTUVOVF9TUE9SVF9SVU5OSU5HEAISHAoYQUNISUVWRU1FTlRfU1BPUlRfUk9XSU5HEAM");
 
 /**
  * @generated from message RouteCompletionAchievement
  */
-export type RouteCompletionAchievement = Message<'RouteCompletionAchievement'> & {
+export type RouteCompletionAchievement = Message<"RouteCompletionAchievement"> & {
   /**
    * @generated from field: optional string achievement_uuid = 1;
    */
@@ -59,14 +56,13 @@ export type RouteCompletionAchievement = Message<'RouteCompletionAchievement'> &
  * Describes the message RouteCompletionAchievement.
  * Use `create(RouteCompletionAchievementSchema)` to create a new message.
  */
-export const RouteCompletionAchievementSchema: GenMessage<RouteCompletionAchievement> =
-  /*@__PURE__*/
+export const RouteCompletionAchievementSchema: GenMessage<RouteCompletionAchievement> = /*@__PURE__*/
   messageDesc(file_route_completion_achievement, 0);
 
 /**
  * @generated from message LoadPlayerRouteCompletionAchievementsResponse
  */
-export type LoadPlayerRouteCompletionAchievementsResponse = Message<'LoadPlayerRouteCompletionAchievementsResponse'> & {
+export type LoadPlayerRouteCompletionAchievementsResponse = Message<"LoadPlayerRouteCompletionAchievementsResponse"> & {
   /**
    * @generated from field: repeated RouteCompletionAchievement achievements = 1;
    */
@@ -77,14 +73,13 @@ export type LoadPlayerRouteCompletionAchievementsResponse = Message<'LoadPlayerR
  * Describes the message LoadPlayerRouteCompletionAchievementsResponse.
  * Use `create(LoadPlayerRouteCompletionAchievementsResponseSchema)` to create a new message.
  */
-export const LoadPlayerRouteCompletionAchievementsResponseSchema: GenMessage<LoadPlayerRouteCompletionAchievementsResponse> =
-  /*@__PURE__*/
+export const LoadPlayerRouteCompletionAchievementsResponseSchema: GenMessage<LoadPlayerRouteCompletionAchievementsResponse> = /*@__PURE__*/
   messageDesc(file_route_completion_achievement, 1);
 
 /**
  * @generated from message RouteCompletionAchievementUnlockRequest
  */
-export type RouteCompletionAchievementUnlockRequest = Message<'RouteCompletionAchievementUnlockRequest'> & {
+export type RouteCompletionAchievementUnlockRequest = Message<"RouteCompletionAchievementUnlockRequest"> & {
   /**
    * @generated from field: repeated string achievement_uuids = 1;
    */
@@ -95,8 +90,7 @@ export type RouteCompletionAchievementUnlockRequest = Message<'RouteCompletionAc
  * Describes the message RouteCompletionAchievementUnlockRequest.
  * Use `create(RouteCompletionAchievementUnlockRequestSchema)` to create a new message.
  */
-export const RouteCompletionAchievementUnlockRequestSchema: GenMessage<RouteCompletionAchievementUnlockRequest> =
-  /*@__PURE__*/
+export const RouteCompletionAchievementUnlockRequestSchema: GenMessage<RouteCompletionAchievementUnlockRequest> = /*@__PURE__*/
   messageDesc(file_route_completion_achievement, 2);
 
 /**
@@ -127,6 +121,5 @@ export enum AchievementSport {
 /**
  * Describes the enum AchievementSport.
  */
-export const AchievementSportSchema: GenEnum<AchievementSport> =
-  /*@__PURE__*/
+export const AchievementSportSchema: GenEnum<AchievementSport> = /*@__PURE__*/
   enumDesc(file_route_completion_achievement, 0);

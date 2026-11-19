@@ -2,23 +2,20 @@
 // @generated from file user_storage.proto (syntax proto2)
 /* eslint-disable */
 
-import type { GenFile, GenMessage } from '@bufbuild/protobuf/codegenv2';
-import { fileDesc, messageDesc } from '@bufbuild/protobuf/codegenv2';
-import type { Message } from '@bufbuild/protobuf';
+import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
+import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
+import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file user_storage.proto.
  */
-export const file_user_storage: GenFile =
-  /*@__PURE__*/
-  fileDesc(
-    'ChJ1c2VyX3N0b3JhZ2UucHJvdG8iLgoLVXNlclN0b3JhZ2USHwoKYXR0cmlidXRlcxgCIAMoCzILLkF0dHJpYnV0ZXMi3AIKCkF0dHJpYnV0ZXMSJAoNZ2FtZV9zZXR0aW5ncxgWIAEoCzINLkdhbWVTZXR0aW5ncxI1ChRnYXJhZ2VfbGFzdF9zZWxlY3RlZBgXIAEoCzIXLkdhcmFnZUl0ZW1MYXN0U2VsZWN0ZWQSJAoNYmlrZV9wcm9ncmVzcxgYIAEoCzINLkJpa2VQcm9ncmVzcxItChJzcGVjaWFsX2V2ZW50X3NlZW4YGSABKAsyES5TcGVjaWFsRXZlbnRTZWVuEjcKF2RhdGFfY29sbGVjdGlvbl9jb25zZW50GB0gASgLMhYuRGF0YUNvbGxlY3Rpb25Db25zZW50EikKEGJpa2VfcGFpbnRfY29sb3IYHyABKAsyDy5CaWtlUGFpbnRDb2xvchI4ChhiaWtlX2xhc3RfZXF1aXBwZWRfd2hlZWwYICABKAsyFi5CaWtlTGFzdEVxdWlwcGVkV2hlZWwipQQKDEdhbWVTZXR0aW5ncxIKCgJmMhgCIAEoAhIcChRtaW5pbWFsX2xlYWRlcmJvYXJkcxgDIAEoBRIZChFwb3dlcl9tZXRlcl9zbG90MBgEIAEoBRIZChFwb3dlcl9tZXRlcl9zbG90MRgFIAEoBRIZChFwb3dlcl9tZXRlcl9zbG90MhgGIAEoBRIZChFwb3dlcl9tZXRlcl9zbG90MxgHIAEoBRIfChdjbGltYl9ncmFwaF9zZW5zaXRpdml0eRgJIAEoBRIaChJzY3JlZW5fc2hha2Vfc2NhbGUYCiABKAISHQoVc3RyZWFrc19mbGFpcl92aXN1YWxzGAsgASgFEhgKEHJpZGVfc3RhdHNfc2xvdDAYDSABKAUSGAoQcmlkZV9zdGF0c19zbG90MRgOIAEoBRIbChN3b3Jrb3V0X3N0YXRzX3Nsb3QwGA8gASgFEhsKE3dvcmtvdXRfc3RhdHNfc2xvdDEYECABKAUSGwoTd29ya291dF9zdGF0c19zbG90MhgRIAEoBRIbChN3b3Jrb3V0X3N0YXRzX3Nsb3QzGBIgASgFEiAKGHJpZGVfc3RhdHNfd29ya291dF9zbG90MBgTIAEoBRIgChhyaWRlX3N0YXRzX3dvcmtvdXRfc2xvdDEYFCABKAUSGAoQcm91dGVfc29ydF9pbmRleBgVIAEoBRIdChVyb3V0ZV9zb3J0X2Rlc2NlbmRpbmcYFiABKAUiOQoWR2FyYWdlSXRlbUxhc3RTZWxlY3RlZBIRCglzaWduYXR1cmUYASABKAkSDAoEdGltZRgCIAEoBCIzChBTcGVjaWFsRXZlbnRTZWVuEhEKCXNpZ25hdHVyZRgBIAEoCRIMCgR0aW1lGAIgASgEIr8CCgxCaWtlUHJvZ3Jlc3MSEQoJc2lnbmF0dXJlGAEgASgJEg0KBWxldmVsGAIgASgNEhYKDmxldmVsX2Rpc3RhbmNlGAMgASgCEhYKDnRvdGFsX2Rpc3RhbmNlGAQgASgCEhcKD2xldmVsX2VsZXZhdGlvbhgFIAEoAhIXCg90b3RhbF9lbGV2YXRpb24YBiABKAISGQoRbGV2ZWxfbW92aW5nX3RpbWUYByABKAISGQoRdG90YWxfbW92aW5nX3RpbWUYCCABKAISFAoMbGFzdF91cGdyYWRlGAogASgEEgwKBHRpbWUYCyABKAQSIwoNYmlrZV91cGdyYWRlcxgMIAMoCzIMLkJpa2VVcGdyYWRlEgsKA2YxNBgOIAEoDRISCgpwZXJjZW50YWdlGA8gASgCEgsKA2YxNhgQIAEoDSI5CgtCaWtlVXBncmFkZRIMCgR0aW1lGAEgASgEEg0KBWxldmVsGAIgASgNEg0KBXByaWNlGAMgASgNIkkKFURhdGFDb2xsZWN0aW9uQ29uc2VudBIRCglzaWduYXR1cmUYASABKAkSDwoHY29uc2VudBgCIAEoBRIMCgR0aW1lGAMgASgEIjIKDkJpa2VQYWludENvbG9yEhEKCXNpZ25hdHVyZRgBIAEoCRINCgVjb2xvchgCIAEoASJHChVCaWtlTGFzdEVxdWlwcGVkV2hlZWwSEQoJc2lnbmF0dXJlGAEgASgJEg0KBWZyb250GAIgASgJEgwKBHJlYXIYAyABKAk',
-  );
+export const file_user_storage: GenFile = /*@__PURE__*/
+  fileDesc("ChJ1c2VyX3N0b3JhZ2UucHJvdG8iLgoLVXNlclN0b3JhZ2USHwoKYXR0cmlidXRlcxgCIAMoCzILLkF0dHJpYnV0ZXMi3AIKCkF0dHJpYnV0ZXMSJAoNZ2FtZV9zZXR0aW5ncxgWIAEoCzINLkdhbWVTZXR0aW5ncxI1ChRnYXJhZ2VfbGFzdF9zZWxlY3RlZBgXIAEoCzIXLkdhcmFnZUl0ZW1MYXN0U2VsZWN0ZWQSJAoNYmlrZV9wcm9ncmVzcxgYIAEoCzINLkJpa2VQcm9ncmVzcxItChJzcGVjaWFsX2V2ZW50X3NlZW4YGSABKAsyES5TcGVjaWFsRXZlbnRTZWVuEjcKF2RhdGFfY29sbGVjdGlvbl9jb25zZW50GB0gASgLMhYuRGF0YUNvbGxlY3Rpb25Db25zZW50EikKEGJpa2VfcGFpbnRfY29sb3IYHyABKAsyDy5CaWtlUGFpbnRDb2xvchI4ChhiaWtlX2xhc3RfZXF1aXBwZWRfd2hlZWwYICABKAsyFi5CaWtlTGFzdEVxdWlwcGVkV2hlZWwipQQKDEdhbWVTZXR0aW5ncxIKCgJmMhgCIAEoAhIcChRtaW5pbWFsX2xlYWRlcmJvYXJkcxgDIAEoBRIZChFwb3dlcl9tZXRlcl9zbG90MBgEIAEoBRIZChFwb3dlcl9tZXRlcl9zbG90MRgFIAEoBRIZChFwb3dlcl9tZXRlcl9zbG90MhgGIAEoBRIZChFwb3dlcl9tZXRlcl9zbG90MxgHIAEoBRIfChdjbGltYl9ncmFwaF9zZW5zaXRpdml0eRgJIAEoBRIaChJzY3JlZW5fc2hha2Vfc2NhbGUYCiABKAISHQoVc3RyZWFrc19mbGFpcl92aXN1YWxzGAsgASgFEhgKEHJpZGVfc3RhdHNfc2xvdDAYDSABKAUSGAoQcmlkZV9zdGF0c19zbG90MRgOIAEoBRIbChN3b3Jrb3V0X3N0YXRzX3Nsb3QwGA8gASgFEhsKE3dvcmtvdXRfc3RhdHNfc2xvdDEYECABKAUSGwoTd29ya291dF9zdGF0c19zbG90MhgRIAEoBRIbChN3b3Jrb3V0X3N0YXRzX3Nsb3QzGBIgASgFEiAKGHJpZGVfc3RhdHNfd29ya291dF9zbG90MBgTIAEoBRIgChhyaWRlX3N0YXRzX3dvcmtvdXRfc2xvdDEYFCABKAUSGAoQcm91dGVfc29ydF9pbmRleBgVIAEoBRIdChVyb3V0ZV9zb3J0X2Rlc2NlbmRpbmcYFiABKAUiOQoWR2FyYWdlSXRlbUxhc3RTZWxlY3RlZBIRCglzaWduYXR1cmUYASABKAkSDAoEdGltZRgCIAEoBCIzChBTcGVjaWFsRXZlbnRTZWVuEhEKCXNpZ25hdHVyZRgBIAEoCRIMCgR0aW1lGAIgASgEIr8CCgxCaWtlUHJvZ3Jlc3MSEQoJc2lnbmF0dXJlGAEgASgJEg0KBWxldmVsGAIgASgNEhYKDmxldmVsX2Rpc3RhbmNlGAMgASgCEhYKDnRvdGFsX2Rpc3RhbmNlGAQgASgCEhcKD2xldmVsX2VsZXZhdGlvbhgFIAEoAhIXCg90b3RhbF9lbGV2YXRpb24YBiABKAISGQoRbGV2ZWxfbW92aW5nX3RpbWUYByABKAISGQoRdG90YWxfbW92aW5nX3RpbWUYCCABKAISFAoMbGFzdF91cGdyYWRlGAogASgEEgwKBHRpbWUYCyABKAQSIwoNYmlrZV91cGdyYWRlcxgMIAMoCzIMLkJpa2VVcGdyYWRlEgsKA2YxNBgOIAEoDRISCgpwZXJjZW50YWdlGA8gASgCEgsKA2YxNhgQIAEoDSI5CgtCaWtlVXBncmFkZRIMCgR0aW1lGAEgASgEEg0KBWxldmVsGAIgASgNEg0KBXByaWNlGAMgASgNIkkKFURhdGFDb2xsZWN0aW9uQ29uc2VudBIRCglzaWduYXR1cmUYASABKAkSDwoHY29uc2VudBgCIAEoBRIMCgR0aW1lGAMgASgEIjIKDkJpa2VQYWludENvbG9yEhEKCXNpZ25hdHVyZRgBIAEoCRINCgVjb2xvchgCIAEoASJHChVCaWtlTGFzdEVxdWlwcGVkV2hlZWwSEQoJc2lnbmF0dXJlGAEgASgJEg0KBWZyb250GAIgASgJEgwKBHJlYXIYAyABKAk");
 
 /**
  * @generated from message UserStorage
  */
-export type UserStorage = Message<'UserStorage'> & {
+export type UserStorage = Message<"UserStorage"> & {
   /**
    * @generated from field: repeated Attributes attributes = 2;
    */
@@ -29,12 +26,13 @@ export type UserStorage = Message<'UserStorage'> & {
  * Describes the message UserStorage.
  * Use `create(UserStorageSchema)` to create a new message.
  */
-export const UserStorageSchema: GenMessage<UserStorage> = /*@__PURE__*/ messageDesc(file_user_storage, 0);
+export const UserStorageSchema: GenMessage<UserStorage> = /*@__PURE__*/
+  messageDesc(file_user_storage, 0);
 
 /**
  * @generated from message Attributes
  */
-export type Attributes = Message<'Attributes'> & {
+export type Attributes = Message<"Attributes"> & {
   /**
    * @generated from field: optional GameSettings game_settings = 22;
    */
@@ -75,12 +73,13 @@ export type Attributes = Message<'Attributes'> & {
  * Describes the message Attributes.
  * Use `create(AttributesSchema)` to create a new message.
  */
-export const AttributesSchema: GenMessage<Attributes> = /*@__PURE__*/ messageDesc(file_user_storage, 1);
+export const AttributesSchema: GenMessage<Attributes> = /*@__PURE__*/
+  messageDesc(file_user_storage, 1);
 
 /**
  * @generated from message GameSettings
  */
-export type GameSettings = Message<'GameSettings'> & {
+export type GameSettings = Message<"GameSettings"> & {
   /**
    * @generated from field: optional float f2 = 2;
    */
@@ -181,12 +180,13 @@ export type GameSettings = Message<'GameSettings'> & {
  * Describes the message GameSettings.
  * Use `create(GameSettingsSchema)` to create a new message.
  */
-export const GameSettingsSchema: GenMessage<GameSettings> = /*@__PURE__*/ messageDesc(file_user_storage, 2);
+export const GameSettingsSchema: GenMessage<GameSettings> = /*@__PURE__*/
+  messageDesc(file_user_storage, 2);
 
 /**
  * @generated from message GarageItemLastSelected
  */
-export type GarageItemLastSelected = Message<'GarageItemLastSelected'> & {
+export type GarageItemLastSelected = Message<"GarageItemLastSelected"> & {
   /**
    * @generated from field: optional string signature = 1;
    */
@@ -202,14 +202,13 @@ export type GarageItemLastSelected = Message<'GarageItemLastSelected'> & {
  * Describes the message GarageItemLastSelected.
  * Use `create(GarageItemLastSelectedSchema)` to create a new message.
  */
-export const GarageItemLastSelectedSchema: GenMessage<GarageItemLastSelected> =
-  /*@__PURE__*/
+export const GarageItemLastSelectedSchema: GenMessage<GarageItemLastSelected> = /*@__PURE__*/
   messageDesc(file_user_storage, 3);
 
 /**
  * @generated from message SpecialEventSeen
  */
-export type SpecialEventSeen = Message<'SpecialEventSeen'> & {
+export type SpecialEventSeen = Message<"SpecialEventSeen"> & {
   /**
    * @generated from field: optional string signature = 1;
    */
@@ -225,12 +224,13 @@ export type SpecialEventSeen = Message<'SpecialEventSeen'> & {
  * Describes the message SpecialEventSeen.
  * Use `create(SpecialEventSeenSchema)` to create a new message.
  */
-export const SpecialEventSeenSchema: GenMessage<SpecialEventSeen> = /*@__PURE__*/ messageDesc(file_user_storage, 4);
+export const SpecialEventSeenSchema: GenMessage<SpecialEventSeen> = /*@__PURE__*/
+  messageDesc(file_user_storage, 4);
 
 /**
  * @generated from message BikeProgress
  */
-export type BikeProgress = Message<'BikeProgress'> & {
+export type BikeProgress = Message<"BikeProgress"> & {
   /**
    * @generated from field: optional string signature = 1;
    */
@@ -306,12 +306,13 @@ export type BikeProgress = Message<'BikeProgress'> & {
  * Describes the message BikeProgress.
  * Use `create(BikeProgressSchema)` to create a new message.
  */
-export const BikeProgressSchema: GenMessage<BikeProgress> = /*@__PURE__*/ messageDesc(file_user_storage, 5);
+export const BikeProgressSchema: GenMessage<BikeProgress> = /*@__PURE__*/
+  messageDesc(file_user_storage, 5);
 
 /**
  * @generated from message BikeUpgrade
  */
-export type BikeUpgrade = Message<'BikeUpgrade'> & {
+export type BikeUpgrade = Message<"BikeUpgrade"> & {
   /**
    * @generated from field: optional uint64 time = 1;
    */
@@ -332,12 +333,13 @@ export type BikeUpgrade = Message<'BikeUpgrade'> & {
  * Describes the message BikeUpgrade.
  * Use `create(BikeUpgradeSchema)` to create a new message.
  */
-export const BikeUpgradeSchema: GenMessage<BikeUpgrade> = /*@__PURE__*/ messageDesc(file_user_storage, 6);
+export const BikeUpgradeSchema: GenMessage<BikeUpgrade> = /*@__PURE__*/
+  messageDesc(file_user_storage, 6);
 
 /**
  * @generated from message DataCollectionConsent
  */
-export type DataCollectionConsent = Message<'DataCollectionConsent'> & {
+export type DataCollectionConsent = Message<"DataCollectionConsent"> & {
   /**
    * @generated from field: optional string signature = 1;
    */
@@ -358,14 +360,13 @@ export type DataCollectionConsent = Message<'DataCollectionConsent'> & {
  * Describes the message DataCollectionConsent.
  * Use `create(DataCollectionConsentSchema)` to create a new message.
  */
-export const DataCollectionConsentSchema: GenMessage<DataCollectionConsent> =
-  /*@__PURE__*/
+export const DataCollectionConsentSchema: GenMessage<DataCollectionConsent> = /*@__PURE__*/
   messageDesc(file_user_storage, 7);
 
 /**
  * @generated from message BikePaintColor
  */
-export type BikePaintColor = Message<'BikePaintColor'> & {
+export type BikePaintColor = Message<"BikePaintColor"> & {
   /**
    * @generated from field: optional string signature = 1;
    */
@@ -381,12 +382,13 @@ export type BikePaintColor = Message<'BikePaintColor'> & {
  * Describes the message BikePaintColor.
  * Use `create(BikePaintColorSchema)` to create a new message.
  */
-export const BikePaintColorSchema: GenMessage<BikePaintColor> = /*@__PURE__*/ messageDesc(file_user_storage, 8);
+export const BikePaintColorSchema: GenMessage<BikePaintColor> = /*@__PURE__*/
+  messageDesc(file_user_storage, 8);
 
 /**
  * @generated from message BikeLastEquippedWheel
  */
-export type BikeLastEquippedWheel = Message<'BikeLastEquippedWheel'> & {
+export type BikeLastEquippedWheel = Message<"BikeLastEquippedWheel"> & {
   /**
    * @generated from field: optional string signature = 1;
    */
@@ -407,6 +409,5 @@ export type BikeLastEquippedWheel = Message<'BikeLastEquippedWheel'> & {
  * Describes the message BikeLastEquippedWheel.
  * Use `create(BikeLastEquippedWheelSchema)` to create a new message.
  */
-export const BikeLastEquippedWheelSchema: GenMessage<BikeLastEquippedWheel> =
-  /*@__PURE__*/
+export const BikeLastEquippedWheelSchema: GenMessage<BikeLastEquippedWheel> = /*@__PURE__*/
   messageDesc(file_user_storage, 9);

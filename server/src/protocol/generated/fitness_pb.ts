@@ -2,23 +2,20 @@
 // @generated from file fitness.proto (syntax proto2)
 /* eslint-disable */
 
-import type { GenEnum, GenFile, GenMessage } from '@bufbuild/protobuf/codegenv2';
-import { enumDesc, fileDesc, messageDesc } from '@bufbuild/protobuf/codegenv2';
-import type { Message } from '@bufbuild/protobuf';
+import type { GenEnum, GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
+import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file fitness.proto.
  */
-export const file_fitness: GenFile =
-  /*@__PURE__*/
-  fileDesc(
-    'Cg1maXRuZXNzLnByb3RvIoMBCgdGaXRuZXNzEg4KBnN0cmVhaxgBIAEoDRIfCgl0aGlzX3dlZWsYAiABKAsyDC5XZWVrTWV0cmljcxIfCglsYXN0X3dlZWsYAyABKAsyDC5XZWVrTWV0cmljcxIaCgVnb2FscxgEIAEoCzILLlNwb3J0R29hbHMSCgoCZjUYBSABKA0ixQEKC1dlZWtNZXRyaWNzEg0KBXN0YXJ0GAEgASgJEhUKDWZpdG5lc3Nfc2NvcmUYAiABKAISEAoIZGlzdGFuY2UYAyABKA0SEQoJZWxldmF0aW9uGAQgASgNEhMKC21vdmluZ190aW1lGAUgASgNEgwKBHdvcmsYBiABKA0SEAoIY2Fsb3JpZXMYByABKA0SCwoDdHNzGAggASgCEhkKBGRheXMYCSADKAsyCy5EYXlNZXRyaWNzEg4KBnN0YXR1cxgKIAEoCSKsAQoKRGF5TWV0cmljcxILCgNkYXkYASABKAkSEAoIZGlzdGFuY2UYAiABKA0SEQoJZWxldmF0aW9uGAMgASgNEhMKC21vdmluZ190aW1lGAQgASgNEgwKBHdvcmsYBSABKA0SEAoIY2Fsb3JpZXMYBiABKA0SCwoDdHNzGAcgASgCEioKC3Bvd2VyX3pvbmVzGAggAygLMhUuUG93ZXJab25lUGVyY2VudGFnZXMiOAoUUG93ZXJab25lUGVyY2VudGFnZXMSDAoEem9uZRgBIAEoDRISCgpwZXJjZW50YWdlGAIgASgCIp8BCgpTcG9ydEdvYWxzEhkKA2FsbBgBIAEoCzIMLkdvYWxNZXRyaWNzEh0KB2N5Y2xpbmcYAiABKAsyDC5Hb2FsTWV0cmljcxIdCgdydW5uaW5nGAMgASgLMgwuR29hbE1ldHJpY3MSIgoMY3VycmVudF9nb2FsGAQgASgOMgwuR29hbFNldHRpbmcSFAoMbGFzdF91cGRhdGVkGAUgASgEImEKC0dvYWxNZXRyaWNzEgsKA3RzcxgBIAEoDRIQCghjYWxvcmllcxgCIAEoDRIMCgR3b3JrGAMgASgNEhAKCGRpc3RhbmNlGAQgASgNEhMKC21vdmluZ190aW1lGAUgASgNKl0KC0dvYWxTZXR0aW5nEgwKCFRTU19HT0FMEAASCwoHS0pfR09BTBABEhEKDUNBTE9SSUVTX0dPQUwQAhIRCg1ESVNUQU5DRV9HT0FMEAMSDQoJVElNRV9HT0FMEAQ',
-  );
+export const file_fitness: GenFile = /*@__PURE__*/
+  fileDesc("Cg1maXRuZXNzLnByb3RvIoMBCgdGaXRuZXNzEg4KBnN0cmVhaxgBIAEoDRIfCgl0aGlzX3dlZWsYAiABKAsyDC5XZWVrTWV0cmljcxIfCglsYXN0X3dlZWsYAyABKAsyDC5XZWVrTWV0cmljcxIaCgVnb2FscxgEIAEoCzILLlNwb3J0R29hbHMSCgoCZjUYBSABKA0ixQEKC1dlZWtNZXRyaWNzEg0KBXN0YXJ0GAEgASgJEhUKDWZpdG5lc3Nfc2NvcmUYAiABKAISEAoIZGlzdGFuY2UYAyABKA0SEQoJZWxldmF0aW9uGAQgASgNEhMKC21vdmluZ190aW1lGAUgASgNEgwKBHdvcmsYBiABKA0SEAoIY2Fsb3JpZXMYByABKA0SCwoDdHNzGAggASgCEhkKBGRheXMYCSADKAsyCy5EYXlNZXRyaWNzEg4KBnN0YXR1cxgKIAEoCSKsAQoKRGF5TWV0cmljcxILCgNkYXkYASABKAkSEAoIZGlzdGFuY2UYAiABKA0SEQoJZWxldmF0aW9uGAMgASgNEhMKC21vdmluZ190aW1lGAQgASgNEgwKBHdvcmsYBSABKA0SEAoIY2Fsb3JpZXMYBiABKA0SCwoDdHNzGAcgASgCEioKC3Bvd2VyX3pvbmVzGAggAygLMhUuUG93ZXJab25lUGVyY2VudGFnZXMiOAoUUG93ZXJab25lUGVyY2VudGFnZXMSDAoEem9uZRgBIAEoDRISCgpwZXJjZW50YWdlGAIgASgCIp8BCgpTcG9ydEdvYWxzEhkKA2FsbBgBIAEoCzIMLkdvYWxNZXRyaWNzEh0KB2N5Y2xpbmcYAiABKAsyDC5Hb2FsTWV0cmljcxIdCgdydW5uaW5nGAMgASgLMgwuR29hbE1ldHJpY3MSIgoMY3VycmVudF9nb2FsGAQgASgOMgwuR29hbFNldHRpbmcSFAoMbGFzdF91cGRhdGVkGAUgASgEImEKC0dvYWxNZXRyaWNzEgsKA3RzcxgBIAEoDRIQCghjYWxvcmllcxgCIAEoDRIMCgR3b3JrGAMgASgNEhAKCGRpc3RhbmNlGAQgASgNEhMKC21vdmluZ190aW1lGAUgASgNKl0KC0dvYWxTZXR0aW5nEgwKCFRTU19HT0FMEAASCwoHS0pfR09BTBABEhEKDUNBTE9SSUVTX0dPQUwQAhIRCg1ESVNUQU5DRV9HT0FMEAMSDQoJVElNRV9HT0FMEAQ");
 
 /**
  * @generated from message Fitness
  */
-export type Fitness = Message<'Fitness'> & {
+export type Fitness = Message<"Fitness"> & {
   /**
    * @generated from field: optional uint32 streak = 1;
    */
@@ -49,12 +46,13 @@ export type Fitness = Message<'Fitness'> & {
  * Describes the message Fitness.
  * Use `create(FitnessSchema)` to create a new message.
  */
-export const FitnessSchema: GenMessage<Fitness> = /*@__PURE__*/ messageDesc(file_fitness, 0);
+export const FitnessSchema: GenMessage<Fitness> = /*@__PURE__*/
+  messageDesc(file_fitness, 0);
 
 /**
  * @generated from message WeekMetrics
  */
-export type WeekMetrics = Message<'WeekMetrics'> & {
+export type WeekMetrics = Message<"WeekMetrics"> & {
   /**
    * @generated from field: optional string start = 1;
    */
@@ -110,12 +108,13 @@ export type WeekMetrics = Message<'WeekMetrics'> & {
  * Describes the message WeekMetrics.
  * Use `create(WeekMetricsSchema)` to create a new message.
  */
-export const WeekMetricsSchema: GenMessage<WeekMetrics> = /*@__PURE__*/ messageDesc(file_fitness, 1);
+export const WeekMetricsSchema: GenMessage<WeekMetrics> = /*@__PURE__*/
+  messageDesc(file_fitness, 1);
 
 /**
  * @generated from message DayMetrics
  */
-export type DayMetrics = Message<'DayMetrics'> & {
+export type DayMetrics = Message<"DayMetrics"> & {
   /**
    * @generated from field: optional string day = 1;
    */
@@ -161,12 +160,13 @@ export type DayMetrics = Message<'DayMetrics'> & {
  * Describes the message DayMetrics.
  * Use `create(DayMetricsSchema)` to create a new message.
  */
-export const DayMetricsSchema: GenMessage<DayMetrics> = /*@__PURE__*/ messageDesc(file_fitness, 2);
+export const DayMetricsSchema: GenMessage<DayMetrics> = /*@__PURE__*/
+  messageDesc(file_fitness, 2);
 
 /**
  * @generated from message PowerZonePercentages
  */
-export type PowerZonePercentages = Message<'PowerZonePercentages'> & {
+export type PowerZonePercentages = Message<"PowerZonePercentages"> & {
   /**
    * @generated from field: optional uint32 zone = 1;
    */
@@ -182,12 +182,13 @@ export type PowerZonePercentages = Message<'PowerZonePercentages'> & {
  * Describes the message PowerZonePercentages.
  * Use `create(PowerZonePercentagesSchema)` to create a new message.
  */
-export const PowerZonePercentagesSchema: GenMessage<PowerZonePercentages> = /*@__PURE__*/ messageDesc(file_fitness, 3);
+export const PowerZonePercentagesSchema: GenMessage<PowerZonePercentages> = /*@__PURE__*/
+  messageDesc(file_fitness, 3);
 
 /**
  * @generated from message SportGoals
  */
-export type SportGoals = Message<'SportGoals'> & {
+export type SportGoals = Message<"SportGoals"> & {
   /**
    * @generated from field: optional GoalMetrics all = 1;
    */
@@ -218,12 +219,13 @@ export type SportGoals = Message<'SportGoals'> & {
  * Describes the message SportGoals.
  * Use `create(SportGoalsSchema)` to create a new message.
  */
-export const SportGoalsSchema: GenMessage<SportGoals> = /*@__PURE__*/ messageDesc(file_fitness, 4);
+export const SportGoalsSchema: GenMessage<SportGoals> = /*@__PURE__*/
+  messageDesc(file_fitness, 4);
 
 /**
  * @generated from message GoalMetrics
  */
-export type GoalMetrics = Message<'GoalMetrics'> & {
+export type GoalMetrics = Message<"GoalMetrics"> & {
   /**
    * @generated from field: optional uint32 tss = 1;
    */
@@ -254,7 +256,8 @@ export type GoalMetrics = Message<'GoalMetrics'> & {
  * Describes the message GoalMetrics.
  * Use `create(GoalMetricsSchema)` to create a new message.
  */
-export const GoalMetricsSchema: GenMessage<GoalMetrics> = /*@__PURE__*/ messageDesc(file_fitness, 5);
+export const GoalMetricsSchema: GenMessage<GoalMetrics> = /*@__PURE__*/
+  messageDesc(file_fitness, 5);
 
 /**
  * can't conflict with GoalType from goal.proto
@@ -291,4 +294,5 @@ export enum GoalSetting {
 /**
  * Describes the enum GoalSetting.
  */
-export const GoalSettingSchema: GenEnum<GoalSetting> = /*@__PURE__*/ enumDesc(file_fitness, 0);
+export const GoalSettingSchema: GenEnum<GoalSetting> = /*@__PURE__*/
+  enumDesc(file_fitness, 0);

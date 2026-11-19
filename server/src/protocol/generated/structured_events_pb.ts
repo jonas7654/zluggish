@@ -2,23 +2,20 @@
 // @generated from file structured_events.proto (syntax proto2)
 /* eslint-disable */
 
-import type { GenFile, GenMessage } from '@bufbuild/protobuf/codegenv2';
-import { fileDesc, messageDesc } from '@bufbuild/protobuf/codegenv2';
-import type { Message } from '@bufbuild/protobuf';
+import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
+import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
+import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file structured_events.proto.
  */
-export const file_structured_events: GenFile =
-  /*@__PURE__*/
-  fileDesc(
-    'ChdzdHJ1Y3R1cmVkX2V2ZW50cy5wcm90byI0ChpTYXZlU3RydWN0dXJlZEV2ZW50UmVxdWVzdBIWCg5zZXF1ZW5jZU51bWJlchgBIAEoDSI1ChtTYXZlU3RydWN0dXJlZEV2ZW50UmVzcG9uc2USFgoOc2VxdWVuY2VOdW1iZXIYASABKA0',
-  );
+export const file_structured_events: GenFile = /*@__PURE__*/
+  fileDesc("ChdzdHJ1Y3R1cmVkX2V2ZW50cy5wcm90byI0ChpTYXZlU3RydWN0dXJlZEV2ZW50UmVxdWVzdBIWCg5zZXF1ZW5jZU51bWJlchgBIAEoDSI1ChtTYXZlU3RydWN0dXJlZEV2ZW50UmVzcG9uc2USFgoOc2VxdWVuY2VOdW1iZXIYASABKA0");
 
 /**
  * @generated from message SaveStructuredEventRequest
  */
-export type SaveStructuredEventRequest = Message<'SaveStructuredEventRequest'> & {
+export type SaveStructuredEventRequest = Message<"SaveStructuredEventRequest"> & {
   /**
    * @generated from field: optional uint32 sequenceNumber = 1;
    */
@@ -29,14 +26,13 @@ export type SaveStructuredEventRequest = Message<'SaveStructuredEventRequest'> &
  * Describes the message SaveStructuredEventRequest.
  * Use `create(SaveStructuredEventRequestSchema)` to create a new message.
  */
-export const SaveStructuredEventRequestSchema: GenMessage<SaveStructuredEventRequest> =
-  /*@__PURE__*/
+export const SaveStructuredEventRequestSchema: GenMessage<SaveStructuredEventRequest> = /*@__PURE__*/
   messageDesc(file_structured_events, 0);
 
 /**
  * @generated from message SaveStructuredEventResponse
  */
-export type SaveStructuredEventResponse = Message<'SaveStructuredEventResponse'> & {
+export type SaveStructuredEventResponse = Message<"SaveStructuredEventResponse"> & {
   /**
    * @generated from field: optional uint32 sequenceNumber = 1;
    */
@@ -47,6 +43,5 @@ export type SaveStructuredEventResponse = Message<'SaveStructuredEventResponse'>
  * Describes the message SaveStructuredEventResponse.
  * Use `create(SaveStructuredEventResponseSchema)` to create a new message.
  */
-export const SaveStructuredEventResponseSchema: GenMessage<SaveStructuredEventResponse> =
-  /*@__PURE__*/
+export const SaveStructuredEventResponseSchema: GenMessage<SaveStructuredEventResponse> = /*@__PURE__*/
   messageDesc(file_structured_events, 1);

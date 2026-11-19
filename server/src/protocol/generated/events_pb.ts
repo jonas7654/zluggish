@@ -2,26 +2,22 @@
 // @generated from file events.proto (syntax proto2)
 /* eslint-disable */
 
-import type { GenEnum, GenFile, GenMessage } from '@bufbuild/protobuf/codegenv2';
-import { enumDesc, fileDesc, messageDesc } from '@bufbuild/protobuf/codegenv2';
-import type { PlayerType, Sport } from './profile_pb.js';
-import { file_profile } from './profile_pb.js';
-import type { Message } from '@bufbuild/protobuf';
+import type { GenEnum, GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
+import type { PlayerType, Sport } from "./profile_pb.js";
+import { file_profile } from "./profile_pb.js";
+import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file events.proto.
  */
-export const file_events: GenFile =
-  /*@__PURE__*/
-  fileDesc(
-    'CgxldmVudHMucHJvdG8i1QEKE0ludml0ZWRQcm9maWxlUHJvdG8SEQoJcGxheWVyX2lkGAEgAigEEhEKCWZpcnN0TmFtZRgCIAEoCRIQCghsYXN0TmFtZRgDIAEoCRIQCghpbWFnZVNyYxgEIAEoCRIcChRlbnJvbGxlZFp3aWZ0QWNhZGVteRgFIAEoCBIMCgRtYWxlGAYgASgIEiAKC3BsYXllcl90eXBlGAcgASgOMgsuUGxheWVyVHlwZRImCg5ldmVudF9jYXRlZ29yeRgIIAEoDjIOLkV2ZW50Q2F0ZWdvcnkiXQoQRXZlbnRJbnZpdGVQcm90bxIlCgdwcm9maWxlGAEgASgLMhQuSW52aXRlZFByb2ZpbGVQcm90bxIiCgZzdGF0dXMYAiACKA4yEi5FdmVudEludml0ZVN0YXR1cyLLAwoVUHJpdmF0ZUV2ZW50RmVlZFByb3RvEhAKCGV2ZW50X2lkGAEgAigEEhUKBXNwb3J0GAIgASgOMgYuU3BvcnQSGgoSZXZlbnRTdWJncm91cFN0YXJ0GAMgASgEEhAKCHJvdXRlX2lkGAQgASgEEhkKEWR1cmF0aW9uSW5TZWNvbmRzGAUgASgNEhgKEGRpc3RhbmNlSW5NZXRlcnMYBiABKAISFQoNYW5zd2VyZWRDb3VudBgHIAEoBBIZChFpbnZpdGVkVG90YWxDb3VudBgIIAEoDRIdChVhY2NlcHRlZEZvbGxvd2VlQ291bnQYCSABKA0SGgoSYWNjZXB0ZWRUb3RhbENvdW50GAogASgNEhkKEW9yZ2FuaXplckltYWdlVXJsGAsgASgJEhoKEm9yZ2FuaXplclByb2ZpbGVJZBgMIAEoBBIaChJvcmdhbml6ZXJGaXJzdE5hbWUYDSABKAkSGQoRb3JnYW5pemVyTGFzdE5hbWUYDiABKAkSEgoKdXBkYXRlRGF0ZRgPIAEoBBISCgpzdWJncm91cElkGBAgASgEEgwKBGxhcHMYESABKA0SFQoNcnViYmVyYmFuZGluZxgSIAEoCCJAChlQcml2YXRlRXZlbnRGZWVkTGlzdFByb3RvEiMKA3BlZhgBIAMoCzIWLlByaXZhdGVFdmVudEZlZWRQcm90byJGChFQbGF5ZXJKb2luZWRFdmVudBIOCgZyZWxfaWQYASACKAQSEQoJcGxheWVyX2lkGAIgASgEEg4KBnBqZV9mMxgDIAEoBCJECg9QbGF5ZXJMZWZ0RXZlbnQSDgoGcmVsX2lkGAEgAigEEhEKCXBsYXllcl9pZBgCIAEoBBIOCgZwbGVfZjMYAyABKAQi0wcKFUV2ZW50U3ViZ3JvdXBQcm90b2J1ZhIKCgJpZBgBIAIoBBIMCgRuYW1lGAIgASgJEhMKC2Rlc2NyaXB0aW9uGAMgASgJEg4KBmV2c19mNBgEIAEoDRIOCgZldnNfZjUYBSABKA0SDgoGZXZzX2Y2GAYgASgNEg0KBXNjb2RlGAcgASgJEhAKCHJ1bGVzX2lkGAggASgEEhkKEXJlZ2lzdHJhdGlvblN0YXJ0GAkgASgEEhsKE3JlZ2lzdHJhdGlvblN0YXJ0V1QYCiABKAQSFwoPcmVnaXN0cmF0aW9uRW5kGAsgASgEEhkKEXJlZ2lzdHJhdGlvbkVuZFdUGAwgASgEEhMKC2xpbmVVcFN0YXJ0GA0gASgEEhUKDWxpbmVVcFN0YXJ0V1QYDiABKAQSEQoJbGluZVVwRW5kGA8gASgEEhMKC2xpbmVVcEVuZFdUGBAgASgEEhoKEmV2ZW50U3ViZ3JvdXBTdGFydBgRIAEoBBIcChRldmVudFN1Ymdyb3VwU3RhcnRXVBgSIAEoBBIPCgdldnNfZjE5GBMgASgEEg8KB2V2c19mMjAYFCABKAQSDwoHZXZzX2YyMRgVIAEoCBIQCghyb3V0ZV9pZBgWIAIoBBIWCg5pbnZpdGVkTGVhZGVycxgXIAMoBBIYChBkaXN0YW5jZUluTWV0ZXJzGBggASgCEgwKBGxhcHMYGSABKA0SFQoNc3RhcnRMb2NhdGlvbhgdIAEoBBINCgVsYWJlbBgeIAEoDRIQCghwYWNlVHlwZRgfIAEoDRIVCg1mcm9tUGFjZVZhbHVlGCAgASgCEhMKC3RvUGFjZVZhbHVlGCEgASgCEhkKEWR1cmF0aW9uSW5TZWNvbmRzGCIgASgNEg8KB2V2c19mMzUYIyABKA0SEgoKamVyc2V5SGFzaBgkIAEoBBIPCgdldnNfZjM3GCUgASgIEg8KB2V2c19mMzgYJiABKA0SFAoMYXV4aWxpYXJ5VXJsGCcgASgJEhAKCGJpa2VIYXNoGCggASgEEhcKD2ludml0ZWRTd2VlcGVycxgpIAMoBBIPCgdldnNfZjQyGCogASgEEhEKCWN1c3RvbVVybBgrIAEoCRIPCgdldnNfZjQ0GCwgASgIEgwKBHRhZ3MYLSABKAkSGQoRbGF0ZUpvaW5Jbk1pbnV0ZXMYLiABKA0SEQoJY291cnNlX2lkGC8gASgEEg8KB2V2c19mNDgYMCABKAQSEAoIcm91dGVVcmwYMSABKAkSDwoHZXZzX2Y1MBgyIAMoBRIPCgdldnNfZjUxGDMgASgIImcKFU1pY3Jvc2VydmljZUV2ZW50RGF0YRIMCgRuYW1lGAEgASgJEhoKEmV4dGVybmFsUmVzb3VyY2VJZBgCIAEoDBIkCgp2aXNpYmlsaXR5GAMgASgOMhAuRXZlbnRWaXNpYmlsaXR5IkQKE0V2ZW50U2VyaWVzUHJvdG9idWYSCgoCaWQYASABKAQSDAoEbmFtZRgCIAEoCRITCgtkZXNjcmlwdGlvbhgDIAEoCSJ/ChVFdmVudFRpbWVUcmlhbE9wdGlvbnMSHAoUdGltZUdhcEJldHdlZW5Sb3dzTXMYASABKA0SDwoHbWF4Um93cxgCIAEoDRIXCg9tYXhSaWRlcnNQZXJSb3cYAyABKA0SDgoGZXZ0X2Y0GAQgASgNEg4KBmV2dF9mNRgFIAEoBCLPBgoFRXZlbnQSCgoCaWQYASACKAQSFAoMc2VydmVyX3JlYWxtGAIgASgEEgwKBG5hbWUYAyACKAkSEwoLZGVzY3JpcHRpb24YBCABKAkSEgoKZXZlbnRTdGFydBgFIAEoBBIMCgRlX2Y2GAYgASgJEhgKEGRpc3RhbmNlSW5NZXRlcnMYByABKAISDAoEbGFwcxgIIAEoDRIMCgRlX2Y5GAkgASgNEigKCGNhdGVnb3J5GAogAygLMhYuRXZlbnRTdWJncm91cFByb3RvYnVmEg0KBWVfZjExGAsgASgJEhAKCGltYWdlVXJsGAwgASgJEhkKEWR1cmF0aW9uSW5TZWNvbmRzGA0gASgNEhAKCHJvdXRlX2lkGA4gASgEEhAKCHJ1bGVzX2lkGA8gASgEEg0KBWVfZjE2GBAgASgNEg8KB3Zpc2libGUYESABKAgSEgoKamVyc2V5SGFzaBgSIAEoBBINCgVlX2YxORgTIAEoCRINCgVlX2YyMBgUIAEoCRINCgVlX2YyMRgVIAEoCRIVCgVzcG9ydBgWIAEoDjIGLlNwb3J0Eg0KBWVfZjIzGBcgASgEEh0KCWV2ZW50VHlwZRgYIAEoDjIKLkV2ZW50VHlwZRINCgVlX2YyNRgZIAEoBBINCgVlX2YyNhgaIAEoCRINCgVlX2YyNxgbIAEoBBIeChZvdmVycmlkZU1hcFByZWZlcmVuY2VzGBwgASgIEiIKGmludmlzaWJsZVRvTm9uUGFydGljaXBhbnRzGB0gASgIEiYKCGV2U2VyaWVzGB4gASgLMhQuRXZlbnRTZXJpZXNQcm90b2J1ZhIMCgR0YWdzGB8gASgJEg0KBWVfZjMyGCAgASgEEg4KBmVfd3RybBghIAEoCBIZChFsYXRlSm9pbkluTWludXRlcxgiIAEoDRIRCgljb3Vyc2VfaWQYIyABKAQSIwoDdHRvGCQgASgLMhYuRXZlbnRUaW1lVHJpYWxPcHRpb25zEg0KBWVfZjM3GCUgASgJEg0KBWVfZjM4GCYgASgJEg0KBWVfZjM5GCcgASgNEiQKBG1zZWQYKCABKAsyFi5NaWNyb3NlcnZpY2VFdmVudERhdGESDQoFZV9mNDEYKSADKA0iIAoGRXZlbnRzEhYKBmV2ZW50cxgBIAMoCzIGLkV2ZW50IskCChFQcml2YXRlRXZlbnRQcm90bxIKCgJpZBgBIAIoBBIVCgVzcG9ydBgCIAEoDjIGLlNwb3J0EhIKCmV2ZW50U3RhcnQYAyABKAQSDwoHcm91dGVJZBgEIAEoBBIVCg1zdGFydExvY2F0aW9uGAUgASgEEhkKEWR1cmF0aW9uSW5TZWNvbmRzGAYgASgNEhgKEGRpc3RhbmNlSW5NZXRlcnMYByABKAISEwoLZGVzY3JpcHRpb24YCCABKAkSEwoLd29ya291dEhhc2gYCSABKAQSEwoLb3JnYW5pemVySWQYCiABKAQSJwoMZXZlbnRJbnZpdGVzGAsgAygLMhEuRXZlbnRJbnZpdGVQcm90bxITCgtzaG93UmVzdWx0cxgMIAEoCBIMCgRsYXBzGA0gASgNEhUKDXJ1YmJlcmJhbmRpbmcYDiABKAgijwEKE0xhdGVKb2luSW5mb3JtYXRpb24SDwoHcm9hZF9pZBgBIAEoBBIRCglyb2FkX3RpbWUYAiABKAISEgoKaXNfZm9yd2FyZBgDIAEoCBITCgtvcmdhbml6ZXJJZBgEIAEoAxINCgVsal9mNRgFIAEoDRINCgVsal9mNhgGIAEoDRINCgVsal9mNxgHIAEoDSo8ChFFdmVudEludml0ZVN0YXR1cxILCgdQRU5ESU5HEAASDAoIQUNDRVBURUQQARIMCghSRUpFQ1RFRBACKlYKD0V2ZW50VmlzaWJpbGl0eRILCgdFVl9OVUxMEAASEAoMRVZfUFVCX1NIQVJFEAESEgoORVZfQllfUkVTT1VSQ0UQAhIQCgxFVl9TSEFSRUFCTEUQAyqlAQoLRXZlbnRUeXBlVjISFgoSRVZFTlRfVFlQRV9VTktOT1dOEAASFQoRRVZFTlRfVFlQRV9FRk9ORE8QARITCg9FVkVOVF9UWVBFX1JBQ0UQAhIZChVFVkVOVF9UWVBFX0dST1VQX1JJREUQAxIcChhFVkVOVF9UWVBFX0dST1VQX1dPUktPVVQQBBIZChVFVkVOVF9UWVBFX1RJTUVfVFJJQUwQBSpkCglFdmVudFR5cGUSDgoKRVRfVU5LTk9XThAAEgoKBkVGT05ETxABEggKBFJBQ0UQAhIOCgpHUk9VUF9SSURFEAMSEQoNR1JPVVBfV09SS09VVBAEEg4KClRJTUVfVFJJQUwQBSpvCgxFdmVudEN1bGxpbmcSFQoRQ1VMTElOR19VTkRFRklORUQQABIVChFDVUxMSU5HX0VWRVJZQk9EWRABEhYKEkNVTExJTkdfRVZFTlRfT05MWRACEhkKFUNVTExJTkdfU1VCR1JPVVBfT05MWRADKjoKDUV2ZW50Q2F0ZWdvcnkSDQoJRUNfRkVNQUxFEAASCwoHRUNfTUFMRRABEg0KCUVDX0JJTkFSWRAC',
-    [file_profile],
-  );
+export const file_events: GenFile = /*@__PURE__*/
+  fileDesc("CgxldmVudHMucHJvdG8i1QEKE0ludml0ZWRQcm9maWxlUHJvdG8SEQoJcGxheWVyX2lkGAEgAigEEhEKCWZpcnN0TmFtZRgCIAEoCRIQCghsYXN0TmFtZRgDIAEoCRIQCghpbWFnZVNyYxgEIAEoCRIcChRlbnJvbGxlZFp3aWZ0QWNhZGVteRgFIAEoCBIMCgRtYWxlGAYgASgIEiAKC3BsYXllcl90eXBlGAcgASgOMgsuUGxheWVyVHlwZRImCg5ldmVudF9jYXRlZ29yeRgIIAEoDjIOLkV2ZW50Q2F0ZWdvcnkiXQoQRXZlbnRJbnZpdGVQcm90bxIlCgdwcm9maWxlGAEgASgLMhQuSW52aXRlZFByb2ZpbGVQcm90bxIiCgZzdGF0dXMYAiACKA4yEi5FdmVudEludml0ZVN0YXR1cyLLAwoVUHJpdmF0ZUV2ZW50RmVlZFByb3RvEhAKCGV2ZW50X2lkGAEgAigEEhUKBXNwb3J0GAIgASgOMgYuU3BvcnQSGgoSZXZlbnRTdWJncm91cFN0YXJ0GAMgASgEEhAKCHJvdXRlX2lkGAQgASgEEhkKEWR1cmF0aW9uSW5TZWNvbmRzGAUgASgNEhgKEGRpc3RhbmNlSW5NZXRlcnMYBiABKAISFQoNYW5zd2VyZWRDb3VudBgHIAEoBBIZChFpbnZpdGVkVG90YWxDb3VudBgIIAEoDRIdChVhY2NlcHRlZEZvbGxvd2VlQ291bnQYCSABKA0SGgoSYWNjZXB0ZWRUb3RhbENvdW50GAogASgNEhkKEW9yZ2FuaXplckltYWdlVXJsGAsgASgJEhoKEm9yZ2FuaXplclByb2ZpbGVJZBgMIAEoBBIaChJvcmdhbml6ZXJGaXJzdE5hbWUYDSABKAkSGQoRb3JnYW5pemVyTGFzdE5hbWUYDiABKAkSEgoKdXBkYXRlRGF0ZRgPIAEoBBISCgpzdWJncm91cElkGBAgASgEEgwKBGxhcHMYESABKA0SFQoNcnViYmVyYmFuZGluZxgSIAEoCCJAChlQcml2YXRlRXZlbnRGZWVkTGlzdFByb3RvEiMKA3BlZhgBIAMoCzIWLlByaXZhdGVFdmVudEZlZWRQcm90byJGChFQbGF5ZXJKb2luZWRFdmVudBIOCgZyZWxfaWQYASACKAQSEQoJcGxheWVyX2lkGAIgASgEEg4KBnBqZV9mMxgDIAEoBCJECg9QbGF5ZXJMZWZ0RXZlbnQSDgoGcmVsX2lkGAEgAigEEhEKCXBsYXllcl9pZBgCIAEoBBIOCgZwbGVfZjMYAyABKAQi0wcKFUV2ZW50U3ViZ3JvdXBQcm90b2J1ZhIKCgJpZBgBIAIoBBIMCgRuYW1lGAIgASgJEhMKC2Rlc2NyaXB0aW9uGAMgASgJEg4KBmV2c19mNBgEIAEoDRIOCgZldnNfZjUYBSABKA0SDgoGZXZzX2Y2GAYgASgNEg0KBXNjb2RlGAcgASgJEhAKCHJ1bGVzX2lkGAggASgEEhkKEXJlZ2lzdHJhdGlvblN0YXJ0GAkgASgEEhsKE3JlZ2lzdHJhdGlvblN0YXJ0V1QYCiABKAQSFwoPcmVnaXN0cmF0aW9uRW5kGAsgASgEEhkKEXJlZ2lzdHJhdGlvbkVuZFdUGAwgASgEEhMKC2xpbmVVcFN0YXJ0GA0gASgEEhUKDWxpbmVVcFN0YXJ0V1QYDiABKAQSEQoJbGluZVVwRW5kGA8gASgEEhMKC2xpbmVVcEVuZFdUGBAgASgEEhoKEmV2ZW50U3ViZ3JvdXBTdGFydBgRIAEoBBIcChRldmVudFN1Ymdyb3VwU3RhcnRXVBgSIAEoBBIPCgdldnNfZjE5GBMgASgEEg8KB2V2c19mMjAYFCABKAQSDwoHZXZzX2YyMRgVIAEoCBIQCghyb3V0ZV9pZBgWIAIoBBIWCg5pbnZpdGVkTGVhZGVycxgXIAMoBBIYChBkaXN0YW5jZUluTWV0ZXJzGBggASgCEgwKBGxhcHMYGSABKA0SFQoNc3RhcnRMb2NhdGlvbhgdIAEoBBINCgVsYWJlbBgeIAEoDRIQCghwYWNlVHlwZRgfIAEoDRIVCg1mcm9tUGFjZVZhbHVlGCAgASgCEhMKC3RvUGFjZVZhbHVlGCEgASgCEhkKEWR1cmF0aW9uSW5TZWNvbmRzGCIgASgNEg8KB2V2c19mMzUYIyABKA0SEgoKamVyc2V5SGFzaBgkIAEoBBIPCgdldnNfZjM3GCUgASgIEg8KB2V2c19mMzgYJiABKA0SFAoMYXV4aWxpYXJ5VXJsGCcgASgJEhAKCGJpa2VIYXNoGCggASgEEhcKD2ludml0ZWRTd2VlcGVycxgpIAMoBBIPCgdldnNfZjQyGCogASgEEhEKCWN1c3RvbVVybBgrIAEoCRIPCgdldnNfZjQ0GCwgASgIEgwKBHRhZ3MYLSABKAkSGQoRbGF0ZUpvaW5Jbk1pbnV0ZXMYLiABKA0SEQoJY291cnNlX2lkGC8gASgEEg8KB2V2c19mNDgYMCABKAQSEAoIcm91dGVVcmwYMSABKAkSDwoHZXZzX2Y1MBgyIAMoBRIPCgdldnNfZjUxGDMgASgIImcKFU1pY3Jvc2VydmljZUV2ZW50RGF0YRIMCgRuYW1lGAEgASgJEhoKEmV4dGVybmFsUmVzb3VyY2VJZBgCIAEoDBIkCgp2aXNpYmlsaXR5GAMgASgOMhAuRXZlbnRWaXNpYmlsaXR5IkQKE0V2ZW50U2VyaWVzUHJvdG9idWYSCgoCaWQYASABKAQSDAoEbmFtZRgCIAEoCRITCgtkZXNjcmlwdGlvbhgDIAEoCSJ/ChVFdmVudFRpbWVUcmlhbE9wdGlvbnMSHAoUdGltZUdhcEJldHdlZW5Sb3dzTXMYASABKA0SDwoHbWF4Um93cxgCIAEoDRIXCg9tYXhSaWRlcnNQZXJSb3cYAyABKA0SDgoGZXZ0X2Y0GAQgASgNEg4KBmV2dF9mNRgFIAEoBCLPBgoFRXZlbnQSCgoCaWQYASACKAQSFAoMc2VydmVyX3JlYWxtGAIgASgEEgwKBG5hbWUYAyACKAkSEwoLZGVzY3JpcHRpb24YBCABKAkSEgoKZXZlbnRTdGFydBgFIAEoBBIMCgRlX2Y2GAYgASgJEhgKEGRpc3RhbmNlSW5NZXRlcnMYByABKAISDAoEbGFwcxgIIAEoDRIMCgRlX2Y5GAkgASgNEigKCGNhdGVnb3J5GAogAygLMhYuRXZlbnRTdWJncm91cFByb3RvYnVmEg0KBWVfZjExGAsgASgJEhAKCGltYWdlVXJsGAwgASgJEhkKEWR1cmF0aW9uSW5TZWNvbmRzGA0gASgNEhAKCHJvdXRlX2lkGA4gASgEEhAKCHJ1bGVzX2lkGA8gASgEEg0KBWVfZjE2GBAgASgNEg8KB3Zpc2libGUYESABKAgSEgoKamVyc2V5SGFzaBgSIAEoBBINCgVlX2YxORgTIAEoCRINCgVlX2YyMBgUIAEoCRINCgVlX2YyMRgVIAEoCRIVCgVzcG9ydBgWIAEoDjIGLlNwb3J0Eg0KBWVfZjIzGBcgASgEEh0KCWV2ZW50VHlwZRgYIAEoDjIKLkV2ZW50VHlwZRINCgVlX2YyNRgZIAEoBBINCgVlX2YyNhgaIAEoCRINCgVlX2YyNxgbIAEoBBIeChZvdmVycmlkZU1hcFByZWZlcmVuY2VzGBwgASgIEiIKGmludmlzaWJsZVRvTm9uUGFydGljaXBhbnRzGB0gASgIEiYKCGV2U2VyaWVzGB4gASgLMhQuRXZlbnRTZXJpZXNQcm90b2J1ZhIMCgR0YWdzGB8gASgJEg0KBWVfZjMyGCAgASgEEg4KBmVfd3RybBghIAEoCBIZChFsYXRlSm9pbkluTWludXRlcxgiIAEoDRIRCgljb3Vyc2VfaWQYIyABKAQSIwoDdHRvGCQgASgLMhYuRXZlbnRUaW1lVHJpYWxPcHRpb25zEg0KBWVfZjM3GCUgASgJEg0KBWVfZjM4GCYgASgJEg0KBWVfZjM5GCcgASgNEiQKBG1zZWQYKCABKAsyFi5NaWNyb3NlcnZpY2VFdmVudERhdGESDQoFZV9mNDEYKSADKA0iIAoGRXZlbnRzEhYKBmV2ZW50cxgBIAMoCzIGLkV2ZW50IskCChFQcml2YXRlRXZlbnRQcm90bxIKCgJpZBgBIAIoBBIVCgVzcG9ydBgCIAEoDjIGLlNwb3J0EhIKCmV2ZW50U3RhcnQYAyABKAQSDwoHcm91dGVJZBgEIAEoBBIVCg1zdGFydExvY2F0aW9uGAUgASgEEhkKEWR1cmF0aW9uSW5TZWNvbmRzGAYgASgNEhgKEGRpc3RhbmNlSW5NZXRlcnMYByABKAISEwoLZGVzY3JpcHRpb24YCCABKAkSEwoLd29ya291dEhhc2gYCSABKAQSEwoLb3JnYW5pemVySWQYCiABKAQSJwoMZXZlbnRJbnZpdGVzGAsgAygLMhEuRXZlbnRJbnZpdGVQcm90bxITCgtzaG93UmVzdWx0cxgMIAEoCBIMCgRsYXBzGA0gASgNEhUKDXJ1YmJlcmJhbmRpbmcYDiABKAgijwEKE0xhdGVKb2luSW5mb3JtYXRpb24SDwoHcm9hZF9pZBgBIAEoBBIRCglyb2FkX3RpbWUYAiABKAISEgoKaXNfZm9yd2FyZBgDIAEoCBITCgtvcmdhbml6ZXJJZBgEIAEoAxINCgVsal9mNRgFIAEoDRINCgVsal9mNhgGIAEoDRINCgVsal9mNxgHIAEoDSo8ChFFdmVudEludml0ZVN0YXR1cxILCgdQRU5ESU5HEAASDAoIQUNDRVBURUQQARIMCghSRUpFQ1RFRBACKlYKD0V2ZW50VmlzaWJpbGl0eRILCgdFVl9OVUxMEAASEAoMRVZfUFVCX1NIQVJFEAESEgoORVZfQllfUkVTT1VSQ0UQAhIQCgxFVl9TSEFSRUFCTEUQAyqlAQoLRXZlbnRUeXBlVjISFgoSRVZFTlRfVFlQRV9VTktOT1dOEAASFQoRRVZFTlRfVFlQRV9FRk9ORE8QARITCg9FVkVOVF9UWVBFX1JBQ0UQAhIZChVFVkVOVF9UWVBFX0dST1VQX1JJREUQAxIcChhFVkVOVF9UWVBFX0dST1VQX1dPUktPVVQQBBIZChVFVkVOVF9UWVBFX1RJTUVfVFJJQUwQBSpkCglFdmVudFR5cGUSDgoKRVRfVU5LTk9XThAAEgoKBkVGT05ETxABEggKBFJBQ0UQAhIOCgpHUk9VUF9SSURFEAMSEQoNR1JPVVBfV09SS09VVBAEEg4KClRJTUVfVFJJQUwQBSpvCgxFdmVudEN1bGxpbmcSFQoRQ1VMTElOR19VTkRFRklORUQQABIVChFDVUxMSU5HX0VWRVJZQk9EWRABEhYKEkNVTExJTkdfRVZFTlRfT05MWRACEhkKFUNVTExJTkdfU1VCR1JPVVBfT05MWRADKjoKDUV2ZW50Q2F0ZWdvcnkSDQoJRUNfRkVNQUxFEAASCwoHRUNfTUFMRRABEg0KCUVDX0JJTkFSWRAC", [file_profile]);
 
 /**
  * @generated from message InvitedProfileProto
  */
-export type InvitedProfileProto = Message<'InvitedProfileProto'> & {
+export type InvitedProfileProto = Message<"InvitedProfileProto"> & {
   /**
    * @generated from field: required uint64 player_id = 1;
    */
@@ -67,12 +63,13 @@ export type InvitedProfileProto = Message<'InvitedProfileProto'> & {
  * Describes the message InvitedProfileProto.
  * Use `create(InvitedProfileProtoSchema)` to create a new message.
  */
-export const InvitedProfileProtoSchema: GenMessage<InvitedProfileProto> = /*@__PURE__*/ messageDesc(file_events, 0);
+export const InvitedProfileProtoSchema: GenMessage<InvitedProfileProto> = /*@__PURE__*/
+  messageDesc(file_events, 0);
 
 /**
  * @generated from message EventInviteProto
  */
-export type EventInviteProto = Message<'EventInviteProto'> & {
+export type EventInviteProto = Message<"EventInviteProto"> & {
   /**
    * @generated from field: optional InvitedProfileProto profile = 1;
    */
@@ -88,12 +85,13 @@ export type EventInviteProto = Message<'EventInviteProto'> & {
  * Describes the message EventInviteProto.
  * Use `create(EventInviteProtoSchema)` to create a new message.
  */
-export const EventInviteProtoSchema: GenMessage<EventInviteProto> = /*@__PURE__*/ messageDesc(file_events, 1);
+export const EventInviteProtoSchema: GenMessage<EventInviteProto> = /*@__PURE__*/
+  messageDesc(file_events, 1);
 
 /**
  * @generated from message PrivateEventFeedProto
  */
-export type PrivateEventFeedProto = Message<'PrivateEventFeedProto'> & {
+export type PrivateEventFeedProto = Message<"PrivateEventFeedProto"> & {
   /**
    * read in PrivateEventsManagerV2::RegisterPrivateEvent
    *
@@ -197,12 +195,13 @@ export type PrivateEventFeedProto = Message<'PrivateEventFeedProto'> & {
  * Describes the message PrivateEventFeedProto.
  * Use `create(PrivateEventFeedProtoSchema)` to create a new message.
  */
-export const PrivateEventFeedProtoSchema: GenMessage<PrivateEventFeedProto> = /*@__PURE__*/ messageDesc(file_events, 2);
+export const PrivateEventFeedProtoSchema: GenMessage<PrivateEventFeedProto> = /*@__PURE__*/
+  messageDesc(file_events, 2);
 
 /**
  * @generated from message PrivateEventFeedListProto
  */
-export type PrivateEventFeedListProto = Message<'PrivateEventFeedListProto'> & {
+export type PrivateEventFeedListProto = Message<"PrivateEventFeedListProto"> & {
   /**
    * @generated from field: repeated PrivateEventFeedProto pef = 1;
    */
@@ -213,14 +212,13 @@ export type PrivateEventFeedListProto = Message<'PrivateEventFeedListProto'> & {
  * Describes the message PrivateEventFeedListProto.
  * Use `create(PrivateEventFeedListProtoSchema)` to create a new message.
  */
-export const PrivateEventFeedListProtoSchema: GenMessage<PrivateEventFeedListProto> =
-  /*@__PURE__*/
+export const PrivateEventFeedListProtoSchema: GenMessage<PrivateEventFeedListProto> = /*@__PURE__*/
   messageDesc(file_events, 3);
 
 /**
  * @generated from message PlayerJoinedEvent
  */
-export type PlayerJoinedEvent = Message<'PlayerJoinedEvent'> & {
+export type PlayerJoinedEvent = Message<"PlayerJoinedEvent"> & {
   /**
    * subgroup id
    *
@@ -243,12 +241,13 @@ export type PlayerJoinedEvent = Message<'PlayerJoinedEvent'> & {
  * Describes the message PlayerJoinedEvent.
  * Use `create(PlayerJoinedEventSchema)` to create a new message.
  */
-export const PlayerJoinedEventSchema: GenMessage<PlayerJoinedEvent> = /*@__PURE__*/ messageDesc(file_events, 4);
+export const PlayerJoinedEventSchema: GenMessage<PlayerJoinedEvent> = /*@__PURE__*/
+  messageDesc(file_events, 4);
 
 /**
  * @generated from message PlayerLeftEvent
  */
-export type PlayerLeftEvent = Message<'PlayerLeftEvent'> & {
+export type PlayerLeftEvent = Message<"PlayerLeftEvent"> & {
   /**
    * event id
    *
@@ -271,14 +270,15 @@ export type PlayerLeftEvent = Message<'PlayerLeftEvent'> & {
  * Describes the message PlayerLeftEvent.
  * Use `create(PlayerLeftEventSchema)` to create a new message.
  */
-export const PlayerLeftEventSchema: GenMessage<PlayerLeftEvent> = /*@__PURE__*/ messageDesc(file_events, 5);
+export const PlayerLeftEventSchema: GenMessage<PlayerLeftEvent> = /*@__PURE__*/
+  messageDesc(file_events, 5);
 
 /**
  * where is fieldLimit, signedUp, signupStatus, registered, registrationStatus, followeeEntrantCount
  *
  * @generated from message EventSubgroupProtobuf
  */
-export type EventSubgroupProtobuf = Message<'EventSubgroupProtobuf'> & {
+export type EventSubgroupProtobuf = Message<"EventSubgroupProtobuf"> & {
   /**
    * totalEntrantCount, followeeSignedUpCount, totalSignedUpCount, followeeJoinedCount, totalJoinedCount, rulesSet, workoutHash, overrideMapPreferences
    * qualificationRuleIds, accessValidationResult
@@ -603,12 +603,13 @@ export type EventSubgroupProtobuf = Message<'EventSubgroupProtobuf'> & {
  * Describes the message EventSubgroupProtobuf.
  * Use `create(EventSubgroupProtobufSchema)` to create a new message.
  */
-export const EventSubgroupProtobufSchema: GenMessage<EventSubgroupProtobuf> = /*@__PURE__*/ messageDesc(file_events, 6);
+export const EventSubgroupProtobufSchema: GenMessage<EventSubgroupProtobuf> = /*@__PURE__*/
+  messageDesc(file_events, 6);
 
 /**
  * @generated from message MicroserviceEventData
  */
-export type MicroserviceEventData = Message<'MicroserviceEventData'> & {
+export type MicroserviceEventData = Message<"MicroserviceEventData"> & {
   /**
    * "clubs" everywhere (json: microserviceName)
    *
@@ -635,14 +636,15 @@ export type MicroserviceEventData = Message<'MicroserviceEventData'> & {
  * Describes the message MicroserviceEventData.
  * Use `create(MicroserviceEventDataSchema)` to create a new message.
  */
-export const MicroserviceEventDataSchema: GenMessage<MicroserviceEventData> = /*@__PURE__*/ messageDesc(file_events, 7);
+export const MicroserviceEventDataSchema: GenMessage<MicroserviceEventData> = /*@__PURE__*/
+  messageDesc(file_events, 7);
 
 /**
  * {"id":4531,"name":"Zwift Academy Triathlon - Baseline TT","description":null,"imported":false}
  *
  * @generated from message EventSeriesProtobuf
  */
-export type EventSeriesProtobuf = Message<'EventSeriesProtobuf'> & {
+export type EventSeriesProtobuf = Message<"EventSeriesProtobuf"> & {
   /**
    * 5445 or 1485
    *
@@ -669,14 +671,15 @@ export type EventSeriesProtobuf = Message<'EventSeriesProtobuf'> & {
  * Describes the message EventSeriesProtobuf.
  * Use `create(EventSeriesProtobufSchema)` to create a new message.
  */
-export const EventSeriesProtobufSchema: GenMessage<EventSeriesProtobuf> = /*@__PURE__*/ messageDesc(file_events, 8);
+export const EventSeriesProtobufSchema: GenMessage<EventSeriesProtobuf> = /*@__PURE__*/
+  messageDesc(file_events, 8);
 
 /**
  * {"timeGapBetweenRowsMs":15000,"maxRows":50,"maxRidersPerRow":10}
  *
  * @generated from message EventTimeTrialOptions
  */
-export type EventTimeTrialOptions = Message<'EventTimeTrialOptions'> & {
+export type EventTimeTrialOptions = Message<"EventTimeTrialOptions"> & {
   /**
    * 15000 everywhere
    *
@@ -713,14 +716,15 @@ export type EventTimeTrialOptions = Message<'EventTimeTrialOptions'> & {
  * Describes the message EventTimeTrialOptions.
  * Use `create(EventTimeTrialOptionsSchema)` to create a new message.
  */
-export const EventTimeTrialOptionsSchema: GenMessage<EventTimeTrialOptions> = /*@__PURE__*/ messageDesc(file_events, 9);
+export const EventTimeTrialOptionsSchema: GenMessage<EventTimeTrialOptions> = /*@__PURE__*/
+  messageDesc(file_events, 9);
 
 /**
  * real name: EventProtobuf; where is shortName, shortDescription, rulesSet, routeUrl, bikeHash,
  *
  * @generated from message Event
  */
-export type Event = Message<'Event'> & {
+export type Event = Message<"Event"> & {
   /**
    * privateEvent, followeeEntrantCount, totalEntrantCount, followeeSignedUpCount, totalSignedUpCount, followeeJoinedCount,
    * totalJoinedCount, auxiliaryUrl, imageS3Name, imageS3Bucket, cullingType, recurring, recurringOffset, publishRecurring, parentId, type, workoutHash,
@@ -945,14 +949,15 @@ export type Event = Message<'Event'> & {
  * Describes the message Event.
  * Use `create(EventSchema)` to create a new message.
  */
-export const EventSchema: GenMessage<Event> = /*@__PURE__*/ messageDesc(file_events, 10);
+export const EventSchema: GenMessage<Event> = /*@__PURE__*/
+  messageDesc(file_events, 10);
 
 /**
  * real name: EventsProtobuf
  *
  * @generated from message Events
  */
-export type Events = Message<'Events'> & {
+export type Events = Message<"Events"> & {
   /**
    * @generated from field: repeated Event events = 1;
    */
@@ -963,12 +968,13 @@ export type Events = Message<'Events'> & {
  * Describes the message Events.
  * Use `create(EventsSchema)` to create a new message.
  */
-export const EventsSchema: GenMessage<Events> = /*@__PURE__*/ messageDesc(file_events, 11);
+export const EventsSchema: GenMessage<Events> = /*@__PURE__*/
+  messageDesc(file_events, 11);
 
 /**
  * @generated from message PrivateEventProto
  */
-export type PrivateEventProto = Message<'PrivateEventProto'> & {
+export type PrivateEventProto = Message<"PrivateEventProto"> & {
   /**
    * @generated from field: required uint64 id = 1;
    */
@@ -1048,12 +1054,13 @@ export type PrivateEventProto = Message<'PrivateEventProto'> & {
  * Describes the message PrivateEventProto.
  * Use `create(PrivateEventProtoSchema)` to create a new message.
  */
-export const PrivateEventProtoSchema: GenMessage<PrivateEventProto> = /*@__PURE__*/ messageDesc(file_events, 12);
+export const PrivateEventProtoSchema: GenMessage<PrivateEventProto> = /*@__PURE__*/
+  messageDesc(file_events, 12);
 
 /**
  * @generated from message LateJoinInformation
  */
-export type LateJoinInformation = Message<'LateJoinInformation'> & {
+export type LateJoinInformation = Message<"LateJoinInformation"> & {
   /**
    * @generated from field: optional uint64 road_id = 1;
    */
@@ -1102,7 +1109,8 @@ export type LateJoinInformation = Message<'LateJoinInformation'> & {
  * Describes the message LateJoinInformation.
  * Use `create(LateJoinInformationSchema)` to create a new message.
  */
-export const LateJoinInformationSchema: GenMessage<LateJoinInformation> = /*@__PURE__*/ messageDesc(file_events, 13);
+export const LateJoinInformationSchema: GenMessage<LateJoinInformation> = /*@__PURE__*/
+  messageDesc(file_events, 13);
 
 /**
  * @generated from enum EventInviteStatus
@@ -1127,7 +1135,8 @@ export enum EventInviteStatus {
 /**
  * Describes the enum EventInviteStatus.
  */
-export const EventInviteStatusSchema: GenEnum<EventInviteStatus> = /*@__PURE__*/ enumDesc(file_events, 0);
+export const EventInviteStatusSchema: GenEnum<EventInviteStatus> = /*@__PURE__*/
+  enumDesc(file_events, 0);
 
 /**
  * @generated from enum EventVisibility
@@ -1161,7 +1170,8 @@ export enum EventVisibility {
 /**
  * Describes the enum EventVisibility.
  */
-export const EventVisibilitySchema: GenEnum<EventVisibility> = /*@__PURE__*/ enumDesc(file_events, 1);
+export const EventVisibilitySchema: GenEnum<EventVisibility> = /*@__PURE__*/
+  enumDesc(file_events, 1);
 
 /**
  * @generated from enum EventTypeV2
@@ -1201,7 +1211,8 @@ export enum EventTypeV2 {
 /**
  * Describes the enum EventTypeV2.
  */
-export const EventTypeV2Schema: GenEnum<EventTypeV2> = /*@__PURE__*/ enumDesc(file_events, 2);
+export const EventTypeV2Schema: GenEnum<EventTypeV2> = /*@__PURE__*/
+  enumDesc(file_events, 2);
 
 /**
  * @generated from enum EventType
@@ -1241,7 +1252,8 @@ export enum EventType {
 /**
  * Describes the enum EventType.
  */
-export const EventTypeSchema: GenEnum<EventType> = /*@__PURE__*/ enumDesc(file_events, 3);
+export const EventTypeSchema: GenEnum<EventType> = /*@__PURE__*/
+  enumDesc(file_events, 3);
 
 /**
  * @generated from enum EventCulling
@@ -1271,7 +1283,8 @@ export enum EventCulling {
 /**
  * Describes the enum EventCulling.
  */
-export const EventCullingSchema: GenEnum<EventCulling> = /*@__PURE__*/ enumDesc(file_events, 4);
+export const EventCullingSchema: GenEnum<EventCulling> = /*@__PURE__*/
+  enumDesc(file_events, 4);
 
 /**
  * @generated from enum EventCategory
@@ -1296,4 +1309,5 @@ export enum EventCategory {
 /**
  * Describes the enum EventCategory.
  */
-export const EventCategorySchema: GenEnum<EventCategory> = /*@__PURE__*/ enumDesc(file_events, 5);
+export const EventCategorySchema: GenEnum<EventCategory> = /*@__PURE__*/
+  enumDesc(file_events, 5);

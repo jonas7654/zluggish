@@ -1,6 +1,6 @@
 FROM node:26-bookworm-slim AS build
 WORKDIR /usr/src/app/zluggish
-RUN corepack enable && corepack prepare pnpm@12.18.0 --activate
+RUN npm install --global pnpm@12.18.0
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY server/package.json server/package.json
 COPY web/package.json web/package.json

@@ -2,26 +2,22 @@
 // @generated from file route-result.proto (syntax proto2)
 /* eslint-disable */
 
-import type { GenEnum, GenFile, GenMessage } from '@bufbuild/protobuf/codegenv2';
-import { enumDesc, fileDesc, messageDesc } from '@bufbuild/protobuf/codegenv2';
-import type { PlayerType, PowerType, Sport } from './profile_pb.js';
-import { file_profile } from './profile_pb.js';
-import type { Message } from '@bufbuild/protobuf';
+import type { GenEnum, GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
+import type { PlayerType, PowerType, Sport } from "./profile_pb.js";
+import { file_profile } from "./profile_pb.js";
+import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file route-result.proto.
  */
-export const file_route_result: GenFile =
-  /*@__PURE__*/
-  fileDesc(
-    'ChJyb3V0ZS1yZXN1bHQucHJvdG8ipQQKFlJvdXRlUmVzdWx0U2F2ZVJlcXVlc3QSCgoCZjEYASABKAkSFAoMc2VydmVyX3JlYWxtGAIgASgEEg4KBm1hcF9pZBgDIAEoBBISCgpyb3V0ZV9oYXNoGAQgAigEEhAKCGV2ZW50X2lkGAUgASgEEhIKCndvcmxkX3RpbWUYBiABKAQSEgoKZWxhcHNlZF9tcxgHIAEoBBIeCgpwb3dlcl90eXBlGAggASgOMgouUG93ZXJUeXBlEhcKD3dlaWdodF9pbl9ncmFtcxgJIAEoDRIdChVoZWlnaHRfaW5fY2VudGltZXRlcnMYCiABKA0SCwoDZnRwGAsgASgNEhEKCWF2Z19wb3dlchgMIAEoDRIRCgltYXhfcG93ZXIYDSABKA0SDgoGYXZnX2hyGA4gASgNEg4KBm1heF9ochgPIAEoDRIQCghjYWxvcmllcxgQIAEoDRIXCgZnZW5kZXIYEiABKA4yBy5HZW5kZXISIAoLcGxheWVyX3R5cGUYEyABKA4yCy5QbGF5ZXJUeXBlEhUKBXNwb3J0GBQgASgOMgYuU3BvcnQSEwoLYWN0aXZpdHlfaWQYFSABKAQSEAoIc3RlZXJpbmcYFiABKAgSEgoKaHJfbW9uaXRvchgXIAEoCRITCgtwb3dlcl9tZXRlchgYIAEoCRIUCgxjb250cm9sbGFibGUYGSABKAkSFgoOY2FkZW5jZV9zZW5zb3IYGiABKAkqHgoGR2VuZGVyEggKBE1BTEUQARIKCgZGRU1BTEUQAg',
-    [file_profile],
-  );
+export const file_route_result: GenFile = /*@__PURE__*/
+  fileDesc("ChJyb3V0ZS1yZXN1bHQucHJvdG8ipQQKFlJvdXRlUmVzdWx0U2F2ZVJlcXVlc3QSCgoCZjEYASABKAkSFAoMc2VydmVyX3JlYWxtGAIgASgEEg4KBm1hcF9pZBgDIAEoBBISCgpyb3V0ZV9oYXNoGAQgAigEEhAKCGV2ZW50X2lkGAUgASgEEhIKCndvcmxkX3RpbWUYBiABKAQSEgoKZWxhcHNlZF9tcxgHIAEoBBIeCgpwb3dlcl90eXBlGAggASgOMgouUG93ZXJUeXBlEhcKD3dlaWdodF9pbl9ncmFtcxgJIAEoDRIdChVoZWlnaHRfaW5fY2VudGltZXRlcnMYCiABKA0SCwoDZnRwGAsgASgNEhEKCWF2Z19wb3dlchgMIAEoDRIRCgltYXhfcG93ZXIYDSABKA0SDgoGYXZnX2hyGA4gASgNEg4KBm1heF9ochgPIAEoDRIQCghjYWxvcmllcxgQIAEoDRIXCgZnZW5kZXIYEiABKA4yBy5HZW5kZXISIAoLcGxheWVyX3R5cGUYEyABKA4yCy5QbGF5ZXJUeXBlEhUKBXNwb3J0GBQgASgOMgYuU3BvcnQSEwoLYWN0aXZpdHlfaWQYFSABKAQSEAoIc3RlZXJpbmcYFiABKAgSEgoKaHJfbW9uaXRvchgXIAEoCRITCgtwb3dlcl9tZXRlchgYIAEoCRIUCgxjb250cm9sbGFibGUYGSABKAkSFgoOY2FkZW5jZV9zZW5zb3IYGiABKAkqHgoGR2VuZGVyEggKBE1BTEUQARIKCgZGRU1BTEUQAg", [file_profile]);
 
 /**
  * @generated from message RouteResultSaveRequest
  */
-export type RouteResultSaveRequest = Message<'RouteResultSaveRequest'> & {
+export type RouteResultSaveRequest = Message<"RouteResultSaveRequest"> & {
   /**
    * @generated from field: optional string f1 = 1;
    */
@@ -152,8 +148,7 @@ export type RouteResultSaveRequest = Message<'RouteResultSaveRequest'> & {
  * Describes the message RouteResultSaveRequest.
  * Use `create(RouteResultSaveRequestSchema)` to create a new message.
  */
-export const RouteResultSaveRequestSchema: GenMessage<RouteResultSaveRequest> =
-  /*@__PURE__*/
+export const RouteResultSaveRequestSchema: GenMessage<RouteResultSaveRequest> = /*@__PURE__*/
   messageDesc(file_route_result, 0);
 
 /**
@@ -174,4 +169,5 @@ export enum Gender {
 /**
  * Describes the enum Gender.
  */
-export const GenderSchema: GenEnum<Gender> = /*@__PURE__*/ enumDesc(file_route_result, 0);
+export const GenderSchema: GenEnum<Gender> = /*@__PURE__*/
+  enumDesc(file_route_result, 0);

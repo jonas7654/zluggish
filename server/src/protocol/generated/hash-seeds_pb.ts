@@ -2,23 +2,20 @@
 // @generated from file hash-seeds.proto (syntax proto2)
 /* eslint-disable */
 
-import type { GenFile, GenMessage } from '@bufbuild/protobuf/codegenv2';
-import { fileDesc, messageDesc } from '@bufbuild/protobuf/codegenv2';
-import type { Message } from '@bufbuild/protobuf';
+import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
+import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
+import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file hash-seeds.proto.
  */
-export const file_hash_seeds: GenFile =
-  /*@__PURE__*/
-  fileDesc(
-    'ChBoYXNoLXNlZWRzLnByb3RvIjwKCEhhc2hTZWVkEg0KBXNlZWQxGAEgAigNEg0KBXNlZWQyGAIgAigNEhIKCmV4cGlyeURhdGUYAyACKAQiJQoJSGFzaFNlZWRzEhgKBXNlZWRzGAEgAygLMgkuSGFzaFNlZWQ',
-  );
+export const file_hash_seeds: GenFile = /*@__PURE__*/
+  fileDesc("ChBoYXNoLXNlZWRzLnByb3RvIjwKCEhhc2hTZWVkEg0KBXNlZWQxGAEgAigNEg0KBXNlZWQyGAIgAigNEhIKCmV4cGlyeURhdGUYAyACKAQiJQoJSGFzaFNlZWRzEhgKBXNlZWRzGAEgAygLMgkuSGFzaFNlZWQ");
 
 /**
  * @generated from message HashSeed
  */
-export type HashSeed = Message<'HashSeed'> & {
+export type HashSeed = Message<"HashSeed"> & {
   /**
    * @generated from field: required uint32 seed1 = 1;
    */
@@ -39,12 +36,13 @@ export type HashSeed = Message<'HashSeed'> & {
  * Describes the message HashSeed.
  * Use `create(HashSeedSchema)` to create a new message.
  */
-export const HashSeedSchema: GenMessage<HashSeed> = /*@__PURE__*/ messageDesc(file_hash_seeds, 0);
+export const HashSeedSchema: GenMessage<HashSeed> = /*@__PURE__*/
+  messageDesc(file_hash_seeds, 0);
 
 /**
  * @generated from message HashSeeds
  */
-export type HashSeeds = Message<'HashSeeds'> & {
+export type HashSeeds = Message<"HashSeeds"> & {
   /**
    * @generated from field: repeated HashSeed seeds = 1;
    */
@@ -55,4 +53,5 @@ export type HashSeeds = Message<'HashSeeds'> & {
  * Describes the message HashSeeds.
  * Use `create(HashSeedsSchema)` to create a new message.
  */
-export const HashSeedsSchema: GenMessage<HashSeeds> = /*@__PURE__*/ messageDesc(file_hash_seeds, 1);
+export const HashSeedsSchema: GenMessage<HashSeeds> = /*@__PURE__*/
+  messageDesc(file_hash_seeds, 1);

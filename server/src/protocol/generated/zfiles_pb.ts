@@ -2,23 +2,20 @@
 // @generated from file zfiles.proto (syntax proto2)
 /* eslint-disable */
 
-import type { GenFile, GenMessage } from '@bufbuild/protobuf/codegenv2';
-import { fileDesc, messageDesc } from '@bufbuild/protobuf/codegenv2';
-import type { Message } from '@bufbuild/protobuf';
+import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
+import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
+import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file zfiles.proto.
  */
-export const file_zfiles: GenFile =
-  /*@__PURE__*/
-  fileDesc(
-    'Cgx6ZmlsZXMucHJvdG8iWwoKWkZpbGVQcm90bxIKCgJpZBgBIAEoBBIOCgZmb2xkZXIYAiACKAkSEAoIZmlsZW5hbWUYAyACKAkSDAoEZmlsZRgEIAEoDBIRCgl0aW1lc3RhbXAYBSABKAQiKgoLWkZpbGVzUHJvdG8SGwoGemZpbGVzGAEgAygLMgsuWkZpbGVQcm90bw',
-  );
+export const file_zfiles: GenFile = /*@__PURE__*/
+  fileDesc("Cgx6ZmlsZXMucHJvdG8iWwoKWkZpbGVQcm90bxIKCgJpZBgBIAEoBBIOCgZmb2xkZXIYAiACKAkSEAoIZmlsZW5hbWUYAyACKAkSDAoEZmlsZRgEIAEoDBIRCgl0aW1lc3RhbXAYBSABKAQiKgoLWkZpbGVzUHJvdG8SGwoGemZpbGVzGAEgAygLMgsuWkZpbGVQcm90bw");
 
 /**
  * @generated from message ZFileProto
  */
-export type ZFileProto = Message<'ZFileProto'> & {
+export type ZFileProto = Message<"ZFileProto"> & {
   /**
    * @generated from field: optional uint64 id = 1;
    */
@@ -49,12 +46,13 @@ export type ZFileProto = Message<'ZFileProto'> & {
  * Describes the message ZFileProto.
  * Use `create(ZFileProtoSchema)` to create a new message.
  */
-export const ZFileProtoSchema: GenMessage<ZFileProto> = /*@__PURE__*/ messageDesc(file_zfiles, 0);
+export const ZFileProtoSchema: GenMessage<ZFileProto> = /*@__PURE__*/
+  messageDesc(file_zfiles, 0);
 
 /**
  * @generated from message ZFilesProto
  */
-export type ZFilesProto = Message<'ZFilesProto'> & {
+export type ZFilesProto = Message<"ZFilesProto"> & {
   /**
    * @generated from field: repeated ZFileProto zfiles = 1;
    */
@@ -65,4 +63,5 @@ export type ZFilesProto = Message<'ZFilesProto'> & {
  * Describes the message ZFilesProto.
  * Use `create(ZFilesProtoSchema)` to create a new message.
  */
-export const ZFilesProtoSchema: GenMessage<ZFilesProto> = /*@__PURE__*/ messageDesc(file_zfiles, 1);
+export const ZFilesProtoSchema: GenMessage<ZFilesProto> = /*@__PURE__*/
+  messageDesc(file_zfiles, 1);

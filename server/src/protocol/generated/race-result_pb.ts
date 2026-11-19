@@ -2,28 +2,24 @@
 // @generated from file race-result.proto (syntax proto2)
 /* eslint-disable */
 
-import type { GenFile, GenMessage } from '@bufbuild/protobuf/codegenv2';
-import { fileDesc, messageDesc } from '@bufbuild/protobuf/codegenv2';
-import type { PlayerType, Sport } from './profile_pb.js';
-import { file_profile } from './profile_pb.js';
-import type { Gender } from './route-result_pb.js';
-import { file_route_result } from './route-result_pb.js';
-import type { Message } from '@bufbuild/protobuf';
+import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
+import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
+import type { PlayerType, Sport } from "./profile_pb.js";
+import { file_profile } from "./profile_pb.js";
+import type { Gender } from "./route-result_pb.js";
+import { file_route_result } from "./route-result_pb.js";
+import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file race-result.proto.
  */
-export const file_race_result: GenFile =
-  /*@__PURE__*/
-  fileDesc(
-    'ChFyYWNlLXJlc3VsdC5wcm90byKrAgoaUmFjZVJlc3VsdEVudHJ5U2F2ZVJlcXVlc3QSGQoRZXZlbnRfc3ViZ3JvdXBfaWQYASABKAQSMwoNYWN0aXZpdHlfZGF0YRgCIAEoCzIcLlJhY2VSZXN1bHRFbnRyeUFjdGl2aXR5RGF0YRIxCgpwb3dlcl9kYXRhGAMgASgLMh0uUmFjZVJlc3VsdEVudHJ5Q3JpdGljYWxQRGF0YRIvCgtzZW5zb3JfZGF0YRgEIAEoCzIaLlJhY2VSZXN1bHRFbnRyeVNlbnNvckRhdGESCgoCZjUYBSABKA0SCwoDZjE0GA4gASgNEgsKA2YxNRgPIAEoDRILCgNmMTYYECABKA0SJgoHZGV2aWNlcxgRIAEoCzIVLlJhY2VSZXN1bHREZXZpY2VJbmZvIpkDCg9SYWNlUmVzdWx0RW50cnkSEQoJcGxheWVyX2lkGAEgASgEEhkKEWV2ZW50X3N1Ymdyb3VwX2lkGAIgASgEEhAKCHBvc2l0aW9uGAMgASgNEhAKCGV2ZW50X2lkGAQgASgEEjMKDWFjdGl2aXR5X2RhdGEYBSABKAsyHC5SYWNlUmVzdWx0RW50cnlBY3Rpdml0eURhdGESMQoKcG93ZXJfZGF0YRgGIAEoCzIdLlJhY2VSZXN1bHRFbnRyeUNyaXRpY2FsUERhdGESMQoMcHJvZmlsZV9kYXRhGAcgASgLMhsuUmFjZVJlc3VsdEVudHJ5UHJvZmlsZURhdGESLwoLc2Vuc29yX2RhdGEYCCABKAsyGi5SYWNlUmVzdWx0RW50cnlTZW5zb3JEYXRhEgoKAmY5GAkgASgNEgsKA2YxMhgMIAEoDRILCgNmMTQYDiABKA0SCwoDZjE1GA8gASgNEgsKA2YxNhgQIAEoDRIMCgR0aW1lGBEgASgEEhoKEmRpc3RhbmNlX3RvX2xlYWRlchgSIAEoDSJeChFSYWNlUmVzdWx0U3VtbWFyeRIcCgJmMRgBIAMoCzIQLlJhY2VSZXN1bHRFbnRyeRIcCgJmMhgCIAMoCzIQLlJhY2VSZXN1bHRFbnRyeRINCgV0b3RhbBgDIAEoDSLYAQobUmFjZVJlc3VsdEVudHJ5QWN0aXZpdHlEYXRhEgoKAmYxGAEgASgNEgoKAmYyGAIgASgREhUKBXNwb3J0GAMgASgOMgYuU3BvcnQSEAoIZGlzdGFuY2UYBCABKA0SEgoKZWxhcHNlZF9tcxgFIAEoBBIOCgZtYXBfaWQYBiABKA0SEgoKd29ybGRfdGltZRgHIAEoBBIMCgR0aW1lGAggASgEEgsKA2YxMRgLIAEoDRILCgNmMTIYDCABKA0SCwoDZjEzGA0gASgNEgsKA2YxNBgOIAEoDSJ5ChxSYWNlUmVzdWx0RW50cnlDcml0aWNhbFBEYXRhEhcKD2ZpZnRlZW5fc2Vjb25kcxgBIAEoDRISCgpvbmVfbWludXRlGAIgASgNEhQKDGZpdmVfbWludXRlcxgDIAEoDRIWCg50d2VudHlfbWludXRlcxgEIAEoDSLKAQoaUmFjZVJlc3VsdEVudHJ5UHJvZmlsZURhdGESFwoPd2VpZ2h0X2luX2dyYW1zGAEgASgNEh0KFWhlaWdodF9pbl9jZW50aW1ldGVycxgCIAEoDRIXCgZnZW5kZXIYAyABKA4yBy5HZW5kZXISIAoLcGxheWVyX3R5cGUYBSABKA4yCy5QbGF5ZXJUeXBlEhIKCmZpcnN0X25hbWUYBiABKAkSEQoJbGFzdF9uYW1lGAcgASgJEhIKCmF2YXRhcl91cmwYCSABKAkibQoUUmFjZVJlc3VsdERldmljZUluZm8SEgoKaHJfbW9uaXRvchgBIAEoCRITCgtwb3dlcl9tZXRlchgCIAEoCRIUCgxjb250cm9sbGFibGUYAyABKAkSFgoOY2FkZW5jZV9zZW5zb3IYBCABKAkihwEKGVJhY2VSZXN1bHRFbnRyeVNlbnNvckRhdGESMQoKaGVhcnRfcmF0ZRgBIAEoCzIdLlJhY2VSZXN1bHRFbnRyeUhlYXJ0UmF0ZURhdGESEQoJYXZnX3Bvd2VyGAIgASgNEgoKAmY5GAkgASgNEgsKA2YxMBgKIAEoAhILCgNmMTEYCyABKA0iOgocUmFjZVJlc3VsdEVudHJ5SGVhcnRSYXRlRGF0YRIKCgJmMRgBIAEoDRIOCgZhdmdfaHIYAiABKA0',
-    [file_profile, file_route_result],
-  );
+export const file_race_result: GenFile = /*@__PURE__*/
+  fileDesc("ChFyYWNlLXJlc3VsdC5wcm90byKrAgoaUmFjZVJlc3VsdEVudHJ5U2F2ZVJlcXVlc3QSGQoRZXZlbnRfc3ViZ3JvdXBfaWQYASABKAQSMwoNYWN0aXZpdHlfZGF0YRgCIAEoCzIcLlJhY2VSZXN1bHRFbnRyeUFjdGl2aXR5RGF0YRIxCgpwb3dlcl9kYXRhGAMgASgLMh0uUmFjZVJlc3VsdEVudHJ5Q3JpdGljYWxQRGF0YRIvCgtzZW5zb3JfZGF0YRgEIAEoCzIaLlJhY2VSZXN1bHRFbnRyeVNlbnNvckRhdGESCgoCZjUYBSABKA0SCwoDZjE0GA4gASgNEgsKA2YxNRgPIAEoDRILCgNmMTYYECABKA0SJgoHZGV2aWNlcxgRIAEoCzIVLlJhY2VSZXN1bHREZXZpY2VJbmZvIpkDCg9SYWNlUmVzdWx0RW50cnkSEQoJcGxheWVyX2lkGAEgASgEEhkKEWV2ZW50X3N1Ymdyb3VwX2lkGAIgASgEEhAKCHBvc2l0aW9uGAMgASgNEhAKCGV2ZW50X2lkGAQgASgEEjMKDWFjdGl2aXR5X2RhdGEYBSABKAsyHC5SYWNlUmVzdWx0RW50cnlBY3Rpdml0eURhdGESMQoKcG93ZXJfZGF0YRgGIAEoCzIdLlJhY2VSZXN1bHRFbnRyeUNyaXRpY2FsUERhdGESMQoMcHJvZmlsZV9kYXRhGAcgASgLMhsuUmFjZVJlc3VsdEVudHJ5UHJvZmlsZURhdGESLwoLc2Vuc29yX2RhdGEYCCABKAsyGi5SYWNlUmVzdWx0RW50cnlTZW5zb3JEYXRhEgoKAmY5GAkgASgNEgsKA2YxMhgMIAEoDRILCgNmMTQYDiABKA0SCwoDZjE1GA8gASgNEgsKA2YxNhgQIAEoDRIMCgR0aW1lGBEgASgEEhoKEmRpc3RhbmNlX3RvX2xlYWRlchgSIAEoDSJeChFSYWNlUmVzdWx0U3VtbWFyeRIcCgJmMRgBIAMoCzIQLlJhY2VSZXN1bHRFbnRyeRIcCgJmMhgCIAMoCzIQLlJhY2VSZXN1bHRFbnRyeRINCgV0b3RhbBgDIAEoDSLYAQobUmFjZVJlc3VsdEVudHJ5QWN0aXZpdHlEYXRhEgoKAmYxGAEgASgNEgoKAmYyGAIgASgREhUKBXNwb3J0GAMgASgOMgYuU3BvcnQSEAoIZGlzdGFuY2UYBCABKA0SEgoKZWxhcHNlZF9tcxgFIAEoBBIOCgZtYXBfaWQYBiABKA0SEgoKd29ybGRfdGltZRgHIAEoBBIMCgR0aW1lGAggASgEEgsKA2YxMRgLIAEoDRILCgNmMTIYDCABKA0SCwoDZjEzGA0gASgNEgsKA2YxNBgOIAEoDSJ5ChxSYWNlUmVzdWx0RW50cnlDcml0aWNhbFBEYXRhEhcKD2ZpZnRlZW5fc2Vjb25kcxgBIAEoDRISCgpvbmVfbWludXRlGAIgASgNEhQKDGZpdmVfbWludXRlcxgDIAEoDRIWCg50d2VudHlfbWludXRlcxgEIAEoDSLKAQoaUmFjZVJlc3VsdEVudHJ5UHJvZmlsZURhdGESFwoPd2VpZ2h0X2luX2dyYW1zGAEgASgNEh0KFWhlaWdodF9pbl9jZW50aW1ldGVycxgCIAEoDRIXCgZnZW5kZXIYAyABKA4yBy5HZW5kZXISIAoLcGxheWVyX3R5cGUYBSABKA4yCy5QbGF5ZXJUeXBlEhIKCmZpcnN0X25hbWUYBiABKAkSEQoJbGFzdF9uYW1lGAcgASgJEhIKCmF2YXRhcl91cmwYCSABKAkibQoUUmFjZVJlc3VsdERldmljZUluZm8SEgoKaHJfbW9uaXRvchgBIAEoCRITCgtwb3dlcl9tZXRlchgCIAEoCRIUCgxjb250cm9sbGFibGUYAyABKAkSFgoOY2FkZW5jZV9zZW5zb3IYBCABKAkihwEKGVJhY2VSZXN1bHRFbnRyeVNlbnNvckRhdGESMQoKaGVhcnRfcmF0ZRgBIAEoCzIdLlJhY2VSZXN1bHRFbnRyeUhlYXJ0UmF0ZURhdGESEQoJYXZnX3Bvd2VyGAIgASgNEgoKAmY5GAkgASgNEgsKA2YxMBgKIAEoAhILCgNmMTEYCyABKA0iOgocUmFjZVJlc3VsdEVudHJ5SGVhcnRSYXRlRGF0YRIKCgJmMRgBIAEoDRIOCgZhdmdfaHIYAiABKA0", [file_profile, file_route_result]);
 
 /**
  * @generated from message RaceResultEntrySaveRequest
  */
-export type RaceResultEntrySaveRequest = Message<'RaceResultEntrySaveRequest'> & {
+export type RaceResultEntrySaveRequest = Message<"RaceResultEntrySaveRequest"> & {
   /**
    * @generated from field: optional uint64 event_subgroup_id = 1;
    */
@@ -74,14 +70,13 @@ export type RaceResultEntrySaveRequest = Message<'RaceResultEntrySaveRequest'> &
  * Describes the message RaceResultEntrySaveRequest.
  * Use `create(RaceResultEntrySaveRequestSchema)` to create a new message.
  */
-export const RaceResultEntrySaveRequestSchema: GenMessage<RaceResultEntrySaveRequest> =
-  /*@__PURE__*/
+export const RaceResultEntrySaveRequestSchema: GenMessage<RaceResultEntrySaveRequest> = /*@__PURE__*/
   messageDesc(file_race_result, 0);
 
 /**
  * @generated from message RaceResultEntry
  */
-export type RaceResultEntry = Message<'RaceResultEntry'> & {
+export type RaceResultEntry = Message<"RaceResultEntry"> & {
   /**
    * @generated from field: optional uint64 player_id = 1;
    */
@@ -162,12 +157,13 @@ export type RaceResultEntry = Message<'RaceResultEntry'> & {
  * Describes the message RaceResultEntry.
  * Use `create(RaceResultEntrySchema)` to create a new message.
  */
-export const RaceResultEntrySchema: GenMessage<RaceResultEntry> = /*@__PURE__*/ messageDesc(file_race_result, 1);
+export const RaceResultEntrySchema: GenMessage<RaceResultEntry> = /*@__PURE__*/
+  messageDesc(file_race_result, 1);
 
 /**
  * @generated from message RaceResultSummary
  */
-export type RaceResultSummary = Message<'RaceResultSummary'> & {
+export type RaceResultSummary = Message<"RaceResultSummary"> & {
   /**
    * @generated from field: repeated RaceResultEntry f1 = 1;
    */
@@ -188,12 +184,13 @@ export type RaceResultSummary = Message<'RaceResultSummary'> & {
  * Describes the message RaceResultSummary.
  * Use `create(RaceResultSummarySchema)` to create a new message.
  */
-export const RaceResultSummarySchema: GenMessage<RaceResultSummary> = /*@__PURE__*/ messageDesc(file_race_result, 2);
+export const RaceResultSummarySchema: GenMessage<RaceResultSummary> = /*@__PURE__*/
+  messageDesc(file_race_result, 2);
 
 /**
  * @generated from message RaceResultEntryActivityData
  */
-export type RaceResultEntryActivityData = Message<'RaceResultEntryActivityData'> & {
+export type RaceResultEntryActivityData = Message<"RaceResultEntryActivityData"> & {
   /**
    * @generated from field: optional uint32 f1 = 1;
    */
@@ -259,14 +256,13 @@ export type RaceResultEntryActivityData = Message<'RaceResultEntryActivityData'>
  * Describes the message RaceResultEntryActivityData.
  * Use `create(RaceResultEntryActivityDataSchema)` to create a new message.
  */
-export const RaceResultEntryActivityDataSchema: GenMessage<RaceResultEntryActivityData> =
-  /*@__PURE__*/
+export const RaceResultEntryActivityDataSchema: GenMessage<RaceResultEntryActivityData> = /*@__PURE__*/
   messageDesc(file_race_result, 3);
 
 /**
  * @generated from message RaceResultEntryCriticalPData
  */
-export type RaceResultEntryCriticalPData = Message<'RaceResultEntryCriticalPData'> & {
+export type RaceResultEntryCriticalPData = Message<"RaceResultEntryCriticalPData"> & {
   /**
    * @generated from field: optional uint32 fifteen_seconds = 1;
    */
@@ -292,14 +288,13 @@ export type RaceResultEntryCriticalPData = Message<'RaceResultEntryCriticalPData
  * Describes the message RaceResultEntryCriticalPData.
  * Use `create(RaceResultEntryCriticalPDataSchema)` to create a new message.
  */
-export const RaceResultEntryCriticalPDataSchema: GenMessage<RaceResultEntryCriticalPData> =
-  /*@__PURE__*/
+export const RaceResultEntryCriticalPDataSchema: GenMessage<RaceResultEntryCriticalPData> = /*@__PURE__*/
   messageDesc(file_race_result, 4);
 
 /**
  * @generated from message RaceResultEntryProfileData
  */
-export type RaceResultEntryProfileData = Message<'RaceResultEntryProfileData'> & {
+export type RaceResultEntryProfileData = Message<"RaceResultEntryProfileData"> & {
   /**
    * @generated from field: optional uint32 weight_in_grams = 1;
    */
@@ -340,14 +335,13 @@ export type RaceResultEntryProfileData = Message<'RaceResultEntryProfileData'> &
  * Describes the message RaceResultEntryProfileData.
  * Use `create(RaceResultEntryProfileDataSchema)` to create a new message.
  */
-export const RaceResultEntryProfileDataSchema: GenMessage<RaceResultEntryProfileData> =
-  /*@__PURE__*/
+export const RaceResultEntryProfileDataSchema: GenMessage<RaceResultEntryProfileData> = /*@__PURE__*/
   messageDesc(file_race_result, 5);
 
 /**
  * @generated from message RaceResultDeviceInfo
  */
-export type RaceResultDeviceInfo = Message<'RaceResultDeviceInfo'> & {
+export type RaceResultDeviceInfo = Message<"RaceResultDeviceInfo"> & {
   /**
    * @generated from field: optional string hr_monitor = 1;
    */
@@ -373,14 +367,13 @@ export type RaceResultDeviceInfo = Message<'RaceResultDeviceInfo'> & {
  * Describes the message RaceResultDeviceInfo.
  * Use `create(RaceResultDeviceInfoSchema)` to create a new message.
  */
-export const RaceResultDeviceInfoSchema: GenMessage<RaceResultDeviceInfo> =
-  /*@__PURE__*/
+export const RaceResultDeviceInfoSchema: GenMessage<RaceResultDeviceInfo> = /*@__PURE__*/
   messageDesc(file_race_result, 6);
 
 /**
  * @generated from message RaceResultEntrySensorData
  */
-export type RaceResultEntrySensorData = Message<'RaceResultEntrySensorData'> & {
+export type RaceResultEntrySensorData = Message<"RaceResultEntrySensorData"> & {
   /**
    * @generated from field: optional RaceResultEntryHeartRateData heart_rate = 1;
    */
@@ -411,14 +404,13 @@ export type RaceResultEntrySensorData = Message<'RaceResultEntrySensorData'> & {
  * Describes the message RaceResultEntrySensorData.
  * Use `create(RaceResultEntrySensorDataSchema)` to create a new message.
  */
-export const RaceResultEntrySensorDataSchema: GenMessage<RaceResultEntrySensorData> =
-  /*@__PURE__*/
+export const RaceResultEntrySensorDataSchema: GenMessage<RaceResultEntrySensorData> = /*@__PURE__*/
   messageDesc(file_race_result, 7);
 
 /**
  * @generated from message RaceResultEntryHeartRateData
  */
-export type RaceResultEntryHeartRateData = Message<'RaceResultEntryHeartRateData'> & {
+export type RaceResultEntryHeartRateData = Message<"RaceResultEntryHeartRateData"> & {
   /**
    * @generated from field: optional uint32 f1 = 1;
    */
@@ -434,6 +426,5 @@ export type RaceResultEntryHeartRateData = Message<'RaceResultEntryHeartRateData
  * Describes the message RaceResultEntryHeartRateData.
  * Use `create(RaceResultEntryHeartRateDataSchema)` to create a new message.
  */
-export const RaceResultEntryHeartRateDataSchema: GenMessage<RaceResultEntryHeartRateData> =
-  /*@__PURE__*/
+export const RaceResultEntryHeartRateDataSchema: GenMessage<RaceResultEntryHeartRateData> = /*@__PURE__*/
   messageDesc(file_race_result, 8);

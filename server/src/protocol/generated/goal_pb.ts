@@ -2,26 +2,22 @@
 // @generated from file goal.proto (syntax proto2)
 /* eslint-disable */
 
-import type { GenEnum, GenFile, GenMessage } from '@bufbuild/protobuf/codegenv2';
-import { enumDesc, fileDesc, messageDesc } from '@bufbuild/protobuf/codegenv2';
-import type { Sport } from './profile_pb.js';
-import { file_profile } from './profile_pb.js';
-import type { Message } from '@bufbuild/protobuf';
+import type { GenEnum, GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
+import type { Sport } from "./profile_pb.js";
+import { file_profile } from "./profile_pb.js";
+import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file goal.proto.
  */
-export const file_goal: GenFile =
-  /*@__PURE__*/
-  fileDesc(
-    'Cgpnb2FsLnByb3RvIsUCCgRHb2FsEgoKAmlkGAEgASgEEhEKCXBsYXllcl9pZBgCIAEoBBIVCgVzcG9ydBgDIAEoDjIGLlNwb3J0EgwKBG5hbWUYBCABKAkSFwoEdHlwZRgFIAEoDjIJLkdvYWxUeXBlEiAKC3BlcmlvZGljaXR5GAYgASgOMgsuR29hbFBlcmlvZBIXCg90YXJnZXRfZGlzdGFuY2UYByABKAISFwoPdGFyZ2V0X2R1cmF0aW9uGAggASgCEhcKD2FjdHVhbF9kaXN0YW5jZRgJIAEoAhIXCg9hY3R1YWxfZHVyYXRpb24YCiABKAISEgoKY3JlYXRlZF9vbhgLIAEoBBIXCg9wZXJpb2RfZW5kX2RhdGUYDCABKAQSGwoGc3RhdHVzGA0gASgOMgsuR29hbFN0YXR1cxIQCgh0aW1lem9uZRgOIAEoCSIdCgVHb2FscxIUCgVnb2FscxgBIAMoCzIFLkdvYWwqIgoIR29hbFR5cGUSDAoIRElTVEFOQ0UQABIICgRUSU1FEAEqJQoKR29hbFBlcmlvZBIKCgZXRUVLTFkQABILCgdNT05USExZEAEqJQoKR29hbFN0YXR1cxIKCgZBQ1RJVkUQABILCgdSRVRJUkVEEAE',
-    [file_profile],
-  );
+export const file_goal: GenFile = /*@__PURE__*/
+  fileDesc("Cgpnb2FsLnByb3RvIsUCCgRHb2FsEgoKAmlkGAEgASgEEhEKCXBsYXllcl9pZBgCIAEoBBIVCgVzcG9ydBgDIAEoDjIGLlNwb3J0EgwKBG5hbWUYBCABKAkSFwoEdHlwZRgFIAEoDjIJLkdvYWxUeXBlEiAKC3BlcmlvZGljaXR5GAYgASgOMgsuR29hbFBlcmlvZBIXCg90YXJnZXRfZGlzdGFuY2UYByABKAISFwoPdGFyZ2V0X2R1cmF0aW9uGAggASgCEhcKD2FjdHVhbF9kaXN0YW5jZRgJIAEoAhIXCg9hY3R1YWxfZHVyYXRpb24YCiABKAISEgoKY3JlYXRlZF9vbhgLIAEoBBIXCg9wZXJpb2RfZW5kX2RhdGUYDCABKAQSGwoGc3RhdHVzGA0gASgOMgsuR29hbFN0YXR1cxIQCgh0aW1lem9uZRgOIAEoCSIdCgVHb2FscxIUCgVnb2FscxgBIAMoCzIFLkdvYWwqIgoIR29hbFR5cGUSDAoIRElTVEFOQ0UQABIICgRUSU1FEAEqJQoKR29hbFBlcmlvZBIKCgZXRUVLTFkQABILCgdNT05USExZEAEqJQoKR29hbFN0YXR1cxIKCgZBQ1RJVkUQABILCgdSRVRJUkVEEAE", [file_profile]);
 
 /**
  * @generated from message Goal
  */
-export type Goal = Message<'Goal'> & {
+export type Goal = Message<"Goal"> & {
   /**
    * @generated from field: optional uint64 id = 1;
    */
@@ -109,12 +105,13 @@ export type Goal = Message<'Goal'> & {
  * Describes the message Goal.
  * Use `create(GoalSchema)` to create a new message.
  */
-export const GoalSchema: GenMessage<Goal> = /*@__PURE__*/ messageDesc(file_goal, 0);
+export const GoalSchema: GenMessage<Goal> = /*@__PURE__*/
+  messageDesc(file_goal, 0);
 
 /**
  * @generated from message Goals
  */
-export type Goals = Message<'Goals'> & {
+export type Goals = Message<"Goals"> & {
   /**
    * @generated from field: repeated Goal goals = 1;
    */
@@ -125,7 +122,8 @@ export type Goals = Message<'Goals'> & {
  * Describes the message Goals.
  * Use `create(GoalsSchema)` to create a new message.
  */
-export const GoalsSchema: GenMessage<Goals> = /*@__PURE__*/ messageDesc(file_goal, 1);
+export const GoalsSchema: GenMessage<Goals> = /*@__PURE__*/
+  messageDesc(file_goal, 1);
 
 /**
  * @generated from enum GoalType
@@ -145,7 +143,8 @@ export enum GoalType {
 /**
  * Describes the enum GoalType.
  */
-export const GoalTypeSchema: GenEnum<GoalType> = /*@__PURE__*/ enumDesc(file_goal, 0);
+export const GoalTypeSchema: GenEnum<GoalType> = /*@__PURE__*/
+  enumDesc(file_goal, 0);
 
 /**
  * @generated from enum GoalPeriod
@@ -165,7 +164,8 @@ export enum GoalPeriod {
 /**
  * Describes the enum GoalPeriod.
  */
-export const GoalPeriodSchema: GenEnum<GoalPeriod> = /*@__PURE__*/ enumDesc(file_goal, 1);
+export const GoalPeriodSchema: GenEnum<GoalPeriod> = /*@__PURE__*/
+  enumDesc(file_goal, 1);
 
 /**
  * @generated from enum GoalStatus
@@ -185,4 +185,5 @@ export enum GoalStatus {
 /**
  * Describes the enum GoalStatus.
  */
-export const GoalStatusSchema: GenEnum<GoalStatus> = /*@__PURE__*/ enumDesc(file_goal, 2);
+export const GoalStatusSchema: GenEnum<GoalStatus> = /*@__PURE__*/
+  enumDesc(file_goal, 2);

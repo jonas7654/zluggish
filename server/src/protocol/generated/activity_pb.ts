@@ -2,28 +2,24 @@
 // @generated from file activity.proto (syntax proto2)
 /* eslint-disable */
 
-import type { GenEnum, GenFile, GenMessage } from '@bufbuild/protobuf/codegenv2';
-import { enumDesc, fileDesc, messageDesc } from '@bufbuild/protobuf/codegenv2';
-import type { ActivityPrivacyType, Sport } from './profile_pb.js';
-import { file_profile } from './profile_pb.js';
-import type { Message } from '@bufbuild/protobuf';
+import type { GenEnum, GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
+import type { ActivityPrivacyType, Sport } from "./profile_pb.js";
+import { file_profile } from "./profile_pb.js";
+import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file activity.proto.
  */
-export const file_activity: GenFile =
-  /*@__PURE__*/
-  fileDesc(
-    'Cg5hY3Rpdml0eS5wcm90byKjAQoNTm90YWJsZU1vbWVudBITCgthY3Rpdml0eV9pZBgBIAEoBBIiCgR0eXBlGAIgASgOMhQuTm90YWJsZU1vbWVudFR5cGVaRxIQCghwcmlvcml0eRgDIAEoDRIUCgxpbmNpZGVudFRpbWUYBCABKAQSDAoEYXV4MRgFIAEoCRIMCgRhdXgyGAYgASgJEhUKDWxhcmdlSW1hZ2VVcmwYByABKAkiZwoRU29jaWFsSW50ZXJhY3Rpb24SEQoJcGxheWVyX2lkGAEgASgEEhQKDHRpbWVEdXJhdGlvbhgCIAEoDRIaChJwcm94aW1pdHlUaW1lU2NvcmUYAyABKAISDQoFc2lfZjQYBCABKAkiLgoPQ2x1YkF0dHJpYnV0aW9uEgwKBG5hbWUYASABKAkSDQoFdmFsdWUYAiABKAIiPwoPUGFjZVBhcnRuZXJEYXRhEgsKA3drZxgBIAEoAhIMCgR0aW1lGAIgASgCEhEKCXBsYXllcl9pZBgDIAEoBCLrBgoIQWN0aXZpdHkSCgoCaWQYASABKAQSEQoJcGxheWVyX2lkGAIgAigEEhEKCWNvdXJzZV9pZBgDIAIoBBIMCgRuYW1lGAQgAigJEgoKAmY1GAUgASgJEhcKD3ByaXZhdGVBY3Rpdml0eRgGIAEoCBISCgpzdGFydF9kYXRlGAcgAigJEhAKCGVuZF9kYXRlGAggASgJEhgKEGRpc3RhbmNlSW5NZXRlcnMYCSABKAISFgoOYXZnX2hlYXJ0X3JhdGUYCiABKAISFgoObWF4X2hlYXJ0X3JhdGUYCyABKAISEQoJYXZnX3dhdHRzGAwgASgCEhEKCW1heF93YXR0cxgNIAEoAhITCgthdmdfY2FkZW5jZRgOIAEoAhITCgttYXhfY2FkZW5jZRgPIAEoAhIRCglhdmdfc3BlZWQYECABKAISEQoJbWF4X3NwZWVkGBEgASgCEhAKCGNhbG9yaWVzGBIgASgCEhcKD3RvdGFsX2VsZXZhdGlvbhgTIAEoAhIYChBzdHJhdmFfdXBsb2FkX2lkGBQgASgEEhoKEnN0cmF2YV9hY3Rpdml0eV9pZBgVIAEoBBILCgNmMjIYFiABKAkSCwoDZjIzGBcgASgNEgsKA2ZpdBgYIAEoDBIUCgxmaXRfZmlsZW5hbWUYGSABKAkSEgoKc3ViZ3JvdXBJZBgaIAEoBBITCgt3b3Jrb3V0SGFzaBgbIAEoBBIaChJwcm9ncmVzc1BlcmNlbnRhZ2UYHCABKAISFQoFc3BvcnQYHSABKA4yBi5TcG9ydBIMCgRkYXRlGB8gASgJEg8KB2FjdF9mMzIYICABKAISDwoHYWN0X2YzMxghIAEoCRIPCgdhY3RfZjM0GCIgASgJEiUKB3ByaXZhY3kYJSABKA4yFC5BY3Rpdml0eVByaXZhY3lUeXBlEigKD2ZpdG5lc3NfcHJpdmFjeRgmIAEoDjIPLkZpdG5lc3NQcml2YWN5EhEKCWNsdWJfbmFtZRgnIAEoCRIWCg5tb3ZpbmdUaW1lSW5NcxgoIAEoAxIMCgR3b3JrGCwgASgCEgsKA3RzcxgtIAEoAhIYChBub3JtYWxpemVkX3Bvd2VyGC4gASgCEhMKC3Bvd2VyX3pvbmVzGDAgAygNEhMKC3Bvd2VyX3VuaXRzGDEgASgCIi0KDEFjdGl2aXR5TGlzdBIdCgphY3Rpdml0aWVzGAEgAygLMgkuQWN0aXZpdHkiMQoNQWN0aXZpdHlJbWFnZRITCgthY3Rpdml0eV9pZBgCIAIoBBILCgNqcGcYAyACKAwiRwoYQWN0aXZpdHlNZWRpYVNhdmVSZXF1ZXN0EhQKDGNvbnRlbnRfdHlwZRgBIAEoCRIVCg1jaGVja3N1bV9zaGExGAIgASgJIjIKIEFjdGl2aXR5TWVkaWFTYXZlUmVzdWx0S2V5VmFsdWVzEg4KBnZhbHVlcxgBIAMoCSLpAQoXQWN0aXZpdHlNZWRpYVNhdmVSZXN1bHQSEgoKdXBsb2FkX3VybBgBIAIoCRIcChRleHBpcmF0aW9uX2luX21pbGxpcxgCIAEoBBJDCg5zaWduZWRfaGVhZGVycxgDIAMoCzIrLkFjdGl2aXR5TWVkaWFTYXZlUmVzdWx0LlNpZ25lZEhlYWRlcnNFbnRyeRpXChJTaWduZWRIZWFkZXJzRW50cnkSCwoDa2V5GAEgASgJEjAKBXZhbHVlGAIgASgLMiEuQWN0aXZpdHlNZWRpYVNhdmVSZXN1bHRLZXlWYWx1ZXM6AjgBKuUCChROb3RhYmxlTW9tZW50VHlwZVpDQRIdChlOTVRDX0FDSElFVkVNRU5UX1VOTE9DS0VEEAESFgoSTk1UQ19VTkxPQ0tFRF9JVEVNEAISGgoWTk1UQ19NSVNTSU9OX0NPTVBMRVRFRBADEhsKF05NVENfRklOSVNIRURfQ0hBTExFTkdFEAQSGQoVTk1UQ19UT09LX0FSQ0hfSkVSU0VZEAUSDwoLTk1UQ19ORVdfUFIQBhIZChVOTVRDX01FVF9EQUlMWV9UQVJHRVQQBxIVChFOTVRDX0dBSU5FRF9MRVZFTBAIEhcKE05NVENfQ09NUExFVEVEX0dPQUwQCRIXChNOTVRDX0ZJTklTSEVEX0VWRU5UEAoSGQoVTk1UQ19GSU5JU0hFRF9XT1JLT1VUEAsSEAoMTk1UQ19SSURFX09OEAwSIAocTk1UQ19UUkFJTklOR19QTEFOX0NPTVBMRVRFRBANKvIEChdOb3RhYmxlTW9tZW50VHlwZVpHX2lkeBIQCgxOTVRJX1VOS05PV04QABIPCgtOTVRJX05FV19QUhABEhUKEU5NVElfR0FJTkVEX0xFVkVMEAISHwobTk1USV9UUkFJTklOR19QTEFOX0NPTVBMRVRFEAMSFgoSTk1USV9VTkxPQ0tFRF9JVEVNEAQSHQoZTk1USV9BQ0hJRVZFTUVOVF9VTkxPQ0tFRBAFEhoKFk5NVElfTUlTU0lPTl9DT01QTEVURUQQBhIXChNOTVRJX0NPTVBMRVRFRF9HT0FMEAcSGQoVTk1USV9NRVRfREFJTFlfVEFSR0VUEAgSGQoVTk1USV9UT09LX0FSQ0hfSkVSU0VZEAkSGwoXTk1USV9GSU5JU0hFRF9DSEFMTEVOR0UQChIXChNOTVRJX0ZJTklTSEVEX0VWRU5UEAsSGQoVTk1USV9GSU5JU0hFRF9XT1JLT1VUEAwSFwoTTk1USV9BQ1RJVklUWV9CRVNUUxANEg8KC05NVElfUklERU9OEA4SEwoPTk1USV9SSURFT05fSU5UEA8SEwoPTk1USV9RVUlUX0VWRU5UEBASFQoRTk1USV9VU0VEX1BPV0VSVVAQERIbChdOTVRJX1BBU1NFRF9USU1JTkdfQVJDSBASEhUKEU5NVElfQ1JFQVRFRF9HT0FMEBMSFQoRTk1USV9KT0lORURfRVZFTlQQFBIYChROTVRJX1NUQVJURURfV09SS09VVBAVEhgKFE5NVElfU1RBUlRFRF9NSVNTSU9OEBYSHwobTk1USV9IT0xJREFZX0VWRU5UX0NPTVBMRVRFEBcqxQQKE05vdGFibGVNb21lbnRUeXBlWkcSDgoKTk1UX05FV19QUhAAEhQKEE5NVF9HQUlORURfTEVWRUwQBRIeChpOTVRfVFJBSU5JTkdfUExBTl9DT01QTEVURRATEhUKEU5NVF9VTkxPQ0tFRF9JVEVNEAQSHAoYTk1UX0FDSElFVkVNRU5UX1VOTE9DS0VEEAISGQoVTk1UX01JU1NJT05fQ09NUExFVEVEEAMSFgoSTk1UX0NPTVBMRVRFRF9HT0FMEAoSGAoUTk1UX01FVF9EQUlMWV9UQVJHRVQQARIYChROTVRfVE9PS19BUkNIX0pFUlNFWRAIEhoKFk5NVF9GSU5JU0hFRF9DSEFMTEVOR0UQERIWChJOTVRfRklOSVNIRURfRVZFTlQQDRIYChROTVRfRklOSVNIRURfV09SS09VVBAPEhYKEk5NVF9BQ1RJVklUWV9CRVNUUxAUEg4KCk5NVF9SSURFT04QEhISCg5OTVRfUklERU9OX0lOVBAWEhIKDk5NVF9RVUlUX0VWRU5UEAwSFAoQTk1UX1VTRURfUE9XRVJVUBAGEhoKFk5NVF9QQVNTRURfVElNSU5HX0FSQ0gQBxIUChBOTVRfQ1JFQVRFRF9HT0FMEAkSFAoQTk1UX0pPSU5FRF9FVkVOVBALEhcKE05NVF9TVEFSVEVEX1dPUktPVVQQDhIXChNOTVRfU1RBUlRFRF9NSVNTSU9OEBASHgoaTk1UX0hPTElEQVlfRVZFTlRfQ09NUExFVEUQFSquAQoTUHJvZmlsZUZvbGxvd1N0YXR1cxIPCgtQRlNfVU5LTk9XThABEhoKFlBGU19SRVFVRVNUU19UT19GT0xMT1cQAhIUChBQRlNfSVNfRk9MTE9XSU5HEAMSEgoOUEZTX0lTX0JMT0NLRUQQBBIXChNQRlNfTk9fUkVMQVRJT05TSElQEAUSDAoIUEZTX1NFTEYQBhIZChVQRlNfSEFTX0JFRU5fREVDTElORUQQBypKCg5GaXRuZXNzUHJpdmFjeRIJCgVVTlNFVBAAEhcKE0hJREVfU0VOU0lUSVZFX0RBVEEQARIUChBTQU1FX0FTX0FDVElWSVRZEAI',
-    [file_profile],
-  );
+export const file_activity: GenFile = /*@__PURE__*/
+  fileDesc("Cg5hY3Rpdml0eS5wcm90byKjAQoNTm90YWJsZU1vbWVudBITCgthY3Rpdml0eV9pZBgBIAEoBBIiCgR0eXBlGAIgASgOMhQuTm90YWJsZU1vbWVudFR5cGVaRxIQCghwcmlvcml0eRgDIAEoDRIUCgxpbmNpZGVudFRpbWUYBCABKAQSDAoEYXV4MRgFIAEoCRIMCgRhdXgyGAYgASgJEhUKDWxhcmdlSW1hZ2VVcmwYByABKAkiZwoRU29jaWFsSW50ZXJhY3Rpb24SEQoJcGxheWVyX2lkGAEgASgEEhQKDHRpbWVEdXJhdGlvbhgCIAEoDRIaChJwcm94aW1pdHlUaW1lU2NvcmUYAyABKAISDQoFc2lfZjQYBCABKAkiLgoPQ2x1YkF0dHJpYnV0aW9uEgwKBG5hbWUYASABKAkSDQoFdmFsdWUYAiABKAIiPwoPUGFjZVBhcnRuZXJEYXRhEgsKA3drZxgBIAEoAhIMCgR0aW1lGAIgASgCEhEKCXBsYXllcl9pZBgDIAEoBCLrBgoIQWN0aXZpdHkSCgoCaWQYASABKAQSEQoJcGxheWVyX2lkGAIgAigEEhEKCWNvdXJzZV9pZBgDIAIoBBIMCgRuYW1lGAQgAigJEgoKAmY1GAUgASgJEhcKD3ByaXZhdGVBY3Rpdml0eRgGIAEoCBISCgpzdGFydF9kYXRlGAcgAigJEhAKCGVuZF9kYXRlGAggASgJEhgKEGRpc3RhbmNlSW5NZXRlcnMYCSABKAISFgoOYXZnX2hlYXJ0X3JhdGUYCiABKAISFgoObWF4X2hlYXJ0X3JhdGUYCyABKAISEQoJYXZnX3dhdHRzGAwgASgCEhEKCW1heF93YXR0cxgNIAEoAhITCgthdmdfY2FkZW5jZRgOIAEoAhITCgttYXhfY2FkZW5jZRgPIAEoAhIRCglhdmdfc3BlZWQYECABKAISEQoJbWF4X3NwZWVkGBEgASgCEhAKCGNhbG9yaWVzGBIgASgCEhcKD3RvdGFsX2VsZXZhdGlvbhgTIAEoAhIYChBzdHJhdmFfdXBsb2FkX2lkGBQgASgEEhoKEnN0cmF2YV9hY3Rpdml0eV9pZBgVIAEoBBILCgNmMjIYFiABKAkSCwoDZjIzGBcgASgNEgsKA2ZpdBgYIAEoDBIUCgxmaXRfZmlsZW5hbWUYGSABKAkSEgoKc3ViZ3JvdXBJZBgaIAEoBBITCgt3b3Jrb3V0SGFzaBgbIAEoBBIaChJwcm9ncmVzc1BlcmNlbnRhZ2UYHCABKAISFQoFc3BvcnQYHSABKA4yBi5TcG9ydBIMCgRkYXRlGB8gASgJEg8KB2FjdF9mMzIYICABKAISDwoHYWN0X2YzMxghIAEoCRIPCgdhY3RfZjM0GCIgASgJEiUKB3ByaXZhY3kYJSABKA4yFC5BY3Rpdml0eVByaXZhY3lUeXBlEigKD2ZpdG5lc3NfcHJpdmFjeRgmIAEoDjIPLkZpdG5lc3NQcml2YWN5EhEKCWNsdWJfbmFtZRgnIAEoCRIWCg5tb3ZpbmdUaW1lSW5NcxgoIAEoAxIMCgR3b3JrGCwgASgCEgsKA3RzcxgtIAEoAhIYChBub3JtYWxpemVkX3Bvd2VyGC4gASgCEhMKC3Bvd2VyX3pvbmVzGDAgAygNEhMKC3Bvd2VyX3VuaXRzGDEgASgCIi0KDEFjdGl2aXR5TGlzdBIdCgphY3Rpdml0aWVzGAEgAygLMgkuQWN0aXZpdHkiMQoNQWN0aXZpdHlJbWFnZRITCgthY3Rpdml0eV9pZBgCIAIoBBILCgNqcGcYAyACKAwiRwoYQWN0aXZpdHlNZWRpYVNhdmVSZXF1ZXN0EhQKDGNvbnRlbnRfdHlwZRgBIAEoCRIVCg1jaGVja3N1bV9zaGExGAIgASgJIjIKIEFjdGl2aXR5TWVkaWFTYXZlUmVzdWx0S2V5VmFsdWVzEg4KBnZhbHVlcxgBIAMoCSLpAQoXQWN0aXZpdHlNZWRpYVNhdmVSZXN1bHQSEgoKdXBsb2FkX3VybBgBIAIoCRIcChRleHBpcmF0aW9uX2luX21pbGxpcxgCIAEoBBJDCg5zaWduZWRfaGVhZGVycxgDIAMoCzIrLkFjdGl2aXR5TWVkaWFTYXZlUmVzdWx0LlNpZ25lZEhlYWRlcnNFbnRyeRpXChJTaWduZWRIZWFkZXJzRW50cnkSCwoDa2V5GAEgASgJEjAKBXZhbHVlGAIgASgLMiEuQWN0aXZpdHlNZWRpYVNhdmVSZXN1bHRLZXlWYWx1ZXM6AjgBKuUCChROb3RhYmxlTW9tZW50VHlwZVpDQRIdChlOTVRDX0FDSElFVkVNRU5UX1VOTE9DS0VEEAESFgoSTk1UQ19VTkxPQ0tFRF9JVEVNEAISGgoWTk1UQ19NSVNTSU9OX0NPTVBMRVRFRBADEhsKF05NVENfRklOSVNIRURfQ0hBTExFTkdFEAQSGQoVTk1UQ19UT09LX0FSQ0hfSkVSU0VZEAUSDwoLTk1UQ19ORVdfUFIQBhIZChVOTVRDX01FVF9EQUlMWV9UQVJHRVQQBxIVChFOTVRDX0dBSU5FRF9MRVZFTBAIEhcKE05NVENfQ09NUExFVEVEX0dPQUwQCRIXChNOTVRDX0ZJTklTSEVEX0VWRU5UEAoSGQoVTk1UQ19GSU5JU0hFRF9XT1JLT1VUEAsSEAoMTk1UQ19SSURFX09OEAwSIAocTk1UQ19UUkFJTklOR19QTEFOX0NPTVBMRVRFRBANKvIEChdOb3RhYmxlTW9tZW50VHlwZVpHX2lkeBIQCgxOTVRJX1VOS05PV04QABIPCgtOTVRJX05FV19QUhABEhUKEU5NVElfR0FJTkVEX0xFVkVMEAISHwobTk1USV9UUkFJTklOR19QTEFOX0NPTVBMRVRFEAMSFgoSTk1USV9VTkxPQ0tFRF9JVEVNEAQSHQoZTk1USV9BQ0hJRVZFTUVOVF9VTkxPQ0tFRBAFEhoKFk5NVElfTUlTU0lPTl9DT01QTEVURUQQBhIXChNOTVRJX0NPTVBMRVRFRF9HT0FMEAcSGQoVTk1USV9NRVRfREFJTFlfVEFSR0VUEAgSGQoVTk1USV9UT09LX0FSQ0hfSkVSU0VZEAkSGwoXTk1USV9GSU5JU0hFRF9DSEFMTEVOR0UQChIXChNOTVRJX0ZJTklTSEVEX0VWRU5UEAsSGQoVTk1USV9GSU5JU0hFRF9XT1JLT1VUEAwSFwoTTk1USV9BQ1RJVklUWV9CRVNUUxANEg8KC05NVElfUklERU9OEA4SEwoPTk1USV9SSURFT05fSU5UEA8SEwoPTk1USV9RVUlUX0VWRU5UEBASFQoRTk1USV9VU0VEX1BPV0VSVVAQERIbChdOTVRJX1BBU1NFRF9USU1JTkdfQVJDSBASEhUKEU5NVElfQ1JFQVRFRF9HT0FMEBMSFQoRTk1USV9KT0lORURfRVZFTlQQFBIYChROTVRJX1NUQVJURURfV09SS09VVBAVEhgKFE5NVElfU1RBUlRFRF9NSVNTSU9OEBYSHwobTk1USV9IT0xJREFZX0VWRU5UX0NPTVBMRVRFEBcqxQQKE05vdGFibGVNb21lbnRUeXBlWkcSDgoKTk1UX05FV19QUhAAEhQKEE5NVF9HQUlORURfTEVWRUwQBRIeChpOTVRfVFJBSU5JTkdfUExBTl9DT01QTEVURRATEhUKEU5NVF9VTkxPQ0tFRF9JVEVNEAQSHAoYTk1UX0FDSElFVkVNRU5UX1VOTE9DS0VEEAISGQoVTk1UX01JU1NJT05fQ09NUExFVEVEEAMSFgoSTk1UX0NPTVBMRVRFRF9HT0FMEAoSGAoUTk1UX01FVF9EQUlMWV9UQVJHRVQQARIYChROTVRfVE9PS19BUkNIX0pFUlNFWRAIEhoKFk5NVF9GSU5JU0hFRF9DSEFMTEVOR0UQERIWChJOTVRfRklOSVNIRURfRVZFTlQQDRIYChROTVRfRklOSVNIRURfV09SS09VVBAPEhYKEk5NVF9BQ1RJVklUWV9CRVNUUxAUEg4KCk5NVF9SSURFT04QEhISCg5OTVRfUklERU9OX0lOVBAWEhIKDk5NVF9RVUlUX0VWRU5UEAwSFAoQTk1UX1VTRURfUE9XRVJVUBAGEhoKFk5NVF9QQVNTRURfVElNSU5HX0FSQ0gQBxIUChBOTVRfQ1JFQVRFRF9HT0FMEAkSFAoQTk1UX0pPSU5FRF9FVkVOVBALEhcKE05NVF9TVEFSVEVEX1dPUktPVVQQDhIXChNOTVRfU1RBUlRFRF9NSVNTSU9OEBASHgoaTk1UX0hPTElEQVlfRVZFTlRfQ09NUExFVEUQFSquAQoTUHJvZmlsZUZvbGxvd1N0YXR1cxIPCgtQRlNfVU5LTk9XThABEhoKFlBGU19SRVFVRVNUU19UT19GT0xMT1cQAhIUChBQRlNfSVNfRk9MTE9XSU5HEAMSEgoOUEZTX0lTX0JMT0NLRUQQBBIXChNQRlNfTk9fUkVMQVRJT05TSElQEAUSDAoIUEZTX1NFTEYQBhIZChVQRlNfSEFTX0JFRU5fREVDTElORUQQBypKCg5GaXRuZXNzUHJpdmFjeRIJCgVVTlNFVBAAEhcKE0hJREVfU0VOU0lUSVZFX0RBVEEQARIUChBTQU1FX0FTX0FDVElWSVRZEAI", [file_profile]);
 
 /**
  * .2,.3,.4 meanings inside last_activity.bin - not type, priority, incidentTime (i.e. 1595, 8, 9)
  *
  * @generated from message NotableMoment
  */
-export type NotableMoment = Message<'NotableMoment'> & {
+export type NotableMoment = Message<"NotableMoment"> & {
   /**
    * @generated from field: optional uint64 activity_id = 1;
    */
@@ -70,12 +66,13 @@ export type NotableMoment = Message<'NotableMoment'> & {
  * Describes the message NotableMoment.
  * Use `create(NotableMomentSchema)` to create a new message.
  */
-export const NotableMomentSchema: GenMessage<NotableMoment> = /*@__PURE__*/ messageDesc(file_activity, 0);
+export const NotableMomentSchema: GenMessage<NotableMoment> = /*@__PURE__*/
+  messageDesc(file_activity, 0);
 
 /**
  * @generated from message SocialInteraction
  */
-export type SocialInteraction = Message<'SocialInteraction'> & {
+export type SocialInteraction = Message<"SocialInteraction"> & {
   /**
    * @generated from field: optional uint64 player_id = 1;
    */
@@ -101,12 +98,13 @@ export type SocialInteraction = Message<'SocialInteraction'> & {
  * Describes the message SocialInteraction.
  * Use `create(SocialInteractionSchema)` to create a new message.
  */
-export const SocialInteractionSchema: GenMessage<SocialInteraction> = /*@__PURE__*/ messageDesc(file_activity, 1);
+export const SocialInteractionSchema: GenMessage<SocialInteraction> = /*@__PURE__*/
+  messageDesc(file_activity, 1);
 
 /**
  * @generated from message ClubAttribution
  */
-export type ClubAttribution = Message<'ClubAttribution'> & {
+export type ClubAttribution = Message<"ClubAttribution"> & {
   /**
    * @generated from field: optional string name = 1;
    */
@@ -122,12 +120,13 @@ export type ClubAttribution = Message<'ClubAttribution'> & {
  * Describes the message ClubAttribution.
  * Use `create(ClubAttributionSchema)` to create a new message.
  */
-export const ClubAttributionSchema: GenMessage<ClubAttribution> = /*@__PURE__*/ messageDesc(file_activity, 2);
+export const ClubAttributionSchema: GenMessage<ClubAttribution> = /*@__PURE__*/
+  messageDesc(file_activity, 2);
 
 /**
  * @generated from message PacePartnerData
  */
-export type PacePartnerData = Message<'PacePartnerData'> & {
+export type PacePartnerData = Message<"PacePartnerData"> & {
   /**
    * @generated from field: optional float wkg = 1;
    */
@@ -148,14 +147,15 @@ export type PacePartnerData = Message<'PacePartnerData'> & {
  * Describes the message PacePartnerData.
  * Use `create(PacePartnerDataSchema)` to create a new message.
  */
-export const PacePartnerDataSchema: GenMessage<PacePartnerData> = /*@__PURE__*/ messageDesc(file_activity, 3);
+export const PacePartnerDataSchema: GenMessage<PacePartnerData> = /*@__PURE__*/
+  messageDesc(file_activity, 3);
 
 /**
  * where is primaryImageUrl, feedImageThumbnailUrl, activityRideOnCount, activityCommentCount, eventId, rideOnGiven
  *
  * @generated from message Activity
  */
-export type Activity = Message<'Activity'> & {
+export type Activity = Message<"Activity"> & {
   /**
    * @generated from field: optional uint64 id = 1;
    */
@@ -394,12 +394,13 @@ export type Activity = Message<'Activity'> & {
  * Describes the message Activity.
  * Use `create(ActivitySchema)` to create a new message.
  */
-export const ActivitySchema: GenMessage<Activity> = /*@__PURE__*/ messageDesc(file_activity, 4);
+export const ActivitySchema: GenMessage<Activity> = /*@__PURE__*/
+  messageDesc(file_activity, 4);
 
 /**
  * @generated from message ActivityList
  */
-export type ActivityList = Message<'ActivityList'> & {
+export type ActivityList = Message<"ActivityList"> & {
   /**
    * @generated from field: repeated Activity activities = 1;
    */
@@ -410,12 +411,13 @@ export type ActivityList = Message<'ActivityList'> & {
  * Describes the message ActivityList.
  * Use `create(ActivityListSchema)` to create a new message.
  */
-export const ActivityListSchema: GenMessage<ActivityList> = /*@__PURE__*/ messageDesc(file_activity, 5);
+export const ActivityListSchema: GenMessage<ActivityList> = /*@__PURE__*/
+  messageDesc(file_activity, 5);
 
 /**
  * @generated from message ActivityImage
  */
-export type ActivityImage = Message<'ActivityImage'> & {
+export type ActivityImage = Message<"ActivityImage"> & {
   /**
    * @generated from field: required uint64 activity_id = 2;
    */
@@ -431,12 +433,13 @@ export type ActivityImage = Message<'ActivityImage'> & {
  * Describes the message ActivityImage.
  * Use `create(ActivityImageSchema)` to create a new message.
  */
-export const ActivityImageSchema: GenMessage<ActivityImage> = /*@__PURE__*/ messageDesc(file_activity, 6);
+export const ActivityImageSchema: GenMessage<ActivityImage> = /*@__PURE__*/
+  messageDesc(file_activity, 6);
 
 /**
  * @generated from message ActivityMediaSaveRequest
  */
-export type ActivityMediaSaveRequest = Message<'ActivityMediaSaveRequest'> & {
+export type ActivityMediaSaveRequest = Message<"ActivityMediaSaveRequest"> & {
   /**
    * @generated from field: optional string content_type = 1;
    */
@@ -452,14 +455,13 @@ export type ActivityMediaSaveRequest = Message<'ActivityMediaSaveRequest'> & {
  * Describes the message ActivityMediaSaveRequest.
  * Use `create(ActivityMediaSaveRequestSchema)` to create a new message.
  */
-export const ActivityMediaSaveRequestSchema: GenMessage<ActivityMediaSaveRequest> =
-  /*@__PURE__*/
+export const ActivityMediaSaveRequestSchema: GenMessage<ActivityMediaSaveRequest> = /*@__PURE__*/
   messageDesc(file_activity, 7);
 
 /**
  * @generated from message ActivityMediaSaveResultKeyValues
  */
-export type ActivityMediaSaveResultKeyValues = Message<'ActivityMediaSaveResultKeyValues'> & {
+export type ActivityMediaSaveResultKeyValues = Message<"ActivityMediaSaveResultKeyValues"> & {
   /**
    * @generated from field: repeated string values = 1;
    */
@@ -470,14 +472,13 @@ export type ActivityMediaSaveResultKeyValues = Message<'ActivityMediaSaveResultK
  * Describes the message ActivityMediaSaveResultKeyValues.
  * Use `create(ActivityMediaSaveResultKeyValuesSchema)` to create a new message.
  */
-export const ActivityMediaSaveResultKeyValuesSchema: GenMessage<ActivityMediaSaveResultKeyValues> =
-  /*@__PURE__*/
+export const ActivityMediaSaveResultKeyValuesSchema: GenMessage<ActivityMediaSaveResultKeyValues> = /*@__PURE__*/
   messageDesc(file_activity, 8);
 
 /**
  * @generated from message ActivityMediaSaveResult
  */
-export type ActivityMediaSaveResult = Message<'ActivityMediaSaveResult'> & {
+export type ActivityMediaSaveResult = Message<"ActivityMediaSaveResult"> & {
   /**
    * @generated from field: required string upload_url = 1;
    */
@@ -498,8 +499,7 @@ export type ActivityMediaSaveResult = Message<'ActivityMediaSaveResult'> & {
  * Describes the message ActivityMediaSaveResult.
  * Use `create(ActivityMediaSaveResultSchema)` to create a new message.
  */
-export const ActivityMediaSaveResultSchema: GenMessage<ActivityMediaSaveResult> =
-  /*@__PURE__*/
+export const ActivityMediaSaveResultSchema: GenMessage<ActivityMediaSaveResult> = /*@__PURE__*/
   messageDesc(file_activity, 9);
 
 /**
@@ -577,7 +577,8 @@ export enum NotableMomentTypeZCA {
 /**
  * Describes the enum NotableMomentTypeZCA.
  */
-export const NotableMomentTypeZCASchema: GenEnum<NotableMomentTypeZCA> = /*@__PURE__*/ enumDesc(file_activity, 0);
+export const NotableMomentTypeZCASchema: GenEnum<NotableMomentTypeZCA> = /*@__PURE__*/
+  enumDesc(file_activity, 0);
 
 /**
  * @generated from enum NotableMomentTypeZG_idx
@@ -709,7 +710,8 @@ export enum NotableMomentTypeZG_idx {
 /**
  * Describes the enum NotableMomentTypeZG_idx.
  */
-export const NotableMomentTypeZG_idxSchema: GenEnum<NotableMomentTypeZG_idx> = /*@__PURE__*/ enumDesc(file_activity, 1);
+export const NotableMomentTypeZG_idxSchema: GenEnum<NotableMomentTypeZG_idx> = /*@__PURE__*/
+  enumDesc(file_activity, 1);
 
 /**
  * @generated from enum NotableMomentTypeZG
@@ -836,7 +838,8 @@ export enum NotableMomentTypeZG {
 /**
  * Describes the enum NotableMomentTypeZG.
  */
-export const NotableMomentTypeZGSchema: GenEnum<NotableMomentTypeZG> = /*@__PURE__*/ enumDesc(file_activity, 2);
+export const NotableMomentTypeZGSchema: GenEnum<NotableMomentTypeZG> = /*@__PURE__*/
+  enumDesc(file_activity, 2);
 
 /**
  * @generated from enum ProfileFollowStatus
@@ -881,7 +884,8 @@ export enum ProfileFollowStatus {
 /**
  * Describes the enum ProfileFollowStatus.
  */
-export const ProfileFollowStatusSchema: GenEnum<ProfileFollowStatus> = /*@__PURE__*/ enumDesc(file_activity, 3);
+export const ProfileFollowStatusSchema: GenEnum<ProfileFollowStatus> = /*@__PURE__*/
+  enumDesc(file_activity, 3);
 
 /**
  * @generated from enum FitnessPrivacy
@@ -906,4 +910,5 @@ export enum FitnessPrivacy {
 /**
  * Describes the enum FitnessPrivacy.
  */
-export const FitnessPrivacySchema: GenEnum<FitnessPrivacy> = /*@__PURE__*/ enumDesc(file_activity, 4);
+export const FitnessPrivacySchema: GenEnum<FitnessPrivacy> = /*@__PURE__*/
+  enumDesc(file_activity, 4);

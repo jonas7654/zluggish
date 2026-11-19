@@ -2,26 +2,22 @@
 // @generated from file login.proto (syntax proto2)
 /* eslint-disable */
 
-import type { GenFile, GenMessage } from '@bufbuild/protobuf/codegenv2';
-import { fileDesc, messageDesc } from '@bufbuild/protobuf/codegenv2';
-import type { PerSessionInfo } from './per-session-info_pb.js';
-import { file_per_session_info } from './per-session-info_pb.js';
-import type { Message } from '@bufbuild/protobuf';
+import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
+import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
+import type { PerSessionInfo } from "./per-session-info_pb.js";
+import { file_per_session_info } from "./per-session-info_pb.js";
+import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file login.proto.
  */
-export const file_login: GenFile =
-  /*@__PURE__*/
-  fileDesc(
-    'Cgtsb2dpbi5wcm90byKbAQoNTG9naW5SZXNwb25zZRIVCg1zZXNzaW9uX3N0YXRlGAEgAigJEh0KBGluZm8YAiACKAsyDy5QZXJTZXNzaW9uSW5mbxIYChByZWxheV9zZXNzaW9uX2lkGAMgASgNEhIKCmV4cGlyYXRpb24YBCABKA0SJgoOZWNvbm9teV9jb25maWcYBSABKAsyDi5FY29ub215Q29uZmlnIkoKDExvZ2luUmVxdWVzdBItCgpwcm9wZXJ0aWVzGAEgASgLMhkuQW5hbHl0aWNzRXZlbnRQcm9wZXJ0aWVzEgsKA2tleRgCIAIoDCIwChZBbmFseXRpY3NFdmVudFByb3BlcnR5EgoKAmYxGAEgAigJEgoKAmYyGAIgAigJIkUKGEFuYWx5dGljc0V2ZW50UHJvcGVydGllcxIpCghwcm9wZXJ0eRgCIAMoCzIXLkFuYWx5dGljc0V2ZW50UHJvcGVydHkiSwobUmVsYXlTZXNzaW9uUmVmcmVzaFJlc3BvbnNlEhgKEHJlbGF5X3Nlc3Npb25faWQYASACKA0SEgoKZXhwaXJhdGlvbhgCIAIoDSKlAQoNRWNvbm9teUNvbmZpZxIeCg5jeWNsaW5nX2xldmVscxgBIAMoCzIGLkxldmVsEh4KDnJ1bm5pbmdfbGV2ZWxzGAIgAygLMgYuTGV2ZWwSCgoCZjMYAyACKA0SCgoCZjQYBCACKA0SCgoCZjUYBSACKA0SGAoQdHJhbnNpdGlvbl9zdGFydBgGIAEoDRIWCg50cmFuc2l0aW9uX2VuZBgHIAEoDSJrCgVMZXZlbBINCgVsZXZlbBgBIAIoDRIKCgJ4cBgCIAIoDRINCgVkcm9wcxgDIAIoDRIKCgJmNBgEIAEoDRIVCg1lbnRpdGxlbWVudF8xGAUgASgJEhUKDWVudGl0bGVtZW50XzIYBiABKAk',
-    [file_per_session_info],
-  );
+export const file_login: GenFile = /*@__PURE__*/
+  fileDesc("Cgtsb2dpbi5wcm90byKbAQoNTG9naW5SZXNwb25zZRIVCg1zZXNzaW9uX3N0YXRlGAEgAigJEh0KBGluZm8YAiACKAsyDy5QZXJTZXNzaW9uSW5mbxIYChByZWxheV9zZXNzaW9uX2lkGAMgASgNEhIKCmV4cGlyYXRpb24YBCABKA0SJgoOZWNvbm9teV9jb25maWcYBSABKAsyDi5FY29ub215Q29uZmlnIkoKDExvZ2luUmVxdWVzdBItCgpwcm9wZXJ0aWVzGAEgASgLMhkuQW5hbHl0aWNzRXZlbnRQcm9wZXJ0aWVzEgsKA2tleRgCIAIoDCIwChZBbmFseXRpY3NFdmVudFByb3BlcnR5EgoKAmYxGAEgAigJEgoKAmYyGAIgAigJIkUKGEFuYWx5dGljc0V2ZW50UHJvcGVydGllcxIpCghwcm9wZXJ0eRgCIAMoCzIXLkFuYWx5dGljc0V2ZW50UHJvcGVydHkiSwobUmVsYXlTZXNzaW9uUmVmcmVzaFJlc3BvbnNlEhgKEHJlbGF5X3Nlc3Npb25faWQYASACKA0SEgoKZXhwaXJhdGlvbhgCIAIoDSKlAQoNRWNvbm9teUNvbmZpZxIeCg5jeWNsaW5nX2xldmVscxgBIAMoCzIGLkxldmVsEh4KDnJ1bm5pbmdfbGV2ZWxzGAIgAygLMgYuTGV2ZWwSCgoCZjMYAyACKA0SCgoCZjQYBCACKA0SCgoCZjUYBSACKA0SGAoQdHJhbnNpdGlvbl9zdGFydBgGIAEoDRIWCg50cmFuc2l0aW9uX2VuZBgHIAEoDSJrCgVMZXZlbBINCgVsZXZlbBgBIAIoDRIKCgJ4cBgCIAIoDRINCgVkcm9wcxgDIAIoDRIKCgJmNBgEIAEoDRIVCg1lbnRpdGxlbWVudF8xGAUgASgJEhUKDWVudGl0bGVtZW50XzIYBiABKAk", [file_per_session_info]);
 
 /**
  * @generated from message LoginResponse
  */
-export type LoginResponse = Message<'LoginResponse'> & {
+export type LoginResponse = Message<"LoginResponse"> & {
   /**
    * @generated from field: required string session_state = 1;
    */
@@ -54,12 +50,13 @@ export type LoginResponse = Message<'LoginResponse'> & {
  * Describes the message LoginResponse.
  * Use `create(LoginResponseSchema)` to create a new message.
  */
-export const LoginResponseSchema: GenMessage<LoginResponse> = /*@__PURE__*/ messageDesc(file_login, 0);
+export const LoginResponseSchema: GenMessage<LoginResponse> = /*@__PURE__*/
+  messageDesc(file_login, 0);
 
 /**
  * @generated from message LoginRequest
  */
-export type LoginRequest = Message<'LoginRequest'> & {
+export type LoginRequest = Message<"LoginRequest"> & {
   /**
    * @generated from field: optional AnalyticsEventProperties properties = 1;
    */
@@ -75,12 +72,13 @@ export type LoginRequest = Message<'LoginRequest'> & {
  * Describes the message LoginRequest.
  * Use `create(LoginRequestSchema)` to create a new message.
  */
-export const LoginRequestSchema: GenMessage<LoginRequest> = /*@__PURE__*/ messageDesc(file_login, 1);
+export const LoginRequestSchema: GenMessage<LoginRequest> = /*@__PURE__*/
+  messageDesc(file_login, 1);
 
 /**
  * @generated from message AnalyticsEventProperty
  */
-export type AnalyticsEventProperty = Message<'AnalyticsEventProperty'> & {
+export type AnalyticsEventProperty = Message<"AnalyticsEventProperty"> & {
   /**
    * @generated from field: required string f1 = 1;
    */
@@ -96,14 +94,13 @@ export type AnalyticsEventProperty = Message<'AnalyticsEventProperty'> & {
  * Describes the message AnalyticsEventProperty.
  * Use `create(AnalyticsEventPropertySchema)` to create a new message.
  */
-export const AnalyticsEventPropertySchema: GenMessage<AnalyticsEventProperty> =
-  /*@__PURE__*/
+export const AnalyticsEventPropertySchema: GenMessage<AnalyticsEventProperty> = /*@__PURE__*/
   messageDesc(file_login, 2);
 
 /**
  * @generated from message AnalyticsEventProperties
  */
-export type AnalyticsEventProperties = Message<'AnalyticsEventProperties'> & {
+export type AnalyticsEventProperties = Message<"AnalyticsEventProperties"> & {
   /**
    * @generated from field: repeated AnalyticsEventProperty property = 2;
    */
@@ -114,14 +111,13 @@ export type AnalyticsEventProperties = Message<'AnalyticsEventProperties'> & {
  * Describes the message AnalyticsEventProperties.
  * Use `create(AnalyticsEventPropertiesSchema)` to create a new message.
  */
-export const AnalyticsEventPropertiesSchema: GenMessage<AnalyticsEventProperties> =
-  /*@__PURE__*/
+export const AnalyticsEventPropertiesSchema: GenMessage<AnalyticsEventProperties> = /*@__PURE__*/
   messageDesc(file_login, 3);
 
 /**
  * @generated from message RelaySessionRefreshResponse
  */
-export type RelaySessionRefreshResponse = Message<'RelaySessionRefreshResponse'> & {
+export type RelaySessionRefreshResponse = Message<"RelaySessionRefreshResponse"> & {
   /**
    * @generated from field: required uint32 relay_session_id = 1;
    */
@@ -139,14 +135,13 @@ export type RelaySessionRefreshResponse = Message<'RelaySessionRefreshResponse'>
  * Describes the message RelaySessionRefreshResponse.
  * Use `create(RelaySessionRefreshResponseSchema)` to create a new message.
  */
-export const RelaySessionRefreshResponseSchema: GenMessage<RelaySessionRefreshResponse> =
-  /*@__PURE__*/
+export const RelaySessionRefreshResponseSchema: GenMessage<RelaySessionRefreshResponse> = /*@__PURE__*/
   messageDesc(file_login, 4);
 
 /**
  * @generated from message EconomyConfig
  */
-export type EconomyConfig = Message<'EconomyConfig'> & {
+export type EconomyConfig = Message<"EconomyConfig"> & {
   /**
    * @generated from field: repeated Level cycling_levels = 1;
    */
@@ -187,12 +182,13 @@ export type EconomyConfig = Message<'EconomyConfig'> & {
  * Describes the message EconomyConfig.
  * Use `create(EconomyConfigSchema)` to create a new message.
  */
-export const EconomyConfigSchema: GenMessage<EconomyConfig> = /*@__PURE__*/ messageDesc(file_login, 5);
+export const EconomyConfigSchema: GenMessage<EconomyConfig> = /*@__PURE__*/
+  messageDesc(file_login, 5);
 
 /**
  * @generated from message Level
  */
-export type Level = Message<'Level'> & {
+export type Level = Message<"Level"> & {
   /**
    * @generated from field: required uint32 level = 1;
    */
@@ -228,4 +224,5 @@ export type Level = Message<'Level'> & {
  * Describes the message Level.
  * Use `create(LevelSchema)` to create a new message.
  */
-export const LevelSchema: GenMessage<Level> = /*@__PURE__*/ messageDesc(file_login, 6);
+export const LevelSchema: GenMessage<Level> = /*@__PURE__*/
+  messageDesc(file_login, 6);
