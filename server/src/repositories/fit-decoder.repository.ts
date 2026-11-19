@@ -1,18 +1,18 @@
 import { Decoder, Stream } from '@garmin/fitsdk';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
-const recordSchema = z.object({
-  power: z.number().optional(),
-  cadence: z.number().optional(),
-  heartRate: z.number().optional(),
-  distance: z.number().optional(),
-  speed: z.number().optional(),
-  enhancedSpeed: z.number().optional(),
-  timestamp: z.number().optional(),
-  altitude: z.number().optional(),
-  enhancedAltitude: z.number().optional(),
-  positionLat: z.number().optional(),
-  positionLong: z.number().optional(),
+const recordSchema = Schema.Struct({
+  power: Schema.optional(Schema.Finite),
+  cadence: Schema.optional(Schema.Finite),
+  heartRate: Schema.optional(Schema.Finite),
+  distance: Schema.optional(Schema.Finite),
+  speed: Schema.optional(Schema.Finite),
+  enhancedSpeed: Schema.optional(Schema.Finite),
+  timestamp: Schema.optional(Schema.Finite),
+  altitude: Schema.optional(Schema.Finite),
+  enhancedAltitude: Schema.optional(Schema.Finite),
+  positionLat: Schema.optional(Schema.Finite),
+  positionLong: Schema.optional(Schema.Finite),
 });
 
 export type ActivityChart = {
@@ -43,11 +43,11 @@ export class FitDecoder {
     if (errors.length > 0) throw new AggregateError(errors, 'Invalid FIT activity', { cause: errors[0] });
 
     return {
-      records: z.array(recordSchema).parse(messages.recordMesgs ?? []),
+      records: Schema.decodeUnknownSync(Schema.Array(recordSchema))(messages.recordMesgs ?? []),
       timestamp:
         messages.activityMesgs?.at(-1)?.timestamp === undefined
           ? Math.floor(Date.now() / 1000)
-          : z.number().parse(messages.activityMesgs.at(-1)?.timestamp) + 631_065_600,
+          : Schema.decodeUnknownSync(Schema.Finite)(messages.activityMesgs.at(-1)?.timestamp) + 631_065_600,
     };
   }
 

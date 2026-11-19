@@ -1,3 +1,9 @@
+import { ManagementService } from '#src/services/management.service';
+import { UploadsService } from '#src/services/uploads.service';
+import { WorkoutsService } from '#src/services/workout.service';
+import { Effect, Schema } from 'effect';
+import { IntegrationsService } from '#src/services/integrations.service';
+import { ConnectionsService } from '#src/services/connections.service';
 import { runtimeFixture } from '#tests/support/runtime';
 import { createWebApp } from '#src/http/web-app';
 import { serve } from '@hono/node-server';
@@ -7,7 +13,6 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { test } from 'node:test';
 import type { TestContext } from 'node:test';
-import { z } from 'zod';
 import { create, toBinary } from '@bufbuild/protobuf';
 import { PlayerProfileSchema } from '#src/protocol/generated/profile_pb';
 import type { User } from '#src/repositories/accounts.repository';
@@ -23,7 +28,7 @@ async function browserFixture(t: TestContext) {
   t.after(() => server.close());
 
   if (!server.listening) await once(server, 'listening');
-  const address = z.object({ port: z.number() }).parse(server.address());
+  const address = Schema.decodeUnknownSync(Schema.Struct({ port: Schema.Finite }))(server.address());
   const origin = `http://127.0.0.1:${address.port}`;
   const browser = await chromium.launch();
   t.after(() => browser.close());
@@ -32,19 +37,23 @@ async function browserFixture(t: TestContext) {
   t.after(() => web.close());
 
   if (!web.listening) await once(web, 'listening');
-  const webAddress = z.object({ port: z.number() }).parse(web.address());
+  const webAddress = Schema.decodeUnknownSync(Schema.Struct({ port: Schema.Finite }))(web.address());
 
   return { ...f, origin, browser, webOrigin: `http://127.0.0.1:${webAddress.port}` };
 }
 
 /** Signs in to the web app as an administrator created by first-time setup. */
 async function webSignIn(page: Page, f: Awaited<ReturnType<typeof browserFixture>>, rider: User) {
-  await f.services.management.setup({
-    mode: 'existing',
-    key: f.services.management.issueSetupKey()!,
-    player_id: rider.player_id,
-    password: 'test-password',
-  });
+  await f.effects.runPromise(
+    ManagementService.use((management) =>
+      management.setup({
+        mode: 'existing',
+        key: f.effects.runSync(ManagementService.use((management) => management.issueSetupKey()))!,
+        player_id: rider.player_id,
+        password: 'test-password',
+      }),
+    ),
+  );
   await page.goto(`${f.webOrigin}/sign-in`);
   await page.getByLabel('Login name', { exact: true }).fill(rider.username);
   await page.getByLabel('Password', { exact: true }).fill('test-password');
@@ -79,14 +88,18 @@ for (const javaScriptEnabled of [true, false]) {
     page.on('pageerror', (error) => {
       errors.push(error.message);
     });
-    await f.services.management.setup({
-      mode: 'new',
-      key: f.services.management.issueSetupKey()!,
-      username: 'browser',
-      first_name: 'New Browser',
-      last_name: 'Rider',
-      password: 'browser-password',
-    });
+    await f.effects.runPromise(
+      ManagementService.use((management) =>
+        management.setup({
+          mode: 'new',
+          key: f.effects.runSync(ManagementService.use((management) => management.issueSetupKey()))!,
+          username: 'browser',
+          first_name: 'New Browser',
+          last_name: 'Rider',
+          password: 'browser-password',
+        }),
+      ),
+    );
     await page.goto(`${f.origin}/login/`);
     const rider = f.accounts.list()[0]!;
     await page.getByRole('button', { name: 'New Browser Rider' }).click();
@@ -137,7 +150,7 @@ await test('a session change locks the dashboard instead of acting as another us
 await test('the launcher switches users without JavaScript', async (t) => {
   const f = await browserFixture(t);
   const rider = await f.accounts.create('Plain Rider', 'test-password');
-  t.mock.method(f.services.workouts, 'syncWorkoutsAutomatically', () => Promise.resolve());
+  t.mock.method(f.effects.runSync(WorkoutsService), 'syncWorkoutsAutomatically', () => Effect.void);
   const context = await f.browser.newContext({ javaScriptEnabled: false });
   const page = await context.newPage();
   await signIn(page, f.origin, rider.player_id);
@@ -157,12 +170,16 @@ await test('import review requires source confirmation and cancel bypasses valid
   const f = await browserFixture(t);
   const rider = await f.accounts.create('Import Rider', 'test-password');
   f.accounts.repository.updateImportedProfile(rider.player_id, 'Import', 'Rider', 123);
-  await f.services.management.setup({
-    mode: 'existing',
-    key: f.services.management.issueSetupKey()!,
-    player_id: rider.player_id,
-    password: 'test-password',
-  });
+  await f.effects.runPromise(
+    ManagementService.use((management) =>
+      management.setup({
+        mode: 'existing',
+        key: f.effects.runSync(ManagementService.use((management) => management.issueSetupKey()))!,
+        player_id: rider.player_id,
+        password: 'test-password',
+      }),
+    ),
+  );
   const context = await f.browser.newContext();
   const page = await context.newPage();
   await page.goto(`${f.webOrigin}/sign-in`);
@@ -202,9 +219,10 @@ await test('import review requires source confirmation and cancel bypasses valid
 await test('web connections keep saved secrets, show Garmin MFA and run workout sync and session tests', async (t) => {
   const f = await browserFixture(t);
   const rider = await f.accounts.create('Connected Rider', 'test-password');
-  t.mock.method(f.services.integrations, 'authorizeGarminSession', () => Promise.resolve('mfa' as const));
-  t.mock.method(f.services.integrations, 'checkSession', () => Promise.resolve(true));
-  t.mock.method(f.services.workouts, 'sync', () => Promise.resolve('Synced 2 Intervals.icu workouts.'));
+  const integrations = f.effects.runSync(IntegrationsService);
+  t.mock.method(integrations, 'authorizeGarminSession', () => Effect.succeed('mfa' as const));
+  t.mock.method(integrations, 'checkSession', () => Effect.succeed(true));
+  t.mock.method(f.effects.runSync(WorkoutsService), 'sync', () => Effect.succeed('Synced 2 Intervals.icu workouts.'));
   const context = await f.browser.newContext();
   const page = await context.newPage();
   await webSignIn(page, f, rider);
@@ -219,7 +237,10 @@ await test('web connections keep saved secrets, show Garmin MFA and run workout 
   await strava.getByLabel('Client ID').fill('456');
   await strava.getByRole('button', { name: 'Save credentials' }).click();
   await page.getByText('Credentials saved.', { exact: true }).waitFor();
-  assert.deepEqual(f.services.connections.read(rider.player_id, 'strava'), ['456', 'private-client-secret']);
+  assert.deepEqual(f.effects.runSync(ConnectionsService.use((service) => service.read(rider.player_id, 'strava'))), [
+    '456',
+    'private-client-secret',
+  ]);
 
   await page.getByLabel('Upload method').selectOption('free');
   await page.getByText('Upload method saved.', { exact: true }).waitFor();
@@ -258,11 +279,11 @@ await test('web upload list polls while uploads run, pauses while hidden and ret
   const rider = await f.accounts.create('Uploading Rider', 'test-password');
   let state = 'pending';
 
-  const status = t.mock.method(f.services.uploads, 'status', () => [
-    { activity_id: 1, provider: 'strava', state, last_error: null },
-  ]);
+  const status = t.mock.method(f.effects.runSync(UploadsService), 'status', () =>
+    Effect.succeed([{ activity_id: 1, provider: 'strava', state, last_error: null }]),
+  );
 
-  const retry = t.mock.method(f.services.uploads, 'retry', () => Promise.resolve());
+  const retry = t.mock.method(f.effects.runSync(UploadsService), 'retry', () => Effect.void);
   const context = await f.browser.newContext();
   const page = await context.newPage();
   await page.clock.install();

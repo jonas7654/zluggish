@@ -1,15 +1,21 @@
-import type { RepositoryContext } from '#src/context';
+import { Context, Effect, Layer } from 'effect';
+import { RuntimeContext } from '#src/context';
 import { SocialPlayerActionSchema, SocialPlayerActionType } from '#src/protocol/generated/tcp-node-msgs_pb';
 import { WA_TYPE, WorldAttributeSchema } from '#src/protocol/generated/udp-node-msgs_pb';
-import { BaseService } from '#src/services/base.service';
 import { worldTime } from '#src/world/state';
 import { create, toBinary } from '@bufbuild/protobuf';
 
-export class MessageService extends BaseService {
-  sendMessage(runtime: RepositoryContext, message: string, recipients?: bigint[], sender = 'Server') {
+const make = Effect.gen(function* () {
+  const context = yield* RuntimeContext;
+
+  const sendMessage = Effect.fn('MessageService.sendMessage')(function* (
+    message: string,
+    recipients?: bigint[],
+    sender = 'Server',
+  ) {
     if (sender === 'Server' && recipients === undefined)
-      for (const bridge of runtime.bridges ?? []) bridge.send(message);
-    runtime.world.enqueue(
+      for (const bridge of context.bridges ?? []) bridge.send(message);
+    context.world.enqueue(
       create(WorldAttributeSchema, {
         serverRealm: 1n,
         waType: WA_TYPE.WAT_SPA,
@@ -32,5 +38,13 @@ export class MessageService extends BaseService {
       }),
       recipients,
     );
-  }
+  });
+
+  return { sendMessage };
+});
+
+export class MessageService extends Context.Service<MessageService, Effect.Success<typeof make>>()(
+  'zluggish/MessageService',
+) {
+  static readonly layer = Layer.effect(MessageService, make);
 }

@@ -1,7 +1,9 @@
+import { Effect, Schema } from 'effect';
+import { WorkoutsService } from '#src/services/workout.service';
+import { ConnectionsService } from '#src/services/connections.service';
 import { mediumBrowser, mediumFixture } from '#tests/medium/support';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { z } from 'zod';
 
 await test('Svelte SSR dashboard keeps identity, CSRF and static asset boundaries', async (t) => {
   const f = await mediumFixture(t);
@@ -15,9 +17,9 @@ await test('Svelte SSR dashboard keeps identity, CSRF and static asset boundarie
   assert.match(html, /Start Zwift/);
   assert.match(html, /name="csrf_token"/);
 
-  const props = z
-    .object({ csrf: z.string() })
-    .parse(JSON.parse(/id="launcher-props">([^<]+)<\/script>/.exec(html)![1]!));
+  const props = Schema.decodeUnknownSync(Schema.Struct({ csrf: Schema.String }))(
+    JSON.parse(/id="launcher-props">([^<]+)<\/script>/.exec(html)![1]!),
+  );
 
   assert.ok(props.csrf);
   const asset = /src="(\/static\/launcher-ui\/[^"]+\.js)"/.exec(html)![1]!;
@@ -87,7 +89,7 @@ await test('session probes never create anonymous sessions or trigger workout sy
   assert.equal(f.sessions.browsers.size, before);
 
   const browser = await mediumBrowser(f);
-  const sync = t.mock.method(f.services.workouts, 'syncWorkoutsAutomatically', () => Promise.resolve());
+  const sync = t.mock.method(f.effects.runSync(WorkoutsService), 'syncWorkoutsAutomatically', () => Effect.void);
   const live = await browser.request('/ui/status/session', { headers: { Accept: 'application/json' } });
   assert.equal(live.status, 204);
   assert.equal(live.headers.get('Cache-Control'), 'no-store');
@@ -99,9 +101,9 @@ await test('JSON form posts return redirects and reject expired tokens and stale
   const browser = await mediumBrowser(f);
   const page = await browser.request(`/user/${f.rider.username}/`);
 
-  const props = z
-    .object({ csrf: z.string() })
-    .parse(JSON.parse(/id="launcher-props">([^<]+)<\/script>/.exec(await page.text())![1]!));
+  const props = Schema.decodeUnknownSync(Schema.Struct({ csrf: Schema.String }))(
+    JSON.parse(/id="launcher-props">([^<]+)<\/script>/.exec(await page.text())![1]!),
+  );
 
   const post = (csrf: string, context = props.csrf) =>
     browser.request('/riders/switch/', {
@@ -128,11 +130,23 @@ await test('browser JSON errors do not change game API responses and never seria
   const game = await f.app.request('/api/profiles/me', { headers: { Accept: 'application/json' } });
   assert.equal(game.status, 401);
   assert.ok(!game.headers.get('Content-Type')?.includes('application/json'));
-  f.services.connections.save(f.rider.player_id, 'garmin', ['public-user', 'never-send-garmin-password']);
-  f.services.connections.save(f.rider.player_id, 'strava', ['123', 'never-send-client-secret']);
-  f.services.connections.save(f.rider.player_id, 'intervals', ['42', 'never-send-api-key']);
-  f.services.connections.save(f.rider.player_id, 'zwift', ['zwift-user', 'never-send-zwift-password']);
-  t.mock.method(f.services.workouts, 'syncWorkoutsAutomatically', () => Promise.resolve());
+  f.effects.runSync(
+    ConnectionsService.use((service) =>
+      service.save(f.rider.player_id, 'garmin', ['public-user', 'never-send-garmin-password']),
+    ),
+  );
+  f.effects.runSync(
+    ConnectionsService.use((service) => service.save(f.rider.player_id, 'strava', ['123', 'never-send-client-secret'])),
+  );
+  f.effects.runSync(
+    ConnectionsService.use((service) => service.save(f.rider.player_id, 'intervals', ['42', 'never-send-api-key'])),
+  );
+  f.effects.runSync(
+    ConnectionsService.use((service) =>
+      service.save(f.rider.player_id, 'zwift', ['zwift-user', 'never-send-zwift-password']),
+    ),
+  );
+  t.mock.method(f.effects.runSync(WorkoutsService), 'syncWorkoutsAutomatically', () => Effect.void);
   const browser = await mediumBrowser(f);
 
   for (const path of ['/login/', `/user/${f.rider.username}/`]) {

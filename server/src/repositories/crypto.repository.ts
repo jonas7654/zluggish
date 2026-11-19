@@ -80,7 +80,7 @@ export class CryptoRepository {
   decryptCredentials(key: Uint8Array, bytes: Uint8Array): readonly [string, string] {
     if (key.length !== 32) throw new Error('Invalid credentials key');
 
-    if (bytes.length < 16) throw new UnreadableCredentialsError('Stored credentials are truncated');
+    if (bytes.length < 16) throw new UnreadableCredentialsError({ message: 'Stored credentials are truncated' });
     const decipher = createDecipheriv('aes-256-cfb8', key, bytes.subarray(0, 16));
     const plain = Buffer.concat([decipher.update(bytes.subarray(16)), decipher.final()]);
     let text: string;
@@ -89,7 +89,8 @@ export class CryptoRepository {
     try {
       text = new TextDecoder('utf-8', { fatal: true }).decode(plain);
     } catch (error) {
-      throw new UnreadableCredentialsError('Stored credentials do not decrypt with this credentials key', {
+      throw new UnreadableCredentialsError({
+        message: 'Stored credentials do not decrypt with this credentials key',
         cause: error,
       });
     }
@@ -99,7 +100,7 @@ export class CryptoRepository {
     const second = lines[1];
 
     if (first === undefined || second === undefined)
-      throw new UnreadableCredentialsError('Stored credentials do not decrypt with this credentials key');
+      throw new UnreadableCredentialsError({ message: 'Stored credentials do not decrypt with this credentials key' });
 
     return [first, second];
   }

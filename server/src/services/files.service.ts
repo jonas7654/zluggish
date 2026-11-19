@@ -1,25 +1,38 @@
-import { BaseService } from '#src/services/base.service';
+import { Context, Effect, Layer } from 'effect';
+import { RuntimeContext } from '#src/context';
 
-export class FilesService extends BaseService {
-  readonly exists = this.filesRepository.existsSync;
+const make = Effect.gen(function* () {
+  const context = yield* RuntimeContext;
+  const files = context.accounts.repositories.filesRepository;
 
-  readonly read = this.filesRepository.readFileSync;
+  const exists = Effect.fn('FilesService.exists')(function* (path: string) {
+    return files.existsSync(path);
+  });
 
-  readonly list = this.filesRepository.readdirSync;
+  /** Whether path names a regular file. */
+  const isFile = Effect.fn('FilesService.isFile')(function* (path: string) {
+    return files.existsSync(path) && files.statSync(path).isFile();
+  });
 
-  readonly remove = this.filesRepository.rmSync;
+  const read = Effect.fn('FilesService.read')(function* (path: string) {
+    return files.readFileSync(path);
+  });
 
-  readonly unlink = this.filesRepository.unlinkSync;
+  const readText = Effect.fn('FilesService.readText')(function* (path: string) {
+    return files.readFileSync(path, 'utf8');
+  });
 
-  readonly stat = this.filesRepository.statSync;
+  /** Write path durably; an existing file is kept unless replace is set. */
+  const write = Effect.fn('FilesService.write')(function* (path: string, data: string | Uint8Array, replace = false) {
+    files.writeDurable(path, data, replace);
+  });
 
-  readonly write = this.filesRepository.writeDurable;
+  return { exists, isFile, read, readText, write };
+});
 
-  writeAsync(path: string, data: string | Uint8Array) {
-    return this.filesRepository.writeDurableAsync(path, data, true);
-  }
-
-  readAsync(path: string) {
-    return this.filesRepository.readAsync(path);
-  }
+/** Files in the asset and storage folders. */
+export class FilesService extends Context.Service<FilesService, Effect.Success<typeof make>>()(
+  'zluggish/FilesService',
+) {
+  static readonly layer = Layer.effect(FilesService, make);
 }

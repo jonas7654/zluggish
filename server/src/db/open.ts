@@ -1,3 +1,4 @@
+import { Schema } from 'effect';
 import { removeLegacyAccountFields } from '#src/db/account-upgrade';
 import { ConfigError } from '#src/config/index';
 import {
@@ -13,7 +14,8 @@ import { migrateStorage, resolvePendingMigration, STORAGE_VERSION, StorageFile }
 import { existsSync, mkdirSync, readdirSync, renameSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { z } from 'zod';
+
+const isVersionRow = Schema.is(Schema.Struct({ version: Schema.Finite }));
 
 /** Ordinary schema migrations after the storage merge. Each runs in one transaction at
 startup. A migration that changes existing data needs a backup first (storage backup).
@@ -29,7 +31,9 @@ const migrations: { version: number; up: (db: DatabaseSync) => void }[] = [
 export const SCHEMA_VERSION = STORAGE_VERSION + migrations.length;
 
 function version(db: DatabaseSync) {
-  return z.object({ version: z.number() }).parse(db.prepare('SELECT version FROM version LIMIT 1').get()).version;
+  return Schema.decodeUnknownSync(Schema.Struct({ version: Schema.Finite }))(
+    db.prepare('SELECT version FROM version LIMIT 1').get(),
+  ).version;
 }
 
 /** Per connection: WAL, full durability, foreign keys. An acknowledged save survives a
@@ -58,9 +62,8 @@ export function openDatabase(storage: string): DatabaseSync {
     const inspection = new DatabaseSync(existingPath, { readOnly: true });
 
     try {
-      const found = z
-        .object({ version: z.number() })
-        .safeParse(inspection.prepare('SELECT version FROM version LIMIT 1').get());
+      const row = inspection.prepare('SELECT version FROM version LIMIT 1').get();
+      const version = isVersionRow(row) ? row.version : undefined;
 
       const columns = new Set(
         inspection
@@ -69,12 +72,12 @@ export function openDatabase(storage: string): DatabaseSync {
           .map((row) => row.name),
       );
 
-      if (found.success && found.data.version > SCHEMA_VERSION)
+      if (version !== undefined && version > SCHEMA_VERSION)
         throw new ConfigError('The database is newer than this release; use a newer release');
 
       if (
-        !found.success ||
-        found.data.version < 4 ||
+        version === undefined ||
+        version < 4 ||
         !columns.has('auth_version') ||
         !columns.has('official_player_id') ||
         !!inspection

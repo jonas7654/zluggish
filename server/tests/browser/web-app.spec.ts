@@ -1,9 +1,10 @@
+import { ManagementService } from '#src/services/management.service';
 import { runtimeFixture } from '#tests/support/runtime';
 import { createWebApp } from '#src/http/web-app';
 import { serve } from '@hono/node-server';
 import { chromium } from 'playwright';
 import assert from 'node:assert/strict';
-import { z } from 'zod';
+import { Schema } from 'effect';
 import { once } from 'node:events';
 import { test } from 'node:test';
 
@@ -15,7 +16,7 @@ for (const existing of [false, true])
       const f = runtimeFixture(t);
 
       const owner = existing ? await f.accounts.create('First Rider', 'test-password', 'owner') : null;
-      const key = f.services.management.issueSetupKey()!;
+      const key = f.effects.runSync(ManagementService.use((management) => management.issueSetupKey()))!;
       const web = serve({ fetch: createWebApp(f).fetch, hostname: '127.0.0.1', port: 0 });
       const game = serve({ fetch: f.app.fetch, hostname: '127.0.0.1', port: 0 });
       t.after(() => {
@@ -23,8 +24,8 @@ for (const existing of [false, true])
         game.close();
       });
       await Promise.all([web, game].flatMap((s) => (s.listening ? [] : [once(s, 'listening')])));
-      const address = z.object({ port: z.number() }).parse(web.address());
-      const gameAddress = z.object({ port: z.number() }).parse(game.address());
+      const address = Schema.decodeUnknownSync(Schema.Struct({ port: Schema.Finite }))(web.address());
+      const gameAddress = Schema.decodeUnknownSync(Schema.Struct({ port: Schema.Finite }))(game.address());
       const origin = `http://127.0.0.1:${address.port}`;
       const browser = await chromium.launch();
       t.after(() => browser.close());

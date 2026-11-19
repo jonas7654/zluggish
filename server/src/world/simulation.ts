@@ -17,8 +17,10 @@ import { clone, fromBinary, toBinary } from '@bufbuild/protobuf';
 import { readFileSync } from 'node:fs';
 import { appendFile, rename, stat } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
-import { z } from 'zod';
+import { Effect, Fiber, Schedule, Schema } from 'effect';
 import { botCommand } from '#src/dtos/management.dto';
+
+const isBikeAction = Schema.is(Schema.Enum(UserBikeAction));
 
 interface GhostPlayback {
   states: PlayerState[];
@@ -60,13 +62,14 @@ export class Simulation {
 
   readonly pool: RiderPool;
 
-  readonly ghostAppearance: z.infer<typeof ghostAppearanceSchema>;
+  readonly ghostAppearance: (typeof ghostAppearanceSchema)['Type'];
 
   readonly starts: Record<string, { road: number; time: number }>;
 
   readonly rng = new Random();
 
-  timer: NodeJS.Timeout | null = null;
+  /** The tick loop while it runs. */
+  private ticker: Fiber.Fiber<unknown> | null = null;
 
   lastPacer = 0;
 
@@ -96,13 +99,13 @@ export class Simulation {
     readonly runtime: Runtime,
     readonly now: () => number = () => performance.now() / 1000,
   ) {
-    this.ghostAppearance = ghostAppearanceSchema.parse(
+    this.ghostAppearance = Schema.decodeUnknownSync(ghostAppearanceSchema)(
       runtime.config.ghosts.profileFile ? JSON.parse(readFileSync(runtime.config.ghosts.profileFile, 'utf8')) : {},
     );
     this.pool = new RiderPool(runtime.assets, runtime.config.bots.ridersFile);
-    this.starts = z
-      .record(z.string(), z.object({ road: z.number(), time: z.number() }))
-      .parse(JSON.parse(readFileSync(resolve(runtime.assets, 'data/start_lines.txt'), 'utf8')));
+    this.starts = Schema.decodeUnknownSync(
+      Schema.Record(Schema.String, Schema.Struct({ road: Schema.Finite, time: Schema.Finite })),
+    )(JSON.parse(readFileSync(resolve(runtime.assets, 'data/start_lines.txt'), 'utf8')));
     // Static road assets load at startup; blobs are rebuilt on the riding path.
     Blob.roads(runtime.assets);
     runtime.world.simulation = this;
@@ -127,23 +130,43 @@ export class Simulation {
     await this.recording.queue;
   }
 
-  start() {
-    if (this.timer) return;
-    this.closed = false;
+  /** One tick. A failed tick is logged and skipped: the world keeps moving and the server keeps running. */
+  private readonly tickOnce = Effect.sync(() => this.tick()).pipe(
+    Effect.catchDefect((error) =>
+      Effect.sync(() => {
+        this.runtime.world.lifecycle.log.error('simulation.tick_failed', 'Simulation tick failed', {
+          error: error instanceof Error ? error : String(error),
+        });
+      }),
+    ),
+  );
+
+  /** Tick every 500 ms on a fixed cadence, starting 500 ms from now, and record how late each tick runs. */
+  private loop() {
     let expected = performance.now() + 500;
-    this.timer = setInterval(() => {
+
+    const measured = Effect.sync(() => {
       const now = performance.now();
       metrics.record(Metric.SimulationTickDelay, Math.max(0, now - expected));
       expected = now + 500;
-      this.tick();
-    }, 500);
+    }).pipe(Effect.andThen(this.tickOnce));
+
+    return Effect.sleep(500).pipe(Effect.andThen(Effect.repeat(measured, Schedule.fixed(500))));
+  }
+
+  start() {
+    if (this.ticker) return;
+    this.closed = false;
+    this.ticker = Effect.runFork(this.loop());
   }
 
   /** Stop ticking, then wait for background loads and writes to finish. */
-  close() {
-    if (this.timer) clearInterval(this.timer);
-    this.timer = null;
+  async close() {
+    const ticker = this.ticker;
+    this.ticker = null;
     this.closed = true;
+
+    if (ticker) await Effect.runPromise(Fiber.interrupt(ticker));
 
     return this.idle();
   }
@@ -263,7 +286,7 @@ export class Simulation {
         const defaults = entries.get(key);
         const saved = this.runtime.settings.world(id);
 
-        const entry = configSchema.parse({
+        const entry = Schema.decodeUnknownSync(configSchema)({
           pelotons: [{ ...defaults, ...saved, id: key }],
         }).pelotons[0];
 
@@ -320,7 +343,7 @@ export class Simulation {
     this.directors.delete(id);
     const saved = this.runtime.settings.world(`blob:${id}`);
 
-    const config = configSchema.parse({
+    const config = Schema.decodeUnknownSync(configSchema)({
       soloBlob: {
         ...this.runtime.config.soloBlob,
         enabled: Number(id) === this.runtime.config.soloBlob.playerId && this.runtime.config.soloBlob.enabled,
@@ -585,15 +608,15 @@ export class Simulation {
 
     if (buffer.readBigUInt64LE() !== id) return null;
 
-    const action = z.nativeEnum(UserBikeAction).safeParse(buffer.readUInt32LE(8));
+    const action = buffer.readUInt32LE(8);
 
-    if (!action.success) return null;
+    if (!isBikeAction(action)) return null;
     const previous = this.lastGesture.get(id);
 
-    if (previous?.action === action.data && this.now() - previous.time < 2) return null;
-    this.lastGesture.set(id, { action: action.data, time: this.now() });
+    if (previous?.action === action && this.now() - previous.time < 2) return null;
+    this.lastGesture.set(id, { action, time: this.now() });
 
-    return this.blobs.get(id)?.gesture(action.data) ?? null;
+    return this.blobs.get(id)?.gesture(action) ?? null;
   }
 
   command(id: bigint, command: string, administrator = false) {
@@ -615,8 +638,7 @@ export class Simulation {
     }
 
     // These change the world for every rider. Only the management area sends them, on behalf of a rider.
-    if (!administrator && botCommand.safeParse(name).success)
-      return 'Use the web app management area for server commands.';
+    if (!administrator && Schema.is(botCommand)(name)) return 'Use the web app management area for server commands.';
 
     if (name === 'group' || name === 'groupall') {
       this.group(id, name === 'groupall');

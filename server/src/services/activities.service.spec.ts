@@ -6,7 +6,7 @@ import { clone, create } from '@bufbuild/protobuf';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-const service = ActivitiesService.prototype;
+const service = ActivitiesService;
 
 await test('owners retain access while other riders can only see public activities', () => {
   for (const privacy of [ActivityPrivacyType.PUBLIC, ActivityPrivacyType.PRIVATE, ActivityPrivacyType.FRIENDS]) {
@@ -26,7 +26,7 @@ await test('owners retain access while other riders can only see public activiti
       } else {
         assert.equal(service.visible(activity, 2), false);
         assert.equal(service.fitnessVisible(activity, 2), false);
-        assert.throws(() => service.forViewer(activity, 2), new ApplicationError(404));
+        assert.throws(() => service.forViewer(activity, 2), new ApplicationError({ status: 404 }));
       }
     }
   }

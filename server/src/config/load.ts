@@ -1,12 +1,11 @@
 import type { ResolvedConfig } from '#src/config/index';
-import { ConfigError, validateConfig, validationError } from '#src/config/index';
-import { configSchema } from '#src/config/schema';
+import { ConfigError, decodeConfigInput, validateConfig } from '#src/config/index';
 import { createJiti } from 'jiti';
 import { accessSync, constants, copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, resolve, sep } from 'node:path';
 import { createSecureContext } from 'node:tls';
 import { fileURLToPath } from 'node:url';
-import { z } from 'zod';
+import { Predicate, Schema } from 'effect';
 
 export const CONFIG_NAME = 'zluggish.config.ts';
 
@@ -27,9 +26,9 @@ let version: string | undefined;
 
 /** The server's own release version from package.json, shown in the launcher and on /health. */
 export function packageVersion(): string {
-  version ??= z
-    .object({ version: z.string() })
-    .parse(JSON.parse(readFileSync(resolve(packageRoot(), 'package.json'), 'utf8'))).version;
+  version ??= Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Struct({ version: Schema.String })))(
+    readFileSync(resolve(packageRoot(), 'package.json'), 'utf8'),
+  ).version;
 
   return version;
 }
@@ -81,17 +80,28 @@ export function prepareContainerConfig(options: LoadOptions): LoadOptions {
   return { ...options, path };
 }
 
-const loadError = z
-  .object({
-    name: z.string().catch('Error'),
-    code: z.string().optional().catch(undefined),
-    message: z.string().catch(''),
-    stack: z.string().catch(''),
-  })
-  .catch({ name: 'Error', message: '', stack: '' });
+interface LoadError {
+  name: string;
+  code?: string | undefined;
+  message: string;
+  stack: string;
+}
+
+/** The string fields of whatever a configuration module threw. */
+function loadError(cause: unknown): LoadError {
+  const field = (key: string) =>
+    Predicate.hasProperty(cause, key) && Predicate.isString(cause[key]) ? cause[key] : undefined;
+
+  return {
+    name: field('name') ?? 'Error',
+    code: field('code'),
+    message: field('message') ?? '',
+    stack: field('stack') ?? '',
+  };
+}
 
 /** Report the runtime message and first operator source location without dependency stacks. */
-function describeLoadError({ name, code, message, stack }: z.infer<typeof loadError>, path: string) {
+function describeLoadError({ name, code, message, stack }: LoadError, path: string) {
   const normalizedPath = path.replaceAll('\\', '/');
   const normalizedMessage = message.replaceAll('\\', '/');
   const normalizedStack = stack.replaceAll('\\', '/');
@@ -140,38 +150,25 @@ export async function loadConfig(options: LoadOptions = {}): Promise<LoadedConfi
   let config: ResolvedConfig;
 
   try {
-    const module = z.object({ default: z.unknown() }).parse(await jiti.import(path));
+    const module = Schema.decodeUnknownSync(Schema.Struct({ default: Schema.Unknown }))(await jiti.import(path));
 
     const value = module.default;
 
-    const factory = z
-      .function({
-        input: [
-          z.object({
-            env: z.record(z.string(), z.string().optional()),
-            configDir: z.string(),
-          }),
-        ],
-        output: z.unknown(),
-      })
-      .safeParse(value);
+    const evaluated: unknown = Predicate.isFunction(value)
+      ? value({ env: { ...env }, configDir: dirname(path) })
+      : value;
 
-    const evaluated = factory.success ? factory.data({ env: { ...env }, configDir: dirname(path) }) : value;
-
-    if (z.instanceof(Promise).safeParse(evaluated).success)
-      throw new ConfigError('Async configuration is not supported');
-    const parsed = configSchema.safeParse(evaluated);
-
-    if (!parsed.success) throw validationError(parsed.error);
+    if (Predicate.isPromise(evaluated)) throw new ConfigError('Async configuration is not supported');
+    const parsed = decodeConfigInput(evaluated);
 
     config = validateConfig({
-      ...parsed.data,
-      storageDir: options.storageDir ?? env.ZLUGGISH_STORAGE_DIR ?? parsed.data.storageDir,
+      ...parsed,
+      storageDir: options.storageDir ?? env.ZLUGGISH_STORAGE_DIR ?? parsed.storageDir,
     });
   } catch (error) {
     if (error instanceof ConfigError) throw error;
 
-    throw new ConfigError(`Cannot evaluate ${path}: ${describeLoadError(loadError.parse(error), path)}`);
+    throw new ConfigError(`Cannot evaluate ${path}: ${describeLoadError(loadError(error), path)}`);
   }
 
   const relative = (p: string) => (p && !isAbsolute(p) ? resolve(dirname(path), p) : p);

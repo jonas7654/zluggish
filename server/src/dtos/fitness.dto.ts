@@ -1,14 +1,15 @@
 import { FitnessGoalSetting } from '#src/enum';
-import { z } from 'zod';
+import { Schema } from 'effect';
+import { withDefault, withLazyDefault } from '#src/schema';
 
-export const goalSchema = z.object({
-  weekGoalTSS: z.number().nonnegative().default(200),
-  weekGoalCalories: z.number().nonnegative().default(2000),
-  weekGoalKjs: z.number().nonnegative().default(2000),
-  weekGoalDistanceKilometers: z.number().nonnegative().default(100),
-  weekGoalDistanceMiles: z.number().nonnegative().default(62.14),
-  weekGoalTimeMinutes: z.number().nonnegative().default(180),
-  currentGoalSetting: z.enum(FitnessGoalSetting).default('DISTANCE'),
-  currentGoalSource: z.string().default('MANUAL'),
-  lastUpdated: z.string().default(() => new Date().toISOString()),
+export const goalSchema = Schema.Struct({
+  weekGoalTSS: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)).pipe(withDefault(200)),
+  weekGoalCalories: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)).pipe(withDefault(2000)),
+  weekGoalKjs: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)).pipe(withDefault(2000)),
+  weekGoalDistanceKilometers: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)).pipe(withDefault(100)),
+  weekGoalDistanceMiles: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)).pipe(withDefault(62.14)),
+  weekGoalTimeMinutes: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)).pipe(withDefault(180)),
+  currentGoalSetting: Schema.Enum(FitnessGoalSetting).pipe(withDefault('DISTANCE')),
+  currentGoalSource: Schema.String.pipe(withDefault('MANUAL')),
+  lastUpdated: Schema.String.pipe(withLazyDefault(() => new Date().toISOString())),
 });

@@ -1,71 +1,71 @@
+import { Context } from 'effect';
 import { ConfigError } from '#src/config/index';
 import { Repositories } from '#src/repositories';
 import type { User } from '#src/repositories/accounts.repository';
-import { AccountsRepository } from '#src/repositories/accounts.repository';
-import { BaseService } from '#src/services/base.service';
 import { resolve } from 'node:path';
-import type { DatabaseSync } from 'node:sqlite';
 
-export class AccountsService extends BaseService {
-  onRevoke: ((id: number) => void) | undefined;
+/** A rider's sign-in identity: the identity changes when the password, role or access changes. */
+function identityOf(rider: User) {
+  return `${rider.player_id}:${rider.auth_version}`;
+}
 
-  readonly db: DatabaseSync;
+/** The enabled rider with a password whose identity this is, looked up with get; malformed identities
+never reach the lookup.
+*/
+function resolveIdentity(identity: string, get: (id: number) => User | null): User | null {
+  if (!/^\d+:\d+$/.test(identity)) return null;
+  const [id = 0, version] = identity.split(':').map(Number);
+  const rider = get(id);
 
-  readonly repository: AccountsRepository;
+  return rider && rider.enabled === 1 && rider.pass_hash && rider.auth_version === version ? rider : null;
+}
 
-  constructor(readonly storage: string) {
-    super(new Repositories(storage));
-    this.db = this.repositories.db;
-    this.repository = this.accountsRepository;
+/** Open the account database in a storage folder. The returned store is synchronous: transactions
+must not yield, so the account and repository calls stay plain functions.
+*/
+function open(storage: string) {
+  const repositories = new Repositories(storage);
+  const { db } = repositories;
+  const repository = repositories.accountsRepository;
+  let onRevoke: ((id: number) => void) | undefined;
+
+  function list() {
+    return repository.list();
   }
 
-  list() {
-    return this.repository.list();
+  function get(id: number) {
+    return repository.get(id);
   }
 
-  get(id: number) {
-    return this.repository.get(id);
-  }
-
-  byUsername(username: string) {
-    return this.repository.byUsername(username);
+  function byUsername(username: string) {
+    return repository.byUsername(username);
   }
 
   /** True when another rider already uses this login name after normalization. */
-  loginNameTaken(username: string, except?: number) {
-    return this.repository.sameLoginName(username).some((rider) => rider.player_id !== except);
+  function loginNameTaken(username: string, except?: number) {
+    return repository.sameLoginName(username).some((rider) => rider.player_id !== except);
   }
 
   // Setup is one-way: first owner creation commits its marker in the same account transaction.
-  identityOf(rider: User) {
-    return `${rider.player_id}:${rider.auth_version}`;
-  }
-
-  identity(identity: string): User | null {
-    if (!/^\d+:\d+$/.test(identity)) return null;
-    const [id = 0, version] = identity.split(':').map(Number);
-    const rider = this.get(id);
-
-    return rider && rider.enabled === 1 && rider.pass_hash && rider.auth_version === version ? rider : null;
-  }
+  const identity = (value: string) => resolveIdentity(value, get);
 
   /** Direct creation for tests and offline tools. Riders are otherwise created only in the management area. */
-  async create(name: string, password: string, username?: string): Promise<User> {
+  async function create(name: string, password: string, username?: string): Promise<User> {
     const displayName = name.trim();
 
     if (!displayName || displayName.length > 100) throw new ConfigError('Enter a name between 1 and 100 characters');
 
     // Every rider has a password; the launcher can remember it per computer instead.
     if (!password) throw new ConfigError('Choose a password for this rider');
-    const passwordHash = await this.cryptoRepository.hashPassword(password);
+    const passwordHash = await repositories.cryptoRepository.hashPassword(password);
     let created: string | null = null;
-    this.db.exec('BEGIN IMMEDIATE');
+    db.exec('BEGIN IMMEDIATE');
 
     try {
       const occupied = [
-        ...this.list().map((user) => user.player_id),
-        ...this.filesRepository
-          .readdirSync(this.storage)
+        ...list().map((user) => user.player_id),
+        ...repositories.filesRepository
+          .readdirSync(storage)
           .filter((name) => /^\d+$/.test(name))
           .map(Number),
       ];
@@ -74,13 +74,13 @@ export class AccountsService extends BaseService {
       const id = Math.max(0, ...occupied) + 1;
 
       if (!Number.isSafeInteger(id) || id > 2_147_483_647) throw new ConfigError('Rider ID space exhausted');
-      const folder = resolve(this.storage, String(id));
-      this.filesRepository.mkdirSync(folder);
+      const folder = resolve(storage, String(id));
+      repositories.filesRepository.mkdirSync(folder);
       created = folder;
       const [first = '', ...rest] = displayName.split(/\s+/);
-      this.repository.insert({
+      repository.insert({
         player_id: id,
-        username: username ?? `rider-${this.cryptoRepository.randomBytes(12).toString('hex')}@local.invalid`,
+        username: username ?? `rider-${repositories.cryptoRepository.randomBytes(12).toString('hex')}@local.invalid`,
         first_name: first,
         last_name: rest.join(' '),
         pass_hash: passwordHash,
@@ -88,32 +88,32 @@ export class AccountsService extends BaseService {
         official_player_id: null,
       });
 
-      const user = this.get(id);
+      const user = get(id);
 
       if (!user) throw new Error('Created rider unavailable');
 
-      this.db.exec('COMMIT');
+      db.exec('COMMIT');
 
       return user;
     } catch (error) {
-      if (this.db.isTransaction) this.db.exec('ROLLBACK');
+      if (db.isTransaction) db.exec('ROLLBACK');
 
-      if (created) this.filesRepository.rmSync(created, { recursive: true, force: true });
+      if (created) repositories.filesRepository.rmSync(created, { recursive: true, force: true });
 
       throw error;
     }
   }
 
-  async verify(rider: User, password: string) {
+  async function verify(rider: User, password: string) {
     // Spend the same hashing work as a real check, so timing does not reveal the account state.
     if (!rider.enabled || !rider.pass_hash) {
-      await this.cryptoRepository.hashPassword(password);
+      await repositories.cryptoRepository.hashPassword(password);
 
       return false;
     }
 
-    const valid = await this.cryptoRepository.verifyPassword(rider.pass_hash, password);
-    const current = this.get(rider.player_id);
+    const valid = await repositories.cryptoRepository.verifyPassword(rider.pass_hash, password);
+    const current = get(rider.player_id);
 
     return !!(
       valid &&
@@ -124,11 +124,11 @@ export class AccountsService extends BaseService {
     );
   }
 
-  async changePassword(id: number, password: string, admin = false, live: () => boolean = () => true) {
+  async function changePassword(id: number, password: string, admin = false, live: () => boolean = () => true) {
     if (!password) throw new ConfigError('Password must not be empty');
-    const before = this.get(id);
-    const hash = await this.cryptoRepository.hashPassword(password);
-    const current = this.get(id);
+    const before = get(id);
+    const hash = await repositories.cryptoRepository.hashPassword(password);
+    const current = get(id);
 
     if (
       !live() ||
@@ -138,11 +138,46 @@ export class AccountsService extends BaseService {
       current.pass_hash !== before.pass_hash
     )
       throw new ConfigError('Account changed. Retry.');
-    this.repository.setPassword(id, hash, admin);
-    this.onRevoke?.(id);
+    repository.setPassword(id, hash, admin);
+    onRevoke?.(id);
   }
 
-  close() {
-    if (this.db.isOpen) this.db.close();
+  function close() {
+    if (db.isOpen) db.close();
   }
+
+  return {
+    storage,
+    db,
+    repository,
+    repositories,
+    /** Called with a rider whose sessions a password change revoked. */
+    get onRevoke() {
+      return onRevoke;
+    },
+    set onRevoke(handler: ((id: number) => void) | undefined) {
+      onRevoke = handler;
+    },
+    list,
+    get,
+    byUsername,
+    loginNameTaken,
+    identityOf,
+    identity,
+    create,
+    verify,
+    changePassword,
+    close,
+  };
+}
+
+/** The account database and its repositories, shared by every service. */
+export class AccountsService extends Context.Service<AccountsService, ReturnType<typeof open>>()(
+  'zluggish/AccountsService',
+) {
+  static readonly open = open;
+
+  static readonly identityOf = identityOf;
+
+  static readonly resolveIdentity = resolveIdentity;
 }

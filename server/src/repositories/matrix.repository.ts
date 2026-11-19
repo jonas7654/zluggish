@@ -5,7 +5,8 @@ import { parse } from 'ini';
 import { readFileSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { z } from 'zod';
+import { Option, Schema } from 'effect';
+import { orElse, withDefault } from '#src/schema';
 
 export interface MatrixHandlers {
   receive(author: string, content: string): void;
@@ -30,49 +31,50 @@ class MatrixError extends Error {
   }
 }
 
-const session = z.object({
-  homeserver: z.string(),
-  userId: z.string(),
-  deviceId: z.string(),
-  accessToken: z.string(),
+const session = Schema.Struct({
+  homeserver: Schema.String,
+  userId: Schema.String,
+  deviceId: Schema.String,
+  accessToken: Schema.String,
 });
 
-const event = z.object({
-  type: z.string(),
-  sender: z.string().default(''),
-  state_key: z.string().optional(),
-  content: z.record(z.string(), z.unknown()).default({}),
+const event = Schema.Struct({
+  type: Schema.String,
+  sender: Schema.String.pipe(withDefault('')),
+  state_key: Schema.optional(Schema.String),
+  content: Schema.Record(Schema.String, Schema.Unknown).pipe(withDefault({})),
 });
 
-const sync = z.object({
-  next_batch: z.string(),
-  rooms: z
-    .object({
-      join: z
-        .record(
-          z.string(),
-          z.object({
-            state: z.object({ events: z.array(event) }).optional(),
-            timeline: z.object({ events: z.array(event) }).optional(),
+const sync = Schema.Struct({
+  next_batch: Schema.String,
+  rooms: Schema.optional(
+    Schema.Struct({
+      join: Schema.optional(
+        Schema.Record(
+          Schema.String,
+          Schema.Struct({
+            state: Schema.optional(Schema.Struct({ events: Schema.Array(event) })),
+            timeline: Schema.optional(Schema.Struct({ events: Schema.Array(event) })),
           }),
-        )
-        .optional(),
-    })
-    .optional(),
+        ),
+      ),
+    }),
+  ),
 });
 
-const text = z.object({
-  msgtype: z.literal('m.text'),
-  body: z.string().min(1),
-  // Edits repeat the message with a "* " prefix; relaying them would duplicate chat.
-  'm.relates_to': z.object({ rel_type: z.string().optional() }).optional(),
+const text = Schema.Struct({
+  msgtype: Schema.Literal('m.text'),
+  body: Schema.String.check(Schema.isMinLength(1)), // Edits repeat the message with a "* " prefix; relaying them would duplicate chat.
+  'm.relates_to': Schema.optional(Schema.Struct({ rel_type: Schema.optional(Schema.String) })),
 });
 
-const member = z.object({ displayname: z.string().min(1).nullish() });
+const member = Schema.Struct({
+  displayname: Schema.optional(Schema.NullOr(Schema.String.check(Schema.isMinLength(1)))),
+});
 
-const whoami = z.object({ user_id: z.string() });
+const whoami = Schema.Struct({ user_id: Schema.String });
 
-type MatrixBody = Record<string, z.infer<ReturnType<typeof z.json>>>;
+type MatrixBody = Record<string, typeof Schema.Json.Type>;
 
 function localpart(user: string) {
   return user.replace(/^@/, '').replace(/:.*$/, '');
@@ -84,11 +86,14 @@ export class MatrixRepository {
     storageDir: string,
     handlers: MatrixHandlers,
   ) {
-    const credentials = z
-      .object({
-        matrix: z.union([z.object({ access_token: z.string().min(1) }), z.object({ password: z.string().min(1) })]),
-      })
-      .parse(parse(readFileSync(settings.credentialsFile, 'utf8'))).matrix;
+    const credentials = Schema.decodeUnknownSync(
+      Schema.Struct({
+        matrix: Schema.Union([
+          Schema.Struct({ access_token: Schema.String.check(Schema.isMinLength(1)) }),
+          Schema.Struct({ password: Schema.String.check(Schema.isMinLength(1)) }),
+        ]),
+      }),
+    )(parse(readFileSync(settings.credentialsFile, 'utf8'))).matrix;
 
     const homeserver = settings.homeserver.replace(/\/+$/, '');
     const sessionFile = resolve(storageDir, 'matrix-session.json');
@@ -102,13 +107,13 @@ export class MatrixRepository {
     let encrypted = false;
     let warned = false;
 
-    const request = async <T extends z.ZodType>(
+    const request = async <T extends Schema.ConstraintDecoder<unknown>>(
       schema: T,
       method: string,
       path: string,
       body?: MatrixBody,
       timeout = 30_000,
-    ): Promise<z.output<T>> => {
+    ): Promise<T['Type']> => {
       const response = await fetch(`${homeserver}/_matrix/client/v3${path}`, {
         method,
         headers: {
@@ -120,22 +125,21 @@ export class MatrixRepository {
       });
 
       if (!response.ok) {
-        const error = z
-          .object({ errcode: z.string() })
-          .catch({ errcode: '' })
-          .parse(await response.json().catch(() => ({})));
+        const error = Schema.decodeUnknownSync(Schema.Struct({ errcode: Schema.String }).pipe(orElse({ errcode: '' })))(
+          await response.json().catch(() => ({})),
+        );
 
         throw new MatrixError(response.status, error.errcode);
       }
 
-      return schema.parse(await response.json());
+      return Schema.decodeUnknownSync(schema)(await response.json());
     };
 
     const restore = () => {
       let saved;
 
       try {
-        saved = session.parse(JSON.parse(readFileSync(sessionFile, 'utf8')));
+        saved = Schema.decodeUnknownSync(session)(JSON.parse(readFileSync(sessionFile, 'utf8')));
       } catch {
         return;
       }
@@ -175,7 +179,7 @@ export class MatrixRepository {
       token = '';
 
       const response = await request(
-        z.object({ user_id: z.string(), device_id: z.string(), access_token: z.string() }),
+        Schema.Struct({ user_id: Schema.String, device_id: Schema.String, access_token: Schema.String }),
         'POST',
         '/login',
         {
@@ -196,7 +200,7 @@ export class MatrixRepository {
           userId,
           deviceId: response.device_id,
           accessToken: token,
-        } satisfies z.infer<typeof session>),
+        } satisfies (typeof session)['Type']),
         true,
       );
     };
@@ -224,7 +228,7 @@ export class MatrixRepository {
 
       for (const item of [...(joined?.state?.events ?? []), ...(joined?.timeline?.events ?? [])]) {
         if (item.type === 'm.room.member' && item.state_key) {
-          const name = member.safeParse(item.content).data?.displayname;
+          const name = Option.getOrUndefined(Schema.decodeUnknownOption(member)(item.content))?.displayname;
 
           if (name) names.set(item.state_key, name);
           else names.delete(item.state_key);
@@ -232,10 +236,10 @@ export class MatrixRepository {
 
         // The first sync replays history; only newer messages are chat.
         if (!since || item.type !== 'm.room.message' || item.sender === userId) continue;
-        const message = text.safeParse(item.content);
+        const message = Schema.decodeUnknownOption(text)(item.content);
 
-        if (message.success && message.data['m.relates_to']?.rel_type !== 'm.replace')
-          handlers.receive(names.get(item.sender) ?? localpart(item.sender), message.data.body);
+        if (Option.isSome(message) && message.value['m.relates_to']?.rel_type !== 'm.replace')
+          handlers.receive(names.get(item.sender) ?? localpart(item.sender), message.value.body);
       }
 
       if (encrypted && !warned) {
@@ -249,7 +253,7 @@ export class MatrixRepository {
     const presence = (count: number) => {
       if (!connected) return;
       // Many homeservers disable presence; a refused update changes nothing for riders.
-      void request(z.unknown(), 'PUT', `/presence/${encodeURIComponent(userId)}/status`, {
+      void request(Schema.Unknown, 'PUT', `/presence/${encodeURIComponent(userId)}/status`, {
         presence: 'online',
         status_msg: count ? `${count} rider${count === 1 ? '' : 's'} online` : 'No riders online',
       }).catch(() => {});
@@ -265,7 +269,7 @@ export class MatrixRepository {
 
           // Joining also accepts an invite and resolves a room alias.
           const joined = await request(
-            z.object({ room_id: z.string() }),
+            Schema.Struct({ room_id: Schema.String }),
             'POST',
             `/join/${encodeURIComponent(settings.room)}`,
             {},
@@ -300,7 +304,7 @@ export class MatrixRepository {
         if (encrypted) throw new Error('Matrix room is encrypted');
 
         await request(
-          z.unknown(),
+          Schema.Unknown,
           'PUT',
           `/rooms/${encodeURIComponent(room)}/send/m.room.message/${new CryptoRepository().randomUUID()}`,
           { msgtype: 'm.text', body: content },

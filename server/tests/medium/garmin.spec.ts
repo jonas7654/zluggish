@@ -1,7 +1,7 @@
 import { GarminRepository } from '#src/repositories/garmin.repository';
 import { runtimeFixture } from '#tests/support/runtime';
 import assert from 'node:assert/strict';
-import { z } from 'zod';
+import { Schema } from 'effect';
 import { test } from 'node:test';
 
 await test('Garmin imports FIT using garth-format tokens stored as encrypted documents', async (t) => {
@@ -62,5 +62,8 @@ await test('Garmin imports FIT using garth-format tokens stored as encrypted doc
     .get();
 
   assert.equal(stored?.encrypted, 1);
-  assert.equal(Buffer.from(z.instanceof(Uint8Array).parse(stored?.data)).includes('synthetic-access'), false);
+  assert.equal(
+    Buffer.from(Schema.decodeUnknownSync(Schema.instanceOf(Uint8Array))(stored?.data)).includes('synthetic-access'),
+    false,
+  );
 });

@@ -1,4 +1,4 @@
-import { overrideSchema, type Overrides, preferenceSchema, type Preference } from '#src/dtos/settings.dto';
+import { decodeOverrides, decodePreference, type Overrides, type Preference } from '#src/dtos/settings.dto';
 
 import { ApplicationError } from '#src/errors';
 import { sql } from 'kysely';
@@ -8,9 +8,15 @@ import { query, SqliteExecutor } from '#src/db/query';
 import { existsSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
-const rowSchema = z.object({ value: z.string() });
+const decodeRow = Schema.decodeUnknownSync(Schema.Struct({ value: Schema.String }));
+
+const decodeJsonRecord = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Record(Schema.String, Schema.Json)));
+
+const decodeRecord = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json));
+
+type Json = typeof Schema.Json.Type;
 
 export class SettingsStore {
   private readonly executor: SqliteExecutor;
@@ -21,7 +27,7 @@ export class SettingsStore {
   // storage lock, so each committed change updates or invalidates its entry.
   private readonly riders = new Map<number, Overrides>();
 
-  private readonly worlds = new Map<string, Record<string, z.infer<ReturnType<typeof z.json>>>>();
+  private readonly worlds = new Map<string, Record<string, Json>>();
 
   /** Settings live in the main database. The store does not close a shared connection. */
   constructor(
@@ -47,7 +53,9 @@ export class SettingsStore {
 
     const db = new DatabaseSync(path, { readOnly, timeout: 5000 });
 
-    const version = z.object({ user_version: z.number() }).parse(db.prepare('PRAGMA user_version').get()).user_version;
+    const version = Schema.decodeUnknownSync(Schema.Struct({ user_version: Schema.Number }))(
+      db.prepare('PRAGMA user_version').get(),
+    ).user_version;
 
     if (version > 1 || (readOnly && version !== 1)) {
       db.close();
@@ -116,7 +124,7 @@ export class SettingsStore {
 
     if (cached) return { ...cached };
     const row = this.executor.get(query.selectFrom('rider_settings').select('value').where('player_id', '=', playerId));
-    const overrides = row ? overrideSchema.parse(JSON.parse(rowSchema.parse(row).value)) : {};
+    const overrides = row ? decodeOverrides(JSON.parse(decodeRow(row).value)) : {};
 
     if (!this.db.isTransaction) this.riders.set(playerId, overrides);
 
@@ -136,8 +144,8 @@ export class SettingsStore {
 
   save(playerId: number, overrides: Overrides, expected = this.versioned ? this.revision(playerId) : undefined) {
     if (expected !== undefined && this.revision(playerId) !== expected)
-      throw new ApplicationError(409, 'Settings changed. Review the new data.');
-    const candidate = preferenceSchema.parse({ playerId, overrides });
+      throw new ApplicationError({ status: 409, message: 'Settings changed. Review the new data.' });
+    const candidate = decodePreference({ playerId, overrides });
     const value = JSON.stringify(candidate.overrides);
     this.executor.run(
       query
@@ -154,7 +162,7 @@ export class SettingsStore {
     else this.riders.set(candidate.playerId, candidate.overrides);
   }
 
-  import(id: string, preferences: Preference[]) {
+  import(id: string, preferences: readonly Preference[]) {
     this.riders.clear();
     this.db.exec('BEGIN IMMEDIATE');
 
@@ -189,7 +197,7 @@ export class SettingsStore {
     if (cached) return structuredClone(cached);
 
     const row = this.executor.get(query.selectFrom('world_settings').select('value').where('id', '=', id));
-    const value = row ? z.record(z.string(), z.json()).parse(JSON.parse(rowSchema.parse(row).value)) : {};
+    const value = row ? decodeJsonRecord(decodeRow(row).value) : {};
 
     if (!this.db.isTransaction) this.worlds.set(id, value);
 
@@ -199,17 +207,13 @@ export class SettingsStore {
   worldIds() {
     return this.executor
       .all(query.selectFrom('world_settings').select('id').orderBy('id'))
-      .map((row) => z.string().parse(row.id));
+      .map((row) => Schema.decodeUnknownSync(Schema.String)(row.id));
   }
 
-  saveWorld(
-    id: string,
-    value: Record<string, z.infer<ReturnType<typeof z.json>>>,
-    expected = this.versioned ? this.worldRevision(id) : undefined,
-  ) {
+  saveWorld(id: string, value: Record<string, Json>, expected = this.versioned ? this.worldRevision(id) : undefined) {
     if (expected !== undefined && this.worldRevision(id) !== expected)
-      throw new ApplicationError(409, 'Settings changed. Review the new data.');
-    const checked = z.record(z.string(), z.json()).parse(value);
+      throw new ApplicationError({ status: 409, message: 'Settings changed. Review the new data.' });
+    const checked = decodeRecord(value);
     const serialized = JSON.stringify(checked);
     this.executor.run(
       query
@@ -236,7 +240,7 @@ export class SettingsStore {
   }
 }
 
-export const defaultRiderSettings = riderSettingsSchema.parse({});
+export const defaultRiderSettings = Schema.decodeUnknownSync(riderSettingsSchema)({});
 
 export class RiderRepository {
   checkRider(storage: string, playerId: number) {

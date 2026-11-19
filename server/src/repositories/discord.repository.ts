@@ -1,8 +1,9 @@
+import { Schema } from 'effect';
 import type { RepositoryContext as Runtime } from '#src/context';
 import { ActivityType, Client, Events, GatewayIntentBits, WebhookClient } from 'discord.js';
 import { parse } from 'ini';
 import { readFileSync } from 'node:fs';
-import { z } from 'zod';
+import { Url } from '#src/schema';
 
 export interface DiscordHandlers {
   receive(channel: string, author: string, bot: boolean, content: string): void;
@@ -20,11 +21,9 @@ export interface DiscordTransport {
 
 export class DiscordRepository {
   openDiscordTransport(settings: Runtime['config']['integrations']['discord'], handlers: DiscordHandlers) {
-    const credentials = z
-      .object({
-        discord: z.object({ token: z.string().min(1), webhook: z.url() }),
-      })
-      .parse(parse(readFileSync(settings.credentialsFile, 'utf8'))).discord;
+    const credentials = Schema.decodeUnknownSync(
+      Schema.Struct({ discord: Schema.Struct({ token: Schema.String.check(Schema.isMinLength(1)), webhook: Url }) }),
+    )(parse(readFileSync(settings.credentialsFile, 'utf8'))).discord;
 
     const client = new Client({
       intents: [

@@ -1,3 +1,4 @@
+import { RuntimeContext } from '#src/context';
 import { filenameSchema, manifestSchema } from '#src/dtos/profile-import.dto';
 
 import type { ImportFile, ImportFiles, ImportManifest } from '#src/dtos/profile-import.dto';
@@ -6,37 +7,31 @@ import { EconomyConfigSchema } from '#src/protocol/generated/login_pb';
 import { AchievementsSchema, PlayerProfileSchema, StreaksSchema } from '#src/protocol/generated/profile_pb';
 import { UserStorageSchema } from '#src/protocol/generated/user_storage_pb';
 import type { User } from '#src/repositories/accounts.repository';
-import type { AccountsService } from '#src/services/auth.service';
 import { immediate } from '#src/db/transaction';
-import { BaseService } from '#src/services/base.service';
-import type { World } from '#src/world/state';
 import { clearField, fromBinary, fromJsonString, toBinary } from '@bufbuild/protobuf';
 import { resolve } from 'node:path';
-import { z } from 'zod';
+import { Context, Effect, Layer, Schema } from 'effect';
 
-export class ImportsService extends BaseService {
-  constructor(
-    readonly accounts: AccountsService,
-    readonly world: World,
-  ) {
-    super(accounts.repositories);
-  }
+const make = Effect.gen(function* () {
+  const context = yield* RuntimeContext;
+  const repositories = context.accounts.repositories;
+  const { accounts, world } = context;
 
-  folder(rider: User, stage: string) {
+  const stageFolder = Effect.fn('ImportsService.folder')(function* (rider: User, stage: string) {
     if (!/^\.ts-import-[a-f0-9]{32}$/.test(stage)) throw new Error('Invalid import ID');
 
-    return resolve(this.accounts.storage, String(rider.player_id), stage);
-  }
+    return resolve(accounts.storage, String(rider.player_id), stage);
+  });
 
-  prepare(rider: User, files: ImportFiles) {
-    if (!this.accounts.identity(this.accounts.identityOf(rider))) throw new Error('Import identity changed');
+  const prepare = Effect.fn('ImportsService.prepare')(function* (rider: User, files: ImportFiles) {
+    if (!accounts.identity(accounts.identityOf(rider))) throw new Error('Import identity changed');
 
-    if (this.world.active(rider.player_id)) throw new Error('Finish the active ride before importing');
+    if (world.active(rider.player_id)) throw new Error('Finish the active ride before importing');
     let profile = null;
     const names: ImportFile[] = [];
 
-    for (const name of filenameSchema.options) {
-      const key = filenameSchema.parse(name);
+    for (const name of Object.values(filenameSchema.enums)) {
+      const key = Schema.decodeUnknownSync(filenameSchema)(name);
       const bytes = files[key];
 
       if (!bytes) continue;
@@ -72,7 +67,11 @@ export class ImportsService extends BaseService {
 
         default: {
           if (
-            Object.keys(z.record(z.string(), z.json()).parse(JSON.parse(Buffer.from(bytes).toString()))).length === 0
+            Object.keys(
+              Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))(
+                JSON.parse(Buffer.from(bytes).toString()),
+              ),
+            ).length === 0
           ) {
             throw new Error('Economy configuration is empty');
           }
@@ -85,9 +84,9 @@ export class ImportsService extends BaseService {
     }
 
     if (names.length === 0) throw new Error('Select at least one import category');
-    const stage = `.ts-import-${this.cryptoRepository.randomBytes(16).toString('hex')}`;
-    const folder = this.folder(rider, stage);
-    this.filesRepository.mkdirSync(folder, { mode: 0o700 });
+    const stage = `.ts-import-${repositories.cryptoRepository.randomBytes(16).toString('hex')}`;
+    const folder = yield* stageFolder(rider, stage);
+    repositories.filesRepository.mkdirSync(folder, { mode: 0o700 });
 
     const manifest: ImportManifest = {
       playerId: rider.player_id,
@@ -108,21 +107,23 @@ export class ImportsService extends BaseService {
       for (const name of names) {
         const bytes = files[name];
 
-        if (bytes) this.filesRepository.writeDurable(resolve(folder, name), bytes);
+        if (bytes) repositories.filesRepository.writeDurable(resolve(folder, name), bytes);
       }
 
-      this.filesRepository.writeDurable(resolve(folder, 'manifest.json'), JSON.stringify(manifest));
+      repositories.filesRepository.writeDurable(resolve(folder, 'manifest.json'), JSON.stringify(manifest));
     } catch (error) {
-      this.filesRepository.rmSync(folder, { recursive: true, force: true });
+      repositories.filesRepository.rmSync(folder, { recursive: true, force: true });
       throw error;
     }
 
     return stage;
-  }
+  });
 
-  inspect(rider: User, stage: string) {
-    const manifest = manifestSchema.parse(
-      JSON.parse(this.filesRepository.readFileSync(resolve(this.folder(rider, stage), 'manifest.json'), 'utf8')),
+  const inspect = Effect.fn('ImportsService.inspect')(function* (rider: User, stage: string) {
+    const manifest = Schema.decodeUnknownSync(manifestSchema)(
+      JSON.parse(
+        repositories.filesRepository.readFileSync(resolve(yield* stageFolder(rider, stage), 'manifest.json'), 'utf8'),
+      ),
     );
 
     if (
@@ -133,23 +134,23 @@ export class ImportsService extends BaseService {
       throw new Error('Import identity changed or import already finalized');
 
     return manifest;
-  }
+  });
 
   /** One transaction replaces the rider documents and account names and records the
   stage, so a repeated publication after a crash changes nothing. Replaced documents
   are kept as .bak files in the rider folder.
   */
-  publish(rider: User, stage: string, keepName: boolean) {
-    if (this.world.active(rider.player_id)) throw new Error('Finish the active ride before importing');
+  const publish = Effect.fn('ImportsService.publish')(function* (rider: User, stage: string, keepName: boolean) {
+    if (world.active(rider.player_id)) throw new Error('Finish the active ride before importing');
 
-    if (!this.accounts.identity(`${rider.player_id}:${rider.auth_version}`)) throw new Error('Import identity changed');
-    const folder = this.folder(rider, stage);
-    const manifest = this.inspect(rider, stage);
-    const target = resolve(this.accounts.storage, String(rider.player_id));
+    if (!accounts.identity(`${rider.player_id}:${rider.auth_version}`)) throw new Error('Import identity changed');
+    const folder = yield* stageFolder(rider, stage);
+    const manifest = yield* inspect(rider, stage);
+    const target = resolve(accounts.storage, String(rider.player_id));
     const documents = new Map<ImportFile, Uint8Array>();
 
     for (const name of manifest.files) {
-      let bytes: Uint8Array = this.filesRepository.readFileSync(resolve(folder, name));
+      let bytes: Uint8Array = repositories.filesRepository.readFileSync(resolve(folder, name));
 
       if (name === 'profile.bin') {
         const profile = fromBinary(PlayerProfileSchema, bytes);
@@ -157,7 +158,7 @@ export class ImportsService extends BaseService {
 
         if (profile.socialFacts) profile.socialFacts.profileId = BigInt(rider.player_id);
         clearField(profile, PlayerProfileSchema.field.publicId);
-        profile.mixPanelDistinctId = this.cryptoRepository.randomUUID();
+        profile.mixPanelDistinctId = repositories.cryptoRepository.randomUUID();
 
         if (keepName) {
           profile.firstName = rider.first_name;
@@ -171,43 +172,44 @@ export class ImportsService extends BaseService {
     }
 
     for (const name of manifest.files) {
-      const current = this.riderDocuments.get(rider.player_id, name);
+      const current = repositories.riderDocuments.get(rider.player_id, name);
 
-      if (current) this.filesRepository.writeDurable(resolve(target, `${name}.${stage.slice(11)}.bak`), current, true);
+      if (current)
+        repositories.filesRepository.writeDurable(resolve(target, `${name}.${stage.slice(11)}.bak`), current, true);
     }
 
-    immediate(this.accounts.db, () => {
-      if (this.riderDocuments.imported(stage)) return;
+    immediate(accounts.db, () => {
+      if (repositories.riderDocuments.imported(stage)) return;
 
-      for (const [name, bytes] of documents) this.riderDocuments.put(rider.player_id, name, bytes);
+      for (const [name, bytes] of documents) repositories.riderDocuments.put(rider.player_id, name, bytes);
 
-      this.accounts.repository.updateImportedProfile(
+      accounts.repository.updateImportedProfile(
         rider.player_id,
         manifest.files.includes('profile.bin') && !keepName ? manifest.firstName : rider.first_name,
         manifest.files.includes('profile.bin') && !keepName ? manifest.lastName : rider.last_name,
         manifest.sourceId ? BigInt(manifest.sourceId) : rider.official_player_id,
       );
-      this.riderDocuments.recordImport(stage, rider.player_id);
+      repositories.riderDocuments.recordImport(stage, rider.player_id);
     });
 
-    this.profileRepository.invalidate(rider.player_id);
-    this.filesRepository.rmSync(folder, { recursive: true });
-  }
+    repositories.profileRepository.invalidate(rider.player_id);
+    repositories.filesRepository.rmSync(folder, { recursive: true });
+  });
 
-  cancel(rider: User, stage: string) {
-    this.inspect(rider, stage);
-    this.filesRepository.rmSync(this.folder(rider, stage), { recursive: true });
-  }
+  const cancel = Effect.fn('ImportsService.cancel')(function* (rider: User, stage: string) {
+    yield* inspect(rider, stage);
+    repositories.filesRepository.rmSync(yield* stageFolder(rider, stage), { recursive: true });
+  });
 
   /** Remove stages that were published or abandoned before a crash. A staged import
   waits for review; a published stage is never applied twice.
   */
-  recover() {
-    for (const name of this.filesRepository.readdirSync(this.accounts.storage)) {
+  const recover = Effect.fn('ImportsService.recover')(function* () {
+    for (const name of repositories.filesRepository.readdirSync(accounts.storage)) {
       if (!/^\d+$/.test(name)) continue;
-      const riderFolder = resolve(this.accounts.storage, name);
+      const riderFolder = resolve(accounts.storage, name);
 
-      for (const entry of this.filesRepository.readdirSync(riderFolder, { withFileTypes: true })) {
+      for (const entry of repositories.filesRepository.readdirSync(riderFolder, { withFileTypes: true })) {
         if (!entry.isDirectory()) continue;
 
         if (entry.name.startsWith('.import-'))
@@ -217,20 +219,28 @@ export class ImportsService extends BaseService {
         const folder = resolve(riderFolder, entry.name);
 
         // No manifest can exist before preparation finishes.
-        if (!this.filesRepository.existsSync(resolve(folder, 'manifest.json'))) {
-          this.filesRepository.rmSync(folder, { recursive: true });
+        if (!repositories.filesRepository.existsSync(resolve(folder, 'manifest.json'))) {
+          repositories.filesRepository.rmSync(folder, { recursive: true });
           continue;
         }
 
-        const manifest = manifestSchema.parse(
-          JSON.parse(this.filesRepository.readFileSync(resolve(folder, 'manifest.json'), 'utf8')),
+        const manifest = Schema.decodeUnknownSync(manifestSchema)(
+          JSON.parse(repositories.filesRepository.readFileSync(resolve(folder, 'manifest.json'), 'utf8')),
         );
 
         if (String(manifest.playerId) !== name) throw new Error('Import journal rider mismatch');
 
-        if (manifest.state !== 'staged' || this.riderDocuments.imported(entry.name))
-          this.filesRepository.rmSync(folder, { recursive: true });
+        if (manifest.state !== 'staged' || repositories.riderDocuments.imported(entry.name))
+          repositories.filesRepository.rmSync(folder, { recursive: true });
       }
     }
-  }
+  });
+
+  return { folder: stageFolder, prepare, inspect, publish, cancel, recover };
+});
+
+export class ImportsService extends Context.Service<ImportsService, Effect.Success<typeof make>>()(
+  'zluggish/ImportsService',
+) {
+  static readonly layer = Layer.effect(ImportsService, make);
 }

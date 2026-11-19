@@ -1,3 +1,8 @@
+import { UploadsService } from '#src/services/uploads.service';
+import { ActivitiesService } from '#src/services/activities.service';
+import { JobsService } from '#src/services/jobs.service';
+import { DurabilityService } from '#src/services/durability.service';
+import { DocumentsService } from '#src/services/documents.service';
 import { ActivitySchema } from '#src/protocol/generated/activity_pb';
 import { DurabilityRepository } from '#src/repositories/durability.repository';
 import { binary, mediumFixture } from '#tests/medium/support';
@@ -6,7 +11,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
-import { z } from 'zod';
+import { Schema, Effect } from 'effect';
 
 const fit = readFileSync(new URL('../fixtures/ride.fit', import.meta.url));
 
@@ -14,16 +19,18 @@ await test('the runtime connection commits without a flush only while the barrie
   const f = await mediumFixture(t);
   const synchronous = () => f.accounts.db.prepare('PRAGMA synchronous').get()?.synchronous;
   assert.equal(synchronous(), 2, 'FULL without the barrier');
-  f.services.durability.start();
+  f.effects.runSync(DurabilityService.use((service) => service.start()));
   assert.equal(synchronous(), 1, 'NORMAL with the barrier');
-  await f.services.durability.close();
+  await f.effects.runPromise(DurabilityService.use((service) => service.close()));
   assert.equal(synchronous(), 2);
 });
 
 await test('a request that saves waits for the flush before its response; a read does not', async (t) => {
   const f = await mediumFixture(t);
-  f.services.durability.start();
-  t.after(() => f.services.durability.close());
+  const durability = f.effects.runSync(DurabilityService);
+  f.effects.runSync(durability.start());
+  // The fixture disposes the runtime first: the close runs on the service itself.
+  t.after(() => Effect.runPromise(durability.close()));
   const gate = Promise.withResolvers<void>();
   const flushes = t.mock.method(DurabilityRepository.prototype, 'flush', () => gate.promise);
 
@@ -59,14 +66,19 @@ await test('a request that saves waits for the flush before its response; a read
 
 await test('a delivery flushes its sending state before the provider request', async (t) => {
   const f = await mediumFixture(t);
-  f.services.durability.start();
-  t.after(() => f.services.durability.close());
-  f.services.documents.put(f.rider.player_id, 'runalyze_token.txt', 'token');
+  const durability = f.effects.runSync(DurabilityService);
+  f.effects.runSync(durability.start());
+  // The fixture disposes the runtime first: the close runs on the service itself.
+  t.after(() => Effect.runPromise(durability.close()));
+  f.effects.runSync(DocumentsService.use((service) => service.put(f.rider.player_id, 'runalyze_token.txt', 'token')));
   const order: string[] = [];
   const flush = DurabilityRepository.prototype.flush;
 
   t.mock.method(DurabilityRepository.prototype, 'flush', function (this: DurabilityRepository) {
-    if (f.accounts.db.isOpen) order.push(`flush:${f.services.uploads.status(f.rider.player_id)[0]?.state ?? 'none'}`);
+    if (f.accounts.db.isOpen)
+      order.push(
+        `flush:${f.effects.runSync(UploadsService.use((service) => service.status(f.rider.player_id)))[0]?.state ?? 'none'}`,
+      );
 
     return flush.call(this);
   });
@@ -91,10 +103,12 @@ await test('a delivery flushes its sending state before the provider request', a
     ...binary(ActivitySchema, data),
   });
 
-  const { id } = z.object({ id: z.number() }).parse(await response.json());
-  f.services.activities.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }));
+  const { id } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await response.json());
+  f.effects.runSync(
+    ActivitiesService.use((service) => service.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }))),
+  );
   order.length = 0;
-  await f.services.jobs.drain();
+  await f.effects.runPromise(JobsService.use((service) => service.drain()));
   assert.deepEqual(order.slice(0, 2), ['flush:sending', 'send']);
 });
 

@@ -1,49 +1,64 @@
-import type { RepositoryContext } from '#src/context';
+import { RuntimeContext } from '#src/context';
 import { SegmentResultSchema } from '#src/protocol/generated/segment-result_pb';
-import { RecordsRepository } from '#src/repositories/records.repository';
 import { AchievementService } from '#src/services/achievement.service';
-import { BaseService } from '#src/services/base.service';
+import { Context, Effect, Layer } from 'effect';
 
-export class RecordsService extends BaseService {
-  constructor(private readonly context: RepositoryContext) {
-    super(context.accounts.repositories);
-  }
+const make = Effect.gen(function* () {
+  const context = yield* RuntimeContext;
+  const repositories = context.accounts.repositories;
+  const achievementService = yield* AchievementService;
+  const records = repositories.recordsRepository;
 
-  updateRouteResult(...values: Parameters<RecordsRepository['updateRouteResult']>) {
-    return this.recordsRepository.updateRouteResult(...values);
-  }
+  return {
+    updateRouteResult: Effect.fn('RecordsService.updateRouteResult')(function* (player: number, id: number | bigint) {
+      return records.updateRouteResult(player, id);
+    }),
 
-  listRouteResult(...values: Parameters<RecordsRepository['listRouteResult']>) {
-    return this.recordsRepository.listRouteResult(...values);
-  }
+    listRouteResult: Effect.fn('RecordsService.listRouteResult')(function* (player: number) {
+      return records.listRouteResult(player);
+    }),
 
-  riddenClimbRoads(...values: Parameters<RecordsRepository['riddenClimbRoads']>) {
-    return this.recordsRepository.riddenClimbRoads(...values);
-  }
+    /** Climb portal roads this rider has already ridden. */
+    riddenClimbRoads: Effect.fn('RecordsService.riddenClimbRoads')(function* (player: number) {
+      return records.riddenClimbRoads(player);
+    }),
 
-  climbPortalStats(...values: Parameters<RecordsRepository['climbPortalStats']>) {
-    return this.recordsRepository.climbPortalStats(...values);
-  }
+    climbPortalStats: Effect.fn('RecordsService.climbPortalStats')(function* (player: number) {
+      return records.climbPortalStats(player);
+    }),
 
-  findPrivateEvent(...values: Parameters<RecordsRepository['findPrivateEvent']>) {
-    return this.recordsRepository.findPrivateEvent(...values);
-  }
+    findPrivateEvent: Effect.fn('RecordsService.findPrivateEvent')(function* (id: number | bigint) {
+      return records.findPrivateEvent(id);
+    }),
 
-  mine(playerId: number, sport?: string, segment?: string) {
-    return this.recordsRepository
-      .riderSegments(
-        BigInt(playerId),
-        segment === undefined ? null : BigInt(segment),
-        sport === undefined ? null : sport === 'RUNNING' ? 1 : 0,
-      )
-      .map((row) => this.protobufRepository.decode(SegmentResultSchema, row));
-  }
+    /** The rider's segment results, optionally for one sport and one segment. */
+    mine: Effect.fn('RecordsService.mine')(function* (playerId: number, sport?: string, segment?: string) {
+      return records
+        .riderSegments(
+          BigInt(playerId),
+          segment === undefined ? null : BigInt(segment),
+          sport === undefined ? null : sport === 'RUNNING' ? 1 : 0,
+        )
+        .map((row) => repositories.protobufRepository.decode(SegmentResultSchema, row));
+    }),
 
-  segmentLeaderboard(...values: Parameters<RecordsRepository['segmentLeaderboard']>) {
-    return this.recordsRepository.segmentLeaderboard(...values);
-  }
+    segmentLeaderboard: Effect.fn('RecordsService.segmentLeaderboard')(function* (
+      segment: bigint | null,
+      since: bigint | null,
+    ) {
+      return records.segmentLeaderboard(segment, since);
+    }),
 
-  backfillRoutes(id: number) {
-    return new AchievementService(this.repositories).backfillRoutes(this.context, id);
-  }
+    /** Record route badges the rider already holds as ridden routes. */
+    backfillRoutes: Effect.fn('RecordsService.backfillRoutes')(function* (id: number) {
+      yield* achievementService.backfillRoutes(id);
+    }),
+  };
+});
+
+/** Route results, segment results and leaderboards. */
+export class RecordsService extends Context.Service<RecordsService, Effect.Success<typeof make>>()(
+  'zluggish/RecordsService',
+) {
+  static readonly layer = Layer.effect(RecordsService, make);
 }

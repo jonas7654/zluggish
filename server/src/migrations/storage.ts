@@ -27,7 +27,8 @@ import {
 } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { z } from 'zod';
+import { Schema } from 'effect';
+import type { Types } from 'effect';
 
 export const StorageFile = {
   Database: 'zluggish.db',
@@ -40,33 +41,33 @@ export const StorageFile = {
 
 export const STORAGE_VERSION = 6;
 
-const reportSchema = z.object({
-  riders: z.number(),
-  documents: z.number(),
-  bookmarks: z.number(),
-  settings: z.record(z.string(), z.number()),
-  orphanFolders: z.array(z.string()),
-  invalidOptional: z.array(z.string()),
-  exportMismatches: z.array(z.string()),
-  completionsFinished: z.array(z.string()),
-  ambiguousDeliveries: z.number(),
-  importsRolledBack: z.array(z.string()),
+const reportSchema = Schema.Struct({
+  riders: Schema.Finite,
+  documents: Schema.Finite,
+  bookmarks: Schema.Finite,
+  settings: Schema.Record(Schema.String, Schema.Finite),
+  orphanFolders: Schema.Array(Schema.String),
+  invalidOptional: Schema.Array(Schema.String),
+  exportMismatches: Schema.Array(Schema.String),
+  completionsFinished: Schema.Array(Schema.String),
+  ambiguousDeliveries: Schema.Finite,
+  importsRolledBack: Schema.Array(Schema.String),
 });
 
-type Report = z.infer<typeof reportSchema>;
+type Report = Types.DeepMutable<typeof reportSchema.Type>;
 
-const manifestSchema = z.object({
-  version: z.literal(1),
-  state: z.enum(['importing', 'publishing', 'published']),
-  started: z.string(),
-  backup: z.string(),
-  sources: z.record(z.string(), z.string()),
-  destination: z.string().nullable(),
-  schemaVersion: z.number(),
-  report: reportSchema.nullable(),
+const manifestSchema = Schema.Struct({
+  version: Schema.Literal(1),
+  state: Schema.Literals(['importing', 'publishing', 'published']),
+  started: Schema.String,
+  backup: Schema.String,
+  sources: Schema.Record(Schema.String, Schema.String),
+  destination: Schema.NullOr(Schema.String),
+  schemaVersion: Schema.Finite,
+  report: Schema.NullOr(reportSchema),
 });
 
-type Manifest = z.infer<typeof manifestSchema>;
+type Manifest = (typeof manifestSchema)['Type'];
 
 const crypto = new CryptoRepository();
 
@@ -110,7 +111,7 @@ function removeDatabase(path: string) {
 export function readManifest(storage: string): Manifest | null {
   const path = resolve(storage, StorageFile.Manifest);
 
-  return existsSync(path) ? manifestSchema.parse(JSON.parse(readFileSync(path, 'utf8'))) : null;
+  return existsSync(path) ? Schema.decodeUnknownSync(manifestSchema)(JSON.parse(readFileSync(path, 'utf8'))) : null;
 }
 
 function writeManifest(storage: string, manifest: Manifest) {
@@ -125,9 +126,9 @@ function checkpointSource(path: string) {
   const db = new DatabaseSync(path);
 
   try {
-    const result = z
-      .object({ busy: z.number(), log: z.number(), checkpointed: z.number() })
-      .parse(db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get());
+    const result = Schema.decodeUnknownSync(
+      Schema.Struct({ busy: Schema.Finite, log: Schema.Finite, checkpointed: Schema.Finite }),
+    )(db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get());
 
     if (result.busy !== 0 || result.log !== result.checkpointed)
       throw new ConfigError(`${basename(path)} could not be checkpointed; stop other processes and retry`);
@@ -212,11 +213,15 @@ function credentialsKey(storage: string) {
   return key;
 }
 
-const importManifest = z.object({
-  playerId: z.number(),
-  files: z.array(z.string()),
-  before: z.object({ firstName: z.string(), lastName: z.string(), officialPlayerId: z.string().nullable() }),
-  state: z.enum(['staged', 'publishing', 'committed']),
+const importManifest = Schema.Struct({
+  playerId: Schema.Finite,
+  files: Schema.Array(Schema.String),
+  before: Schema.Struct({
+    firstName: Schema.String,
+    lastName: Schema.String,
+    officialPlayerId: Schema.NullOr(Schema.String),
+  }),
+  state: Schema.Literals(['staged', 'publishing', 'committed']),
 });
 
 /** Legacy profile imports that stopped while publishing are rolled back, exactly as the
@@ -233,7 +238,7 @@ function rollbackLegacyImports(storage: string, db: DatabaseSync, report: Report
       const path = resolve(stage, 'manifest.json');
 
       if (!existsSync(path)) continue;
-      const manifest = importManifest.parse(JSON.parse(readFileSync(path, 'utf8')));
+      const manifest = Schema.decodeUnknownSync(importManifest)(JSON.parse(readFileSync(path, 'utf8')));
 
       if (manifest.state !== 'publishing') continue;
 
@@ -265,7 +270,9 @@ function importSettings(storage: string, db: DatabaseSync) {
   const source = new DatabaseSync(path, { readOnly: true });
 
   try {
-    const version = z.object({ user_version: z.number() }).parse(source.prepare('PRAGMA user_version').get());
+    const version = Schema.decodeUnknownSync(Schema.Struct({ user_version: Schema.Finite }))(
+      source.prepare('PRAGMA user_version').get(),
+    );
 
     if (version.user_version > 1) throw new ConfigError('Unsupported settings database version');
 
@@ -273,7 +280,7 @@ function importSettings(storage: string, db: DatabaseSync) {
       source
         .prepare("SELECT name FROM sqlite_master WHERE type='table'")
         .all()
-        .map((row) => z.string().parse(row.name)),
+        .map((row) => Schema.decodeUnknownSync(Schema.String)(row.name)),
     );
 
     const statements = [
@@ -287,7 +294,11 @@ function importSettings(storage: string, db: DatabaseSync) {
       const statement = db.prepare(insert);
 
       for (const row of source.prepare(select).all()) {
-        statement.run(...Object.values(row).map((value) => z.union([z.number(), z.string()]).parse(value)));
+        statement.run(
+          ...Object.values(row).map((value) =>
+            Schema.decodeUnknownSync(Schema.Union([Schema.Finite, Schema.String]))(value),
+          ),
+        );
         counts[table]++;
       }
     }
@@ -306,7 +317,7 @@ function importRiderFiles(storage: string, db: DatabaseSync, key: Uint8Array, re
     db
       .prepare('SELECT player_id FROM user')
       .all()
-      .map((row) => z.number().parse(row.player_id)),
+      .map((row) => Schema.decodeUnknownSync(Schema.Finite)(row.player_id)),
   );
 
   const insertDocument = db.prepare(
@@ -385,12 +396,12 @@ function importRiderFiles(storage: string, db: DatabaseSync, key: Uint8Array, re
   }
 }
 
-const completionRow = z.object({
-  activity_id: z.number(),
-  player_id: z.number(),
-  payload: z.instanceof(Uint8Array),
-  streak: z.instanceof(Uint8Array).nullable(),
-  done: z.number(),
+const completionRow = Schema.Struct({
+  activity_id: Schema.Finite,
+  player_id: Schema.Finite,
+  payload: Schema.instanceOf(Uint8Array),
+  streak: Schema.NullOr(Schema.instanceOf(Uint8Array)),
+  done: Schema.Finite,
 });
 
 function exportFile(storage: string, player: number, activity: number) {
@@ -421,7 +432,7 @@ function canonicalizeFit(storage: string, db: DatabaseSync, report: Report, chec
       .prepare('SELECT * FROM activity_completion')
       .all()
       .map((row) => {
-        const parsed = completionRow.parse(row);
+        const parsed = Schema.decodeUnknownSync(completionRow)(row);
 
         return [parsed.activity_id, parsed];
       }),
@@ -432,9 +443,13 @@ function canonicalizeFit(storage: string, db: DatabaseSync, report: Report, chec
   const setPayload = db.prepare('UPDATE activity_completion SET payload=? WHERE activity_id=?');
 
   for (const row of activities) {
-    const activity = z
-      .object({ id: z.number(), player_id: z.number().nullable(), fit: z.instanceof(Uint8Array).nullable() })
-      .parse(row);
+    const activity = Schema.decodeUnknownSync(
+      Schema.Struct({
+        id: Schema.Finite,
+        player_id: Schema.NullOr(Schema.Finite),
+        fit: Schema.NullOr(Schema.instanceOf(Uint8Array)),
+      }),
+    )(row);
 
     const completion = completions.get(activity.id);
     const journal = completion ? fromBinary(ActivitySchema, completion.payload) : null;
@@ -472,7 +487,7 @@ function finishCompletions(db: DatabaseSync, report: Report) {
   const rows = db.prepare('SELECT * FROM activity_completion WHERE done=0 ORDER BY activity_id').all();
 
   for (const row of rows) {
-    const completion = completionRow.parse(row);
+    const completion = Schema.decodeUnknownSync(completionRow)(row);
     const activity = fromBinary(ActivitySchema, completion.payload);
 
     if (completion.streak) {
@@ -484,12 +499,16 @@ function finishCompletions(db: DatabaseSync, report: Report) {
         .prepare("SELECT data FROM rider_document WHERE player_id=? AND name='profile.bin'")
         .get(completion.player_id);
 
-      const stored = current ? fromBinary(StreaksSchema, z.instanceof(Uint8Array).parse(current.data)) : null;
+      const stored = current
+        ? fromBinary(StreaksSchema, Schema.decodeUnknownSync(Schema.instanceOf(Uint8Array))(current.data))
+        : null;
 
       const previous =
         stored ??
         StreakService.fromProfile(
-          profile ? fromBinary(PlayerProfileSchema, z.instanceof(Uint8Array).parse(profile.data)) : null,
+          profile
+            ? fromBinary(PlayerProfileSchema, Schema.decodeUnknownSync(Schema.instanceOf(Uint8Array))(profile.data))
+            : null,
         );
 
       const snapshot = Buffer.from(completion.streak);
@@ -529,13 +548,13 @@ function mapDeliveries(db: DatabaseSync, report: Report) {
 
   for (const row of db.prepare("SELECT activity_id, provider FROM activity_upload WHERE state='pending'").all())
     enqueue(db, 'delivery', {
-      activityId: z.number().parse(row.activity_id),
-      provider: z.string().parse(row.provider),
+      activityId: Schema.decodeUnknownSync(Schema.Finite)(row.activity_id),
+      provider: Schema.decodeUnknownSync(Schema.String)(row.provider),
     });
 }
 
 function count(db: DatabaseSync, sql: string) {
-  return z.number().parse(db.prepare(sql).get()?.n);
+  return Schema.decodeUnknownSync(Schema.Finite)(db.prepare(sql).get()?.n);
 }
 
 function validate(source: string, destination: DatabaseSync, report: Report, checksums: Map<number, string>) {
@@ -583,9 +602,9 @@ function validate(source: string, destination: DatabaseSync, report: Report, che
 
   // Every canonical FIT payload is in activity.fit with the bytes chosen from the sources.
   for (const row of destination.prepare('SELECT id, fit FROM activity WHERE fit IS NOT NULL').all()) {
-    const id = z.number().parse(row.id);
+    const id = Schema.decodeUnknownSync(Schema.Finite)(row.id);
 
-    if (checksums.get(id) !== crypto.sha256(z.instanceof(Uint8Array).parse(row.fit)))
+    if (checksums.get(id) !== crypto.sha256(Schema.decodeUnknownSync(Schema.instanceOf(Uint8Array))(row.fit)))
       throw new ConfigError(`Migrated FIT payload of activity ${id} differs from its source`);
     checksums.delete(id);
   }
@@ -594,7 +613,7 @@ function validate(source: string, destination: DatabaseSync, report: Report, che
 
   // Completed activities keep exactly one FIT copy, outside their journal payloads.
   for (const row of destination.prepare('SELECT payload FROM activity_completion').all())
-    if (fromBinary(ActivitySchema, z.instanceof(Uint8Array).parse(row.payload)).fit.length > 0)
+    if (fromBinary(ActivitySchema, Schema.decodeUnknownSync(Schema.instanceOf(Uint8Array))(row.payload)).fit.length > 0)
       throw new ConfigError('A migrated completion still holds a FIT payload');
 }
 

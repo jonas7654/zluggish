@@ -1,3 +1,6 @@
+import { DurabilityService } from '#src/services/durability.service';
+import { FilesService } from '#src/services/files.service';
+import { ProfilesService } from '#src/services/profile.service';
 import { packageVersion } from '#src/config/load';
 import { browserJson } from '#src/http/game/results';
 import { ApplicationError } from '#src/errors';
@@ -34,7 +37,8 @@ import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { HTTPException } from 'hono/http-exception';
 import { resolve } from 'node:path';
-import { z } from 'zod';
+import { fieldErrors } from '#src/schema';
+import { Schema } from 'effect';
 
 export interface PublicMetadata {
   gameInfo: string;
@@ -66,12 +70,13 @@ export function createGameApp(metadata: PublicMetadata, runtime?: Runtime) {
 
   if (runtime)
     app.use('*', async (_c, next) => {
-      const durability = runtime.services.durability;
-      const before = durability.changes();
+      const durability = runtime.effects.runSync(DurabilityService);
+      const before = runtime.effects.runSync(durability.changes());
       await next();
 
       // A save is acknowledged by its response: the WAL is flushed before it leaves.
-      if (durability.changes() !== before) await durability.flush();
+      if (runtime.effects.runSync(durability.changes()) !== before)
+        await runtime.effects.runPromise(durability.flush());
     });
 
   if (runtime) {
@@ -118,11 +123,16 @@ export function createGameApp(metadata: PublicMetadata, runtime?: Runtime) {
     const known = new Map(byName);
 
     if (runtime && user) {
-      const file = resolve(runtime.services.profiles.folder(user.player_id), 'variants.txt');
+      const file = resolve(
+        runtime.effects.runSync(ProfilesService.use((service) => service.folder(user.player_id))),
+        'variants.txt',
+      );
 
-      if (runtime.services.files.exists(file))
+      const files = runtime.effects.runSync(FilesService);
+
+      if (runtime.effects.runSync(files.exists(file)))
         try {
-          for (const variant of fromJsonString(FeatureResponseSchema, runtime.services.files.read(file, 'utf8'))
+          for (const variant of fromJsonString(FeatureResponseSchema, runtime.effects.runSync(files.readText(file)))
             .variants)
             known.set(variant.name, variant);
         } catch {
@@ -135,7 +145,11 @@ export function createGameApp(metadata: PublicMetadata, runtime?: Runtime) {
     if (
       runtime &&
       mochi &&
-      runtime.services.files.exists(resolve(runtime.config.storageDir, 'mochi/watopian/watopian.manifest.json'))
+      runtime.effects.runSync(
+        FilesService.use((files) =>
+          files.exists(resolve(runtime.config.storageDir, 'mochi/watopian/watopian.manifest.json')),
+        ),
+      )
     ) {
       const copy = clone(FeatureResponse_ParamsSchema, mochi);
       const values = copy.values ?? create(StructSchema);
@@ -166,16 +180,8 @@ export function createGameApp(metadata: PublicMetadata, runtime?: Runtime) {
     if (browserJson(c)) {
       c.header('Cache-Control', 'no-store');
 
-      if (error instanceof z.ZodError) {
-        const fieldErrors: Record<string, string[]> = {};
-
-        for (const issue of error.issues) {
-          const field = String(issue.path[0] ?? 'form');
-          (fieldErrors[field] ??= []).push(issue.message);
-        }
-
-        return c.json({ ok: false, message: 'Check the form fields.', fieldErrors }, 400);
-      }
+      if (Schema.isSchemaError(error))
+        return c.json({ ok: false, message: 'Check the form fields.', fieldErrors: fieldErrors(error) }, 400);
 
       if (error instanceof HTTPException || error instanceof ApplicationError) {
         const status = error.status;
@@ -194,7 +200,7 @@ export function createGameApp(metadata: PublicMetadata, runtime?: Runtime) {
 
     if (error instanceof HTTPException) return error.getResponse();
 
-    if (error instanceof z.ZodError) return c.text('Invalid request', 400);
+    if (Schema.isSchemaError(error)) return c.text('Invalid request', 400);
 
     log.error('http.failed', 'Request failed unexpectedly', {
       requestId: c.get('requestId'),

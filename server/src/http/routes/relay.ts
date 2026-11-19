@@ -1,3 +1,9 @@
+import { AccountsService } from '#src/services/auth.service';
+import { WorkoutsService } from '#src/services/workout.service';
+import { FilesService } from '#src/services/files.service';
+import { ProfilesService } from '#src/services/profile.service';
+import { effectRoutes } from '#src/http/effect';
+import { DocumentsService } from '#src/services/documents.service';
 import { eventFeedSchema } from '#src/dtos/relay.dto';
 import { parseProtobuf } from '#src/http/protobuf';
 import { authenticated, peerAddress } from '#src/http/routes/accounts';
@@ -25,83 +31,100 @@ import { create, fromJsonString, toBinary, toJsonString } from '@bufbuild/protob
 import type { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { resolve } from 'node:path';
-import { z } from 'zod';
+import { Effect, Schema } from 'effect';
+import { NumberFromInput } from '#src/schema';
 
 export function relayRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
-  app.post('/api/users/login', async (c) => {
-    const user = authenticated(c);
+  const appRoutes = effectRoutes(app, runtime);
 
-    const request = parseProtobuf(LoginRequestSchema, new Uint8Array(await c.req.arrayBuffer()));
+  appRoutes.post('/api/users/login', (c) =>
+    Effect.gen(function* () {
+      const workoutsService = yield* WorkoutsService;
 
-    if (runtime.world.active(user.player_id)) throw new HTTPException(409);
+      const filesService = yield* FilesService;
 
-    if (![16, 24, 32].includes(request.key.length)) throw new HTTPException(400);
+      const profilesService = yield* ProfilesService;
 
-    if (c.req.header('User-Agent')?.toLowerCase().includes('android'))
-      await runtime.services.workouts.syncWorkoutsAutomatically(user.player_id, true);
+      const documentsService = yield* DocumentsService;
 
-    if (!runtime.services.accounts.identity(runtime.services.accounts.identityOf(user))) throw new HTTPException(401);
-    runtime.world.login(BigInt(user.player_id), request.key);
+      const user = authenticated(c);
 
-    const imported = runtime.services.documents.text(user.player_id, 'economy_config.txt');
+      const request = parseProtobuf(
+        LoginRequestSchema,
+        new Uint8Array(yield* Effect.promise(() => c.req.arrayBuffer())),
+      );
 
-    const economy = fromJsonString(
-      EconomyConfigSchema,
-      imported ?? runtime.services.files.read(resolve(runtime.assets, 'data/economy_config.txt'), 'utf8'),
-    );
+      if (runtime.world.active(user.player_id)) throw new HTTPException(409);
 
-    if (imported === null) {
-      const profile = runtime.services.profiles.get(user.player_id);
-      const currentLevel = Math.floor(profile.achievementLevel / 100);
+      if (![16, 24, 32].includes(request.key.length)) throw new HTTPException(400);
 
-      const levels = economy.cyclingLevels.filter((level) => level.level >= currentLevel);
+      if (c.req.header('User-Agent')?.toLowerCase().includes('android'))
+        yield* workoutsService.syncWorkoutsAutomatically(user.player_id, true);
 
-      const first = levels[0];
-      const next = levels[1];
+      if (!runtime.effects.runSync(AccountsService).identity(runtime.effects.runSync(AccountsService).identityOf(user)))
+        throw new HTTPException(401);
+      runtime.world.login(BigInt(user.player_id), request.key);
 
-      if (first && next && profile.totalXp > next.xp) {
-        const offset = profile.totalXp - first.xp;
+      const imported = yield* documentsService.text(user.player_id, 'economy_config.txt');
 
-        const transitionEnd = levels.findLast((level) => level.xp <= profile.totalXp)?.level ?? currentLevel;
+      const economy = fromJsonString(
+        EconomyConfigSchema,
+        imported ?? (yield* filesService.readText(resolve(runtime.assets, 'data/economy_config.txt'))),
+      );
 
-        for (const level of economy.cyclingLevels) if (level.level >= currentLevel) level.xp += offset;
+      if (imported === null) {
+        const profile = yield* profilesService.get(user.player_id);
+        const currentLevel = Math.floor(profile.achievementLevel / 100);
 
-        if (transitionEnd > currentLevel) {
-          economy.transitionStart = currentLevel;
-          economy.transitionEnd = transitionEnd;
+        const levels = economy.cyclingLevels.filter((level) => level.level >= currentLevel);
+
+        const first = levels[0];
+        const next = levels[1];
+
+        if (first && next && profile.totalXp > next.xp) {
+          const offset = profile.totalXp - first.xp;
+
+          const transitionEnd = levels.findLast((level) => level.xp <= profile.totalXp)?.level ?? currentLevel;
+
+          for (const level of economy.cyclingLevels) if (level.level >= currentLevel) level.xp += offset;
+
+          if (transitionEnd > currentLevel) {
+            economy.transitionStart = currentLevel;
+            economy.transitionEnd = transitionEnd;
+          }
+        } else if (first && profile.totalXp < first.xp) {
+          const offset = first.xp - profile.totalXp;
+
+          for (const level of economy.cyclingLevels)
+            if (level.level <= currentLevel) level.xp = Math.max(0, level.xp - offset);
         }
-      } else if (first && profile.totalXp < first.xp) {
-        const offset = first.xp - profile.totalXp;
 
-        for (const level of economy.cyclingLevels)
-          if (level.level <= currentLevel) level.xp = Math.max(0, level.xp - offset);
+        yield* documentsService.put(user.player_id, 'economy_config.txt', toJsonString(EconomyConfigSchema, economy));
       }
 
-      runtime.services.documents.put(user.player_id, 'economy_config.txt', toJsonString(EconomyConfigSchema, economy));
-    }
+      const peer = peerAddress(c);
 
-    const peer = peerAddress(c);
+      const ip = peer === '127.0.0.1' || peer === '::1' ? peer : runtime.config.server.advertisedIp;
 
-    const ip = peer === '127.0.0.1' || peer === '::1' ? peer : runtime.config.server.advertisedIp;
-
-    const response = create(LoginResponseSchema, {
-      sessionState: 'abc',
-      info: {
-        relayUrl: 'https://us-or-rly101.zwift.com/relay',
-        time: BigInt(Math.floor(Date.now() / 1000)),
-        apis: {
-          todaysplanUrl: 'https://whats.todaysplan.com.au',
-          trainingpeaksUrl: 'https://api.trainingpeaks.com',
+      const response = create(LoginResponseSchema, {
+        sessionState: 'abc',
+        info: {
+          relayUrl: 'https://us-or-rly101.zwift.com/relay',
+          time: BigInt(Math.floor(Date.now() / 1000)),
+          apis: {
+            todaysplanUrl: 'https://whats.todaysplan.com.au',
+            trainingpeaksUrl: 'https://api.trainingpeaks.com',
+          },
+          nodes: { nodes: [{ ip, port: runtime.config.network.tcp.port }] },
         },
-        nodes: { nodes: [{ ip, port: runtime.config.network.tcp.port }] },
-      },
-      relaySessionId: user.player_id,
-      expiration: 70,
-      economyConfig: economy,
-    });
+        relaySessionId: user.player_id,
+        expiration: 70,
+        economyConfig: economy,
+      });
 
-    return c.body(toBinary(LoginResponseSchema, response));
-  });
+      return c.body(toBinary(LoginResponseSchema, response));
+    }),
+  );
   app.post('/api/users/logout', (c) => {
     runtime.world.logout(BigInt(authenticated(c).player_id));
 
@@ -169,37 +192,42 @@ export function relayRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     const user = authenticated(c);
 
     const count = (name: string) =>
-      z.coerce
-        .number()
-        .int()
-        .min(0)
-        .max(1000)
-        .parse(c.req.query(name) ?? 0);
+      Schema.decodeUnknownSync(
+        NumberFromInput.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0), Schema.isLessThanOrEqualTo(1000)),
+      )(c.req.query(name) ?? 0);
 
     const headers = new Headers(c.req.raw.headers);
     headers.set('Accept', 'application/json');
 
-    const read = async <T extends z.ZodType>(path: string, schema: T) => {
+    const read = async <T extends Schema.ConstraintDecoder<unknown>>(path: string, schema: T) => {
       const response = await app.request(path, { headers });
 
       if (!response.ok) throw new HTTPException(502);
 
-      return schema.parse(await response.json());
+      return Schema.decodeUnknownSync(schema)(await response.json());
     };
 
     const invites = (status: string, limit: number) =>
       limit > 0
         ? read(
             '/api/private_event/feed?start_date=-1800000',
-            z.array(
-              z.looseObject({
-                inviteStatus: z.string(),
-                eventInvites: z.array(
-                  z.looseObject({
-                    invitedProfile: z.looseObject({ id: z.number() }),
-                  }),
-                ),
-              }),
+            Schema.Array(
+              Schema.StructWithRest(
+                Schema.Struct({
+                  inviteStatus: Schema.String,
+                  eventInvites: Schema.Array(
+                    Schema.StructWithRest(
+                      Schema.Struct({
+                        invitedProfile: Schema.StructWithRest(Schema.Struct({ id: Schema.Finite }), [
+                          Schema.Record(Schema.String, Schema.Unknown),
+                        ]),
+                      }),
+                      [Schema.Record(Schema.String, Schema.Unknown)],
+                    ),
+                  ),
+                }),
+                [Schema.Record(Schema.String, Schema.Unknown)],
+              ),
             ),
           ).then((events) =>
             events
@@ -222,12 +250,14 @@ export function relayRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
     const [goals, activities, events, pending, accepted] = await Promise.all([
       goalCount
-        ? read(`/api/profiles/${user.player_id}/goals`, z.array(z.json())).then((all) => all.slice(0, goalCount))
+        ? read(`/api/profiles/${user.player_id}/goals`, Schema.Array(Schema.Json)).then((all) =>
+            all.slice(0, goalCount),
+          )
         : Promise.resolve([]),
       activityCount
         ? read(
             `/api/activity-feed/feed/?${new URLSearchParams({ feedType: 'preview', limit: String(activityCount) })}`,
-            z.array(z.json()),
+            Schema.Array(Schema.Json),
           )
         : Promise.resolve([]),
       eventCount
@@ -251,7 +281,9 @@ export function relayRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     });
   });
   app.on('GET', ['/relay/worlds/:realm', '/relay/worlds/:realm/'], (c) => {
-    const realm = z.coerce.number().int().positive().parse(c.req.param('realm'));
+    const realm = Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0)))(
+      c.req.param('realm'),
+    );
 
     if (c.req.header('Accept')?.includes('application/json')) return c.json(worldJSON(realm));
     const world = worlds(new Map()).worlds.at(-1);
@@ -324,7 +356,7 @@ export function relayRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
           firstName: '',
           lastName: bookmark,
         })
-      : runtime.services.profiles.get(Number(state.id));
+      : runtime.effects.runSync(ProfilesService.use((service) => service.get(Number(state.id))));
 
     return create(DropInPlayerSchema, {
       id: state.id,
@@ -387,7 +419,7 @@ export function relayRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
       currentDateTime: Math.floor(Date.now() / 1000),
       currentWorldTime: Number(worldTime()),
       friendsInWorld: [...runtime.world.online].map(([id, state]) => {
-        const profile = runtime.services.profiles.get(Number(id));
+        const profile = runtime.effects.runSync(ProfilesService.use((service) => service.get(Number(id))));
 
         return {
           playerId: Number(id),

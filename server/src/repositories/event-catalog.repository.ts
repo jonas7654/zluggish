@@ -1,19 +1,21 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
-const catalogSchema = z.array(
-  z.object({
-    name: z.string(),
-    route: z.number().int(),
-    course: z.number().int(),
-    sport: z.union([z.literal(0), z.literal(1)]),
-    distance: z.number(),
+const catalogSchema = Schema.Array(
+  Schema.Struct({
+    name: Schema.String,
+    route: Schema.Int,
+    course: Schema.Int,
+    sport: Schema.Union([Schema.Literal(0), Schema.Literal(1)]),
+    distance: Schema.Finite,
   }),
 );
 
 export class EventCatalogRepository {
   readEventCatalog(assets: string) {
-    return catalogSchema.parse(JSON.parse(readFileSync(resolve(assets, 'data/events.txt'), 'utf8')));
+    return Schema.decodeUnknownSync(catalogSchema)(
+      JSON.parse(readFileSync(resolve(assets, 'data/events.txt'), 'utf8')),
+    );
   }
 }

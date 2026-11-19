@@ -1,3 +1,4 @@
+import { ManagementService } from '#src/services/management.service';
 import { Resources } from '#src/node/lifecycle/resources';
 import { ConfigError } from '#src/config/index';
 import type { LoadOptions } from '#src/config/load';
@@ -14,7 +15,7 @@ import { once } from 'node:events';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import { z } from 'zod';
+import { Effect, Schema, Scope } from 'effect';
 
 const { values } = parseArgs({
   options: { config: { type: 'string' }, 'storage-dir': { type: 'string' } },
@@ -43,9 +44,153 @@ const assets = resolve(root, '../assets');
 
 const gameInfo = readFileSync(resolve(assets, 'data/game_info.txt'), 'utf8').replace(/^\u{FEFF}/u, '');
 
-const gameInfoHash = z.object({ gameInfoHash: z.string() }).parse(JSON.parse(gameInfo)).gameInfoHash;
+const gameInfoHash = Schema.decodeUnknownSync(Schema.Struct({ gameInfoHash: Schema.String }))(
+  JSON.parse(gameInfo),
+).gameInfoHash;
 
 const variants = readFileSync(resolve(assets, 'data/variants.txt'), 'utf8');
+
+/** Close an HTTP listener; one that never started counts as closed. */
+function closeHttp(listener: ReturnType<typeof startHttp>) {
+  return new Promise<void>((resolve, reject) =>
+    listener.close((error) => {
+      if (error && (!('code' in error) || error.code !== 'ERR_SERVER_NOT_RUNNING')) reject(error);
+      else resolve();
+    }),
+  );
+}
+
+/** Acquire a listener into the current scope. */
+const listening = <A>(
+  open: () => A,
+  close: (listener: A) => void | Promise<void>,
+): Effect.Effect<A, never, Scope.Scope> =>
+  Effect.acquireRelease(Effect.sync(open), (listener) =>
+    Effect.promise(async () => {
+      await close(listener);
+    }),
+  );
+
+/** Open the runtime and every listener into the current scope, and report readiness. */
+const serve = Effect.fn('server.start')(function* () {
+  const webConfig = config.network.web;
+
+  if (
+    webConfig.enabled &&
+    [
+      config.network.api.port,
+      config.network.cdn.port,
+      config.network.tcp.port,
+      config.network.udp.port,
+      ...(config.dns.enabled ? [53] : []),
+    ].includes(webConfig.port)
+  )
+    throw new ConfigError('The web port must differ from every game listener port.');
+
+  const owner = yield* Effect.acquireRelease(
+    Effect.promise(() => openRuntime(config, assets)),
+    (opened) => Effect.promise(() => opened.close()),
+  );
+
+  const app = createGameApp({ gameInfo, gameInfoHash, variants }, owner.runtime);
+  const api = config.network.api;
+  const host = api.host ?? config.network.host;
+  const listener: HttpListenerOptions = { port: api.port, host };
+
+  if (api.useCert)
+    listener.tls = {
+      cert: readFileSync(config.tls.certFile || resolve(assets, 'ssl/cert-zwift-com.pem')),
+      key: readFileSync(config.tls.keyFile || resolve(assets, 'ssl/key-zwift-com.pem')),
+    };
+
+  const server = yield* listening(() => startHttp(app, listener), closeHttp);
+
+  const setupKey = webConfig.enabled
+    ? owner.runtime.effects.runSync(ManagementService.use((management) => management.issueSetupKey()))
+    : null;
+
+  const web = webConfig.enabled
+    ? yield* listening(
+        () =>
+          startHttp(createWebApp(owner.runtime), { host: webConfig.host ?? config.network.host, port: webConfig.port }),
+        closeHttp,
+      )
+    : null;
+
+  const cdn = yield* listening(() => startCdn(owner.runtime), closeHttp);
+
+  const ride = yield* listening(
+    () => startRideListeners(owner.runtime),
+    (opened) => opened.close(),
+  );
+
+  const dns = config.dns.enabled
+    ? yield* listening(
+        () => startDns(config.server.advertisedIp, config.network.host, 53, owner.runtime.world.lifecycle.log),
+        (opened) => opened.close(),
+      )
+    : null;
+
+  const log = owner.runtime.world.lifecycle.log;
+
+  if (config.accounts.allowSelfRegistration !== undefined)
+    log.warn(
+      'config.deprecated',
+      'accounts.allowSelfRegistration is deprecated and ignored. Only an administrator creates riders, in the web app. Remove it from the configuration.',
+    );
+
+  const listeners = [server, cdn, ...(web ? [web] : []), ride.tcp, ride.udp, ...(dns ? [dns.socket] : [])];
+
+  yield* Effect.tryPromise({
+    try: () => Promise.all(listeners.map((socket) => once(socket, 'listening'))),
+    catch: (error) => {
+      log.critical('server.start_failed', 'Required listener could not start', {
+        error: error instanceof Error ? error : String(error),
+      });
+
+      return new Error('Required listener could not start', { cause: error });
+    },
+  });
+
+  console.log(
+    'Use Zluggish only on a network that you trust. Other devices on the network can read the passwords that riders type.',
+  );
+
+  if (web) {
+    const bind = webConfig.host ?? config.network.host;
+
+    const address =
+      webConfig.publicUrl ??
+      `http://${bind === '0.0.0.0' || bind === '::' ? config.server.advertisedIp : bind.includes(':') ? `[${bind}]` : bind}:${webConfig.port}`;
+
+    console.log(`Web app: ${address}`);
+
+    if (!webConfig.publicUrl?.startsWith('https:') && !['127.0.0.1', '::1', 'localhost'].includes(bind))
+      console.log('The web app sends passwords over the network without encryption.');
+
+    if (setupKey)
+      console.log(
+        `============================================================\nZluggish first-time setup\nOpen: ${address}/setup\nSetup key: ${setupKey}\nThis key works until setup is complete or the server stops.\n============================================================`,
+      );
+  }
+
+  log.info('server.ready', 'Zluggish is ready', {
+    host,
+    port: api.port,
+    tls: api.useCert,
+    dns: !!dns,
+    cdnPort: config.network.cdn.port,
+    tcpPort: config.network.tcp.port,
+    udpPort: config.network.udp.port,
+  });
+
+  for (const socket of [server, cdn, ride.tcp, ...(web ? [web] : [])])
+    socket.on('error', (error) => {
+      log.error('server.listener_failed', 'Network listener failed', { error });
+    });
+
+  return { log, server, web, cdn };
+});
 
 await start();
 
@@ -53,117 +198,7 @@ async function start() {
   const resources = new Resources();
 
   try {
-    const webConfig = config.network.web;
-
-    if (
-      webConfig.enabled &&
-      [
-        config.network.api.port,
-        config.network.cdn.port,
-        config.network.tcp.port,
-        config.network.udp.port,
-        ...(config.dns.enabled ? [53] : []),
-      ].includes(webConfig.port)
-    )
-      throw new ConfigError('The web port must differ from every game listener port.');
-    const owner = await openRuntime(config, assets);
-    resources.defer(() => owner.close());
-    const app = createGameApp({ gameInfo, gameInfoHash, variants }, owner.runtime);
-    const api = config.network.api;
-    const host = api.host ?? config.network.host;
-    const listener: HttpListenerOptions = { port: api.port, host };
-
-    if (api.useCert)
-      listener.tls = {
-        cert: readFileSync(config.tls.certFile || resolve(assets, 'ssl/cert-zwift-com.pem')),
-        key: readFileSync(config.tls.keyFile || resolve(assets, 'ssl/key-zwift-com.pem')),
-      };
-
-    const server = startHttp(app, listener);
-    resources.defer(() => closeHttp(server));
-    let setupKey = webConfig.enabled ? owner.runtime.services.management.issueSetupKey() : null;
-
-    const web = webConfig.enabled
-      ? startHttp(createWebApp(owner.runtime), { host: webConfig.host ?? config.network.host, port: webConfig.port })
-      : null;
-
-    if (web) resources.defer(() => closeHttp(web));
-    const cdn = startCdn(owner.runtime);
-    resources.defer(() => closeHttp(cdn));
-    const ride = startRideListeners(owner.runtime);
-    resources.defer(() => ride.close());
-
-    const dns = config.dns.enabled
-      ? startDns(config.server.advertisedIp, config.network.host, 53, owner.runtime.world.lifecycle.log)
-      : null;
-
-    if (dns) resources.defer(() => dns.close());
-
-    const log = owner.runtime.world.lifecycle.log;
-
-    if (config.accounts.allowSelfRegistration !== undefined)
-      log.warn(
-        'config.deprecated',
-        'accounts.allowSelfRegistration is deprecated and ignored. Only an administrator creates riders, in the web app. Remove it from the configuration.',
-      );
-
-    function closeHttp(listener: ReturnType<typeof startHttp>) {
-      return new Promise<void>((resolve, reject) =>
-        listener.close((error) => {
-          if (error && (!('code' in error) || error.code !== 'ERR_SERVER_NOT_RUNNING')) reject(error);
-          else resolve();
-        }),
-      );
-    }
-
-    const listeners = [server, cdn, ...(web ? [web] : []), ride.tcp, ride.udp, ...(dns ? [dns.socket] : [])];
-
-    try {
-      await Promise.all(listeners.map((listener) => once(listener, 'listening')));
-      console.log(
-        'Use Zluggish only on a network that you trust. Other devices on the network can read the passwords that riders type.',
-      );
-
-      if (web) {
-        const bind = webConfig.host ?? config.network.host;
-
-        const address =
-          webConfig.publicUrl ??
-          `http://${bind === '0.0.0.0' || bind === '::' ? config.server.advertisedIp : bind.includes(':') ? `[${bind}]` : bind}:${webConfig.port}`;
-
-        console.log(`Web app: ${address}`);
-
-        if (!webConfig.publicUrl?.startsWith('https:') && !['127.0.0.1', '::1', 'localhost'].includes(bind))
-          console.log('The web app sends passwords over the network without encryption.');
-
-        if (setupKey)
-          console.log(
-            `============================================================\nZluggish first-time setup\nOpen: ${address}/setup\nSetup key: ${setupKey}\nThis key works until setup is complete or the server stops.\n============================================================`,
-          );
-      }
-
-      setupKey = null;
-      log.info('server.ready', 'Zluggish is ready', {
-        host,
-        port: api.port,
-        tls: api.useCert,
-        dns: !!dns,
-        cdnPort: config.network.cdn.port,
-        tcpPort: config.network.tcp.port,
-        udpPort: config.network.udp.port,
-      });
-    } catch (error) {
-      log.critical('server.start_failed', 'Required listener could not start', {
-        error: error instanceof Error ? error : String(error),
-      });
-      throw new Error('Required listener could not start', { cause: error });
-    }
-
-    for (const listener of [server, cdn, ride.tcp, ...(web ? [web] : [])])
-      listener.on('error', (error) => {
-        log.error('server.listener_failed', 'Network listener failed', { error });
-      });
-
+    const { log, server, web, cdn } = await Effect.runPromise(serve().pipe(Scope.provide(resources.scope)));
     let state: 'ready' | 'stopping' | 'stopped' | 'failed' = 'ready';
 
     function shutdown() {

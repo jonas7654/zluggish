@@ -1,16 +1,32 @@
+import { AccountsService } from '#src/services/auth.service';
+import { WebSessionsService } from '#src/services/web-session.service';
+import { UploadsService } from '#src/services/uploads.service';
+import { WorkoutsService } from '#src/services/workout.service';
+import { FilesService } from '#src/services/files.service';
+import { ProfilesService } from '#src/services/profile.service';
+import { ConnectionsService } from '#src/services/connections.service';
+import { IntegrationsService } from '#src/services/integrations.service';
+import { effectRoutes } from '#src/http/effect';
+import { DocumentsService } from '#src/services/documents.service';
 import type { Hono } from 'hono';
 import { resolve } from 'node:path';
-import { z } from 'zod';
+import { Cause, Effect, Schema } from 'effect';
+import { NumberFromInput, Strict, withDefault } from '#src/schema';
 import { UploadProvider } from '#src/enum';
 import { ApplicationError, UnreadableCredentialsError } from '#src/errors';
 import type { HttpRuntime } from '#src/http/runtime';
 import type { WebEnv } from '#src/http/web-app';
 
-const provider = z.enum(['strava', 'garmin', 'intervals']);
-const credentials = z.strictObject({ username: z.string().trim().min(1).max(500), secret: z.string().max(10_000) });
+const provider = Schema.Literals(['strava', 'garmin', 'intervals']);
+
+const credentials = Strict({
+  username: Schema.Trim.check(Schema.isMinLength(1), Schema.isMaxLength(500)),
+  secret: Schema.String.check(Schema.isMaxLength(10_000)),
+});
+
 const workoutProviders = { intervals: 'intervals-icu', trainingpeaks: 'trainingpeaks' } as const;
 
-const credential = z.enum([
+const credential = Schema.Literals([
   'strava/api',
   'strava/authorization',
   'strava/cookie',
@@ -28,214 +44,322 @@ const tokens = {
 /** A provider failure becomes a message for the rider and a warning with the cause for the
 operator. Unreadable credentials keep their own answer: the rider must enter them again.
 */
+/** Report any failure of `effect`, typed or not, as `providerFailure` does. */
+export function asProviderFailure(runtime: HttpRuntime, status: 400 | 503, message: string) {
+  return <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    effect.pipe(
+      Effect.catchCause((cause) => Effect.fail(providerFailure(runtime, Cause.squash(cause), status, message))),
+    );
+}
+
 export function providerFailure(runtime: HttpRuntime, cause: unknown, status: 400 | 503, message: string) {
   if (cause instanceof UnreadableCredentialsError) return cause;
   runtime.world.lifecycle.log.warn('connections.provider_failed', message, {
     error: cause instanceof Error ? cause : String(cause),
   });
 
-  return new ApplicationError(status, message);
+  return new ApplicationError({ status, message });
 }
 
 export function webConnectionRoutes(app: Hono<WebEnv>, runtime: HttpRuntime) {
-  const { management, connections, documents, integrations, uploads, workouts, files, profiles } = runtime.services;
-  const sessions = management.sessions;
+  const appRoutes = effectRoutes(app, runtime);
 
   // Credentials the key cannot decrypt stay saved, so the rider is asked to enter them again.
-  const saved = (player: number, name: z.infer<typeof provider>) => {
-    const { credentials, unreadable } = connections.inspect(player, name);
+  const saved = Effect.fn('connections.saved')(function* (player: number, name: (typeof provider)['Type']) {
+    const connections = yield* ConnectionsService;
+    const { credentials, unreadable } = yield* connections.inspect(player, name);
 
-    return { username: credentials?.[0] ?? '', saved: connections.has(player, name), unreadable };
-  };
-
-  app.get('/api/me/connections', (c) => {
-    const player = sessions.require(c.get('sessionId')).player_id;
-
-    return c.json({
-      strava: {
-        ...saved(player, 'strava'),
-        authorized: documents.has(player, 'strava_token.txt'),
-        cookie: documents.has(player, 'strava4_session.txt'),
-      },
-      garmin: {
-        ...saved(player, 'garmin'),
-        authorized: documents.has(player, 'garth/oauth1_token.json'),
-      },
-      intervals: saved(player, 'intervals'),
-    });
+    return { username: credentials?.[0] ?? '', saved: yield* connections.has(player, name), unreadable };
   });
-  app.put('/api/me/connections/:provider', async (c) => {
-    const player = sessions.require(c.get('sessionId')).player_id;
-    const name = provider.parse(c.req.param('provider'));
-    const input = credentials.parse(await c.req.json());
 
-    if (name === 'intervals') z.string().regex(/^\d+$/).parse(input.username);
-    const secret = input.secret || connections.inspect(player, name).credentials?.[1];
+  appRoutes.get('/api/me/connections', (c) =>
+    Effect.gen(function* () {
+      const webSessionsService = yield* WebSessionsService;
 
-    if (!secret) throw new ApplicationError(400, 'Enter a secret.');
-    connections.save(player, name, [input.username, secret]);
+      const documentsService = yield* DocumentsService;
 
-    return c.json({ ok: true });
-  });
-  app.put('/api/me/connections/strava/cookie', async (c) => {
-    const player = sessions.require(c.get('sessionId')).player_id;
+      const player = (yield* webSessionsService.require(c.get('sessionId'))).player_id;
 
-    const input = z
-      .strictObject({
-        cookie: z
-          .string()
-          .trim()
-          .min(1)
-          .max(10_000)
-          .regex(/^[^\r\n]+$/),
-      })
-      .parse(await c.req.json());
-
-    documents.put(player, 'strava4_session.txt', input.cookie);
-
-    return c.json({ ok: true });
-  });
-  app.delete('/api/me/connections/:provider', (c) => {
-    const player = sessions.require(c.get('sessionId')).player_id;
-    const name = provider.parse(c.req.param('provider'));
-    connections.remove(player, name);
-
-    if (name === 'strava') {
-      uploads.disconnect(player, 'strava_token.txt');
-      uploads.disconnect(player, 'strava4_session.txt');
-    } else if (name === 'garmin') uploads.disconnect(player, 'garth/oauth1_token.json');
-
-    return c.json({ ok: true });
-  });
-  // One stored credential, so a rider can drop the session cookie and keep the API, or the reverse.
-  app.delete('/api/me/connections/:provider/:credential', (c) => {
-    const player = sessions.require(c.get('sessionId')).player_id;
-    const name = credential.parse(`${c.req.param('provider')}/${c.req.param('credential')}`);
-
-    if (name === 'strava/api') connections.remove(player, 'strava');
-    else if (name === 'garmin/credentials') connections.remove(player, 'garmin');
-    else uploads.disconnect(player, tokens[name]);
-
-    return c.json({ ok: true });
-  });
-  app.post('/api/me/connections/garmin/authorize', async (c) => {
-    const id = c.get('sessionId');
-    const user = sessions.require(id);
-    const identity = runtime.services.accounts.identityOf(user);
-    const input = z.strictObject({ code: z.string().min(1).max(32).optional() }).parse(await c.req.json());
-
-    try {
-      const status = await integrations.authorizeGarminSession(
-        `web:${id}`,
-        () => sessions.current(id, identity),
-        user,
-        input.code,
-      );
-
-      return c.json({ status });
-    } catch (error) {
-      throw providerFailure(runtime, error, 400, 'Garmin authorization failed or expired. Try again.');
-    }
-  });
-  app.post('/api/me/connections/strava/authorize', async (c) => {
-    const id = c.get('sessionId');
-    const user = sessions.require(id);
-    const identity = runtime.services.accounts.identityOf(user);
-
-    const input = z
-      .strictObject({ code: z.string().min(1).max(2000).optional(), state: z.string().optional() })
-      .parse(await c.req.json());
-
-    if (input.code) {
-      const session = sessions.find(id)!;
-
-      if (!session.stravaState || input.state !== session.stravaState)
-        throw new ApplicationError(403, 'Authorization expired.');
-      delete session.stravaState;
-
-      try {
-        await integrations.authorizeStravaSession(() => sessions.current(id, identity), user, input.code);
-
-        return c.json({ ok: true });
-      } catch (error) {
-        throw providerFailure(runtime, error, 400, 'Strava authorization failed. Try again.');
-      }
-    }
-
-    const client = connections.read(user.player_id, 'strava');
-
-    if (!client) throw new ApplicationError(400, 'Save Strava API credentials first.');
-    const redirect = new URL('/integrations', runtime.config.network.web.publicUrl ?? c.req.url).href;
-    const state = sessions.token();
-    sessions.find(id)!.stravaState = state;
-
-    return c.json({ url: integrations.authorizationUrl(client[0], state, redirect) });
-  });
-  app.post('/api/me/connections/strava/test', async (c) => {
-    const player = sessions.require(c.get('sessionId')).player_id;
-    const cookie = documents.text(player, 'strava4_session.txt')?.split(/\r?\n/, 1)[0];
-
-    if (!cookie) throw new ApplicationError(400, 'Save a session cookie first.');
-
-    try {
       return c.json({
-        valid: await integrations.checkSession(cookie, (fresh) => documents.put(player, 'strava4_session.txt', fresh)),
+        strava: {
+          ...(yield* saved(player, 'strava')),
+          authorized: yield* documentsService.has(player, 'strava_token.txt'),
+          cookie: yield* documentsService.has(player, 'strava4_session.txt'),
+        },
+        garmin: {
+          ...(yield* saved(player, 'garmin')),
+          authorized: yield* documentsService.has(player, 'garth/oauth1_token.json'),
+        },
+        intervals: yield* saved(player, 'intervals'),
       });
-    } catch (error) {
-      throw providerFailure(runtime, error, 503, 'Could not reach Strava. Check your internet connection.');
-    }
-  });
-  app.post('/api/me/workouts/sync', async (c) => {
-    const id = c.get('sessionId');
-    const user = sessions.require(id);
-    const identity = runtime.services.accounts.identityOf(user);
-
-    const input = z.strictObject({ provider: z.enum(['intervals', 'trainingpeaks']) }).parse(await c.req.json());
-
-    // The chosen provider becomes the one the game uses when both are configured.
-    files.write(
-      resolve(profiles.folder(user.player_id), 'active_workout_provider.txt'),
-      workoutProviders[input.provider],
-      true,
-    );
-    let message: string;
-
-    try {
-      message = await workouts.sync(user.player_id);
-    } catch (error) {
-      throw providerFailure(runtime, error, 503, 'Workout sync failed. Existing workouts were retained.');
-    }
-
-    if (!sessions.current(id, identity)) throw new ApplicationError(401, 'Session changed.');
-
-    return c.json({ message });
-  });
-  app.get('/api/me/uploads', (c) =>
-    c.json({ jobs: uploads.status(sessions.require(c.get('sessionId')).player_id).slice(0, 100) }),
-  );
-  const activityId = z.coerce.number().int().positive().safe();
-  app.get('/api/me/activities/:id/uploads', (c) =>
-    c.json({
-      uploads: uploads.forActivity(sessions.require(c.get('sessionId')).player_id, activityId.parse(c.req.param('id'))),
     }),
   );
-  app.post('/api/me/activities/:id/uploads', async (c) => {
-    const player = sessions.require(c.get('sessionId')).player_id;
-    const id = activityId.parse(c.req.param('id'));
+  appRoutes.put('/api/me/connections/:provider', (c) =>
+    Effect.gen(function* () {
+      const webSessionsService = yield* WebSessionsService;
 
-    const input = z
-      .strictObject({ provider: z.enum(UploadProvider), again: z.boolean().default(false) })
-      .parse(await c.req.json());
+      const connectionsService = yield* ConnectionsService;
 
-    void uploads.request(player, id, input.provider, input.again);
+      const player = (yield* webSessionsService.require(c.get('sessionId'))).player_id;
+      const name = Schema.decodeUnknownSync(provider)(c.req.param('provider'));
+      const input = Schema.decodeUnknownSync(credentials)(yield* Effect.promise(() => c.req.json()));
 
-    return c.json({ uploads: uploads.forActivity(player, id) });
-  });
-  app.post('/api/me/uploads/retry', async (c) => {
-    const player = sessions.require(c.get('sessionId')).player_id;
-    const input = z.strictObject({ ambiguous: z.boolean().default(false) }).parse(await c.req.json());
-    void uploads.retry(player, input.ambiguous);
+      if (name === 'intervals')
+        Schema.decodeUnknownSync(Schema.String.check(Schema.isPattern(/^\d+$/)))(input.username);
+      const secret = input.secret || (yield* connectionsService.inspect(player, name)).credentials?.[1];
 
-    return c.json({ ok: true });
-  });
+      if (!secret) throw new ApplicationError({ status: 400, message: 'Enter a secret.' });
+      yield* connectionsService.save(player, name, [input.username, secret]);
+
+      return c.json({ ok: true });
+    }),
+  );
+  appRoutes.put('/api/me/connections/strava/cookie', (c) =>
+    Effect.gen(function* () {
+      const webSessionsService = yield* WebSessionsService;
+
+      const documentsService = yield* DocumentsService;
+
+      const player = (yield* webSessionsService.require(c.get('sessionId'))).player_id;
+
+      const input = Schema.decodeUnknownSync(
+        Strict({
+          cookie: Schema.Trim.check(Schema.isMinLength(1), Schema.isMaxLength(10_000), Schema.isPattern(/^[^\r\n]+$/)),
+        }),
+      )(yield* Effect.promise(() => c.req.json()));
+
+      yield* documentsService.put(player, 'strava4_session.txt', input.cookie);
+
+      return c.json({ ok: true });
+    }),
+  );
+  appRoutes.delete('/api/me/connections/:provider', (c) =>
+    Effect.gen(function* () {
+      const webSessionsService = yield* WebSessionsService;
+
+      const uploadsService = yield* UploadsService;
+
+      const connectionsService = yield* ConnectionsService;
+
+      const player = (yield* webSessionsService.require(c.get('sessionId'))).player_id;
+      const name = Schema.decodeUnknownSync(provider)(c.req.param('provider'));
+      yield* connectionsService.remove(player, name);
+
+      if (name === 'strava') {
+        yield* uploadsService.disconnect(player, 'strava_token.txt');
+        yield* uploadsService.disconnect(player, 'strava4_session.txt');
+      } else if (name === 'garmin') yield* uploadsService.disconnect(player, 'garth/oauth1_token.json');
+
+      return c.json({ ok: true });
+    }),
+  );
+  // One stored credential, so a rider can drop the session cookie and keep the API, or the reverse.
+  appRoutes.delete('/api/me/connections/:provider/:credential', (c) =>
+    Effect.gen(function* () {
+      const webSessionsService = yield* WebSessionsService;
+
+      const uploadsService = yield* UploadsService;
+
+      const connectionsService = yield* ConnectionsService;
+
+      const player = (yield* webSessionsService.require(c.get('sessionId'))).player_id;
+      const name = Schema.decodeUnknownSync(credential)(`${c.req.param('provider')}/${c.req.param('credential')}`);
+
+      if (name === 'strava/api') yield* connectionsService.remove(player, 'strava');
+      else if (name === 'garmin/credentials') yield* connectionsService.remove(player, 'garmin');
+      else yield* uploadsService.disconnect(player, tokens[name]);
+
+      return c.json({ ok: true });
+    }),
+  );
+  appRoutes.post('/api/me/connections/garmin/authorize', (c) =>
+    Effect.gen(function* () {
+      const webSessionsService = yield* WebSessionsService;
+
+      const integrationsService = yield* IntegrationsService;
+
+      const id = c.get('sessionId');
+      const user = yield* webSessionsService.require(id);
+      const identity = runtime.effects.runSync(AccountsService).identityOf(user);
+
+      const input = Schema.decodeUnknownSync(
+        Strict({ code: Schema.optional(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(32))) }),
+      )(yield* Effect.promise(() => c.req.json()));
+
+      const status = yield* integrationsService
+        .authorizeGarminSession(
+          `web:${id}`,
+          () => Effect.runSync(webSessionsService.current(id, identity)),
+          user,
+          input.code,
+        )
+        .pipe(asProviderFailure(runtime, 400, 'Garmin authorization failed or expired. Try again.'));
+
+      return c.json({ status });
+    }),
+  );
+  appRoutes.post('/api/me/connections/strava/authorize', (c) =>
+    Effect.gen(function* () {
+      const webSessionsService = yield* WebSessionsService;
+
+      const connectionsService = yield* ConnectionsService;
+
+      const integrationsService = yield* IntegrationsService;
+
+      const id = c.get('sessionId');
+      const user = yield* webSessionsService.require(id);
+      const identity = runtime.effects.runSync(AccountsService).identityOf(user);
+
+      const input = Schema.decodeUnknownSync(
+        Strict({
+          code: Schema.optional(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(2000))),
+          state: Schema.optional(Schema.String),
+        }),
+      )(yield* Effect.promise(() => c.req.json()));
+
+      if (input.code) {
+        const session = (yield* webSessionsService.find(id))!;
+
+        if (!session.stravaState || input.state !== session.stravaState)
+          throw new ApplicationError({ status: 403, message: 'Authorization expired.' });
+        delete session.stravaState;
+
+        yield* integrationsService
+          .authorizeStravaSession(() => Effect.runSync(webSessionsService.current(id, identity)), user, input.code)
+          .pipe(asProviderFailure(runtime, 400, 'Strava authorization failed. Try again.'));
+
+        return c.json({ ok: true });
+      }
+
+      const client = yield* connectionsService.read(user.player_id, 'strava');
+
+      if (!client) throw new ApplicationError({ status: 400, message: 'Save Strava API credentials first.' });
+      const redirect = new URL('/integrations', runtime.config.network.web.publicUrl ?? c.req.url).href;
+      const state = yield* webSessionsService.token();
+      (yield* webSessionsService.find(id))!.stravaState = state;
+
+      return c.json({ url: yield* integrationsService.authorizationUrl(client[0], state, redirect) });
+    }),
+  );
+  appRoutes.post('/api/me/connections/strava/test', (c) =>
+    Effect.gen(function* () {
+      const webSessionsService = yield* WebSessionsService;
+
+      const integrationsService = yield* IntegrationsService;
+
+      const documentsService = yield* DocumentsService;
+
+      const player = (yield* webSessionsService.require(c.get('sessionId'))).player_id;
+      const cookie = (yield* documentsService.text(player, 'strava4_session.txt'))?.split(/\r?\n/, 1)[0];
+
+      if (!cookie) throw new ApplicationError({ status: 400, message: 'Save a session cookie first.' });
+
+      const valid = yield* integrationsService
+        .checkSession(cookie, (fresh) =>
+          runtime.effects.runSync(documentsService.put(player, 'strava4_session.txt', fresh)),
+        )
+        .pipe(asProviderFailure(runtime, 503, 'Could not reach Strava. Check your internet connection.'));
+
+      return c.json({ valid });
+    }),
+  );
+  appRoutes.post('/api/me/workouts/sync', (c) =>
+    Effect.gen(function* () {
+      const webSessionsService = yield* WebSessionsService;
+
+      const workoutsService = yield* WorkoutsService;
+
+      const filesService = yield* FilesService;
+
+      const profilesService = yield* ProfilesService;
+
+      const id = c.get('sessionId');
+      const user = yield* webSessionsService.require(id);
+      const identity = runtime.effects.runSync(AccountsService).identityOf(user);
+
+      const input = Schema.decodeUnknownSync(Strict({ provider: Schema.Literals(['intervals', 'trainingpeaks']) }))(
+        yield* Effect.promise(() => c.req.json()),
+      );
+
+      // The chosen provider becomes the one the game uses when both are configured.
+      yield* filesService.write(
+        resolve(yield* profilesService.folder(user.player_id), 'active_workout_provider.txt'),
+        workoutProviders[input.provider],
+        true,
+      );
+
+      const message = yield* workoutsService
+        .sync(user.player_id)
+        .pipe(asProviderFailure(runtime, 503, 'Workout sync failed. Existing workouts were retained.'));
+
+      if (!(yield* webSessionsService.current(id, identity)))
+        throw new ApplicationError({ status: 401, message: 'Session changed.' });
+
+      return c.json({ message });
+    }),
+  );
+  appRoutes.get('/api/me/uploads', (c) =>
+    Effect.gen(function* () {
+      const webSessionsService = yield* WebSessionsService;
+
+      const uploadsService = yield* UploadsService;
+
+      return c.json({
+        jobs: (yield* uploadsService.status((yield* webSessionsService.require(c.get('sessionId'))).player_id)).slice(
+          0,
+          100,
+        ),
+      });
+    }),
+  );
+  const activityId = NumberFromInput.check(Schema.isInt(), Schema.isGreaterThan(0));
+  appRoutes.get('/api/me/activities/:id/uploads', (c) =>
+    Effect.gen(function* () {
+      const webSessionsService = yield* WebSessionsService;
+
+      const uploadsService = yield* UploadsService;
+
+      return c.json({
+        uploads: yield* uploadsService.forActivity(
+          (yield* webSessionsService.require(c.get('sessionId'))).player_id,
+          Schema.decodeUnknownSync(activityId)(c.req.param('id')),
+        ),
+      });
+    }),
+  );
+  appRoutes.post('/api/me/activities/:id/uploads', (c) =>
+    Effect.gen(function* () {
+      const webSessionsService = yield* WebSessionsService;
+
+      const uploadsService = yield* UploadsService;
+
+      const player = (yield* webSessionsService.require(c.get('sessionId'))).player_id;
+      const id = Schema.decodeUnknownSync(activityId)(c.req.param('id'));
+
+      const input = Schema.decodeUnknownSync(
+        Strict({ provider: Schema.Enum(UploadProvider), again: Schema.Boolean.pipe(withDefault(false)) }),
+      )(yield* Effect.promise(() => c.req.json()));
+
+      void (yield* uploadsService.request(player, id, input.provider, input.again));
+
+      return c.json({ uploads: yield* uploadsService.forActivity(player, id) });
+    }),
+  );
+  appRoutes.post('/api/me/uploads/retry', (c) =>
+    Effect.gen(function* () {
+      const webSessionsService = yield* WebSessionsService;
+
+      const uploadsService = yield* UploadsService;
+
+      const player = (yield* webSessionsService.require(c.get('sessionId'))).player_id;
+
+      const input = Schema.decodeUnknownSync(Strict({ ambiguous: Schema.Boolean.pipe(withDefault(false)) }))(
+        yield* Effect.promise(() => c.req.json()),
+      );
+
+      void (yield* uploadsService.retry(player, input.ambiguous));
+
+      return c.json({ ok: true });
+    }),
+  );
 }

@@ -1,13 +1,13 @@
-import { z } from 'zod';
+import { Schema } from 'effect';
 
-export const profileUpdateSchema = z.object({
-  countryCode: z.number().int().optional(),
-  dob: z.string().optional(),
-  emailAddress: z.string().optional(),
-  firstName: z.string().optional(),
-  lastName: z.string().optional(),
-  height: z.number().int().positive().optional(),
-  male: z.boolean().optional(),
-  useMetric: z.boolean().optional(),
-  weight: z.number().int().positive().optional(),
+export const profileUpdateSchema = Schema.Struct({
+  countryCode: Schema.optional(Schema.Int),
+  dob: Schema.optional(Schema.String),
+  emailAddress: Schema.optional(Schema.String),
+  firstName: Schema.optional(Schema.String),
+  lastName: Schema.optional(Schema.String),
+  height: Schema.optional(Schema.Int.check(Schema.isGreaterThan(0))),
+  male: Schema.optional(Schema.Boolean),
+  useMetric: Schema.optional(Schema.Boolean),
+  weight: Schema.optional(Schema.Int.check(Schema.isGreaterThan(0))),
 });

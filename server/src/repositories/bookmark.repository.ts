@@ -1,8 +1,13 @@
 import { query, SqliteExecutor } from '#src/db/query';
 import type { DatabaseSync } from 'node:sqlite';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
-const row = z.object({ course: z.number(), sport: z.number(), name: z.string(), state: z.instanceof(Uint8Array) });
+const row = Schema.Struct({
+  course: Schema.Finite,
+  sport: Schema.Finite,
+  name: Schema.String,
+  state: Schema.instanceOf(Uint8Array),
+});
 
 export class BookmarksRepository {
   private readonly executor: SqliteExecutor;
@@ -22,7 +27,7 @@ export class BookmarksRepository {
           .orderBy('sport')
           .orderBy('name'),
       )
-      .map((found) => row.parse(found));
+      .map((found) => Schema.decodeUnknownSync(row)(found));
   }
 
   save(player: number, course: number, sport: number, name: string, state: Uint8Array) {

@@ -21,7 +21,9 @@ export function createCdn(runtime: Runtime) {
   const app = new Hono();
   const root = resolve(runtime.assets, 'cdn');
   app.get('/tp-workouts/intervalsicu/:id', (c) => {
-    const file = new WorkoutsService(runtime).file(c.req.param('id').replace(/\.zwo$/, ''));
+    const file = runtime.effects.runSync(
+      WorkoutsService.use((workouts) => workouts.file(c.req.param('id').replace(/\.zwo$/, ''))),
+    );
 
     return file && existsSync(file)
       ? c.body(readFileSync(file), 200, { 'Content-Type': 'application/xml' })

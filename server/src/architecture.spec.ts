@@ -92,14 +92,15 @@ await test('services and repositories expose operations through classes', () => 
         if (!exported) continue;
         assert.ok(!ts.isFunctionDeclaration(statement), `${file} exports a standalone operation`);
 
-        if (layer === 'services' && ts.isClassDeclaration(statement) && statement.name?.text !== 'BaseService')
+        // Services are Effect services: Context.Service classes.
+        if (layer === 'services' && ts.isClassDeclaration(statement))
           assert.ok(
             statement.heritageClauses?.some(
               (clause) =>
                 clause.token === ts.SyntaxKind.ExtendsKeyword &&
-                clause.types.some((type) => type.expression.getText(source) === 'BaseService'),
+                clause.types.some((type) => type.expression.getText(source).startsWith('Context.Service<')),
             ),
-            `${file} must extend BaseService`,
+            `${file} must define a Context.Service`,
           );
       }
     }

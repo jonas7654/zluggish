@@ -17,7 +17,7 @@ The server and the client can be on the same computer. They can also be on diffe
 - A computer with Linux, Windows or macOS. The server needs very little performance.
 - Docker Compose. Zluggish runs as a container.
 
-To run from source without Docker, use Node.js 24 and pnpm 12. See [Run the CLI natively](../reference/cli/index.md#run-natively).
+To run from source without Docker, use Node.js 26 and pnpm 12. See [Run the CLI natively](../reference/cli/index.md#run-natively).
 
 ## Client
 

@@ -1,3 +1,3 @@
-import { z } from 'zod';
+import { Schema } from 'effect';
 
-export const eventFeedSchema = z.object({ data: z.array(z.object({ event: z.json() })) });
+export const eventFeedSchema = Schema.Struct({ data: Schema.Array(Schema.Struct({ event: Schema.Json })) });

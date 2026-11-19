@@ -1,6 +1,10 @@
 import { validateConfig } from '#src/config/index';
 import { MatrixRepository } from '#src/repositories/matrix.repository';
-import { MatrixBridge } from '#src/services/matrix.service';
+import { MatrixService } from '#src/services/matrix.service';
+import { ChatService } from '#src/services/chat-bridge.service';
+import { MessageService } from '#src/services/message.service';
+import { RuntimeContext } from '#src/context';
+import type { RepositoryContext } from '#src/context';
 import { SocialPlayerActionSchema } from '#src/protocol/generated/tcp-node-msgs_pb';
 import { PlayerStateSchema } from '#src/protocol/generated/udp-node-msgs_pb';
 import { runtimeFixture } from '#tests/support/runtime';
@@ -14,7 +18,21 @@ import { resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { test } from 'node:test';
 import type { TestContext } from 'node:test';
-import { z } from 'zod';
+import { Effect, Layer, Schema } from 'effect';
+
+/** The Matrix service over the given runtime context. */
+function matrixService(context: RepositoryContext) {
+  return Effect.runSync(
+    Effect.gen(function* () {
+      return yield* MatrixService;
+    }).pipe(
+      Effect.provide(MatrixService.layer),
+      Effect.provide(ChatService.layer),
+      Effect.provide(MessageService.layer),
+      Effect.provide(Layer.succeed(RuntimeContext, context)),
+    ),
+  );
+}
 
 async function until(condition: () => boolean) {
   for (let attempt = 0; attempt < 200 && !condition(); attempt++) await sleep(10);
@@ -34,16 +52,16 @@ const join = (name: string) => ({
   content: { membership: 'join', displayname: name === '@alice:test' ? 'Alice' : null },
 });
 
-const login = z.object({
-  identifier: z.object({ type: z.string(), user: z.string() }),
-  device_id: z.string().optional(),
+const login = Schema.Struct({
+  identifier: Schema.Struct({ type: Schema.String, user: Schema.String }),
+  device_id: Schema.optional(Schema.String),
 });
 
-type Json = z.infer<ReturnType<typeof z.json>>;
+type Json = typeof Schema.Json.Type;
 
 interface Homeserver {
   url: string;
-  logins: z.infer<typeof login>[];
+  logins: (typeof login)['Type'][];
   sent: string[];
   syncs: URLSearchParams[];
   encrypted: boolean;
@@ -63,7 +81,7 @@ async function homeserver(t: TestContext) {
     const authorized = request.headers.authorization === 'Bearer token-1';
 
     if (path === '/login') {
-      state.logins.push(login.parse(JSON.parse(body)));
+      state.logins.push(Schema.decodeUnknownSync(login)(JSON.parse(body)));
 
       return reply(response, 200, { user_id: '@bot:test', device_id: 'DEVICE', access_token: 'token-1' });
     }
@@ -77,7 +95,7 @@ async function homeserver(t: TestContext) {
     if (path.startsWith('/presence/')) return reply(response, 200, {});
 
     if (path.startsWith('/rooms/!room:test/send/m.room.message/')) {
-      state.sent.push(z.object({ body: z.string() }).parse(JSON.parse(body)).body);
+      state.sent.push(Schema.decodeUnknownSync(Schema.Struct({ body: Schema.String }))(JSON.parse(body)).body);
 
       return reply(response, 200, { event_id: '$sent' });
     }
@@ -128,7 +146,7 @@ async function homeserver(t: TestContext) {
   });
 
   await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
-  const { port } = z.object({ port: z.number() }).parse(server.address());
+  const { port } = Schema.decodeUnknownSync(Schema.Struct({ port: Schema.Finite }))(server.address());
   state.url = `http://127.0.0.1:${port}`;
 
   t.after(async () => {
@@ -270,17 +288,19 @@ await test('Matrix bridge prefixes rider names, handles commands and stops after
     }),
   };
 
-  const bridge = new MatrixBridge(runtime, {
-    send: (content) => {
-      sent.push(content);
+  const bridge = Effect.runSync(
+    matrixService(runtime).bridge({
+      send: (content) => {
+        sent.push(content);
 
-      return Promise.resolve();
-    },
-    presence: (count) => {
-      presence.push(count);
-    },
-    close: () => Promise.resolve(),
-  });
+        return Promise.resolve();
+      },
+      presence: (count) => {
+        presence.push(count);
+      },
+      close: () => Promise.resolve(),
+    }),
+  );
 
   f.world.online.set(BigInt(user.player_id), create(PlayerStateSchema));
   bridge.receive('Alice', 'Ride on!');

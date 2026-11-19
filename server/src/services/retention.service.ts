@@ -1,9 +1,10 @@
 import type { ResolvedConfig } from '#src/config/index';
 import { immediate } from '#src/db/transaction';
 import { RiderDocumentName } from '#src/enum';
-import type { BaseServiceDeps } from '#src/services/base.service';
-import { BaseService } from '#src/services/base.service';
-import type { JobsService } from '#src/services/jobs.service';
+import type { Repositories } from '#src/repositories';
+import { JobsService } from '#src/services/jobs.service';
+import { RuntimeContext } from '#src/context';
+import { Context, Effect, Layer } from 'effect';
 import { resolve } from 'node:path';
 
 const hour = 3_600_000;
@@ -26,40 +27,36 @@ export type StorageUsage = Record<
   number
 >;
 
-/** Storage growth limits. Never removes unfinished deliveries, retry dependencies or the
-canonical FIT payload: those live in the database and only finished rows qualify.
-*/
-export class RetentionService extends BaseService {
-  constructor(
-    repositories: BaseServiceDeps,
-    private readonly retention: ResolvedConfig['retention'],
-    private readonly storage: string,
-  ) {
-    super(repositories);
-  }
+/** The repositories, limits and folder a cleanup works on. */
+export type RetentionScope = {
+  repositories: Pick<Repositories, keyof Repositories>;
+  retention: ResolvedConfig['retention'];
+  storage: string;
+};
 
+function cleanup({ repositories, retention, storage }: RetentionScope) {
   /** What a cleanup would remove now, without removing anything. */
-  async plan(now = Date.now()): Promise<RetentionPlan> {
+  async function plan(now = Date.now()): Promise<RetentionPlan> {
     const files: RetentionCandidate[] = [];
-    const owners = this.activitiesRepository.owners();
+    const owners = repositories.activitiesRepository.owners();
 
     const add = async (path: string, reason: string) => {
-      const info = await this.filesRepository.statAsync(path);
+      const info = await repositories.filesRepository.statAsync(path);
 
       if (info) files.push({ path, bytes: info.bytes, reason });
     };
 
     const media = [
-      ...this.activitiesRepository
+      ...repositories.activitiesRepository
         .abandonedMedia('activity_image', now - reservationMs)
         .map((row) => ({ table: 'activity_image' as const, ...row })),
-      ...this.activitiesRepository
+      ...repositories.activitiesRepository
         .abandonedMedia('activity_media', now - reservationMs)
         .map((row) => ({ table: 'activity_media' as const, ...row })),
     ];
 
     for (const row of media) {
-      const folder = resolve(this.storage, String(row.player_id));
+      const folder = resolve(storage, String(row.player_id));
 
       if (row.table === 'activity_image') await add(resolve(folder, 'images', `${row.id}.jpg`), 'abandoned upload');
       else
@@ -69,15 +66,15 @@ export class RetentionService extends BaseService {
 
     const abandoned = new Set(media.map((row) => `${row.table}:${row.id}`));
 
-    for (const entry of await this.filesRepository.entriesAsync(resolve(this.storage, 'activities')))
+    for (const entry of await repositories.filesRepository.entriesAsync(resolve(storage, 'activities')))
       if (entry.isFile() && /^\d+$/.test(entry.name) && !owners.charts.has(Number(entry.name)))
-        await add(resolve(this.storage, 'activities', entry.name), 'orphaned chart');
+        await add(resolve(storage, 'activities', entry.name), 'orphaned chart');
 
-    for (const rider of await this.filesRepository.entriesAsync(this.storage)) {
+    for (const rider of await repositories.filesRepository.entriesAsync(storage)) {
       if (!rider.isDirectory() || !/^\d+$/.test(rider.name)) continue;
-      const folder = resolve(this.storage, rider.name);
+      const folder = resolve(storage, rider.name);
 
-      for (const entry of await this.filesRepository.entriesAsync(resolve(folder, 'fit'))) {
+      for (const entry of await repositories.filesRepository.entriesAsync(resolve(folder, 'fit'))) {
         const activity = /^(\d+) - /.exec(entry.name)?.[1];
 
         if (activity !== undefined && !owners.activities.has(Number(activity)))
@@ -88,25 +85,25 @@ export class RetentionService extends BaseService {
         ['images', 'activity_image', owners.images],
         ['medias', 'activity_media', owners.media],
       ] as const)
-        for (const entry of await this.filesRepository.entriesAsync(resolve(folder, directory))) {
+        for (const entry of await repositories.filesRepository.entriesAsync(resolve(folder, directory))) {
           const id = /^(\d+)\.\w+$/.exec(entry.name)?.[1];
 
           if (id !== undefined && !owned.has(Number(id)) && !abandoned.has(`${table}:${id}`))
             await add(resolve(folder, directory, entry.name), 'orphaned media');
         }
 
-      await this.ghosts(resolve(folder, 'ghosts'), files);
+      await ghosts(resolve(folder, 'ghosts'), files);
     }
 
-    for (const path of await this.filesRepository.filesUnder(this.storage, '.tmp')) {
-      if (path.startsWith(resolve(this.storage, 'backups'))) continue;
-      const info = await this.filesRepository.statAsync(path);
+    for (const path of await repositories.filesRepository.filesUnder(storage, '.tmp')) {
+      if (path.startsWith(resolve(storage, 'backups'))) continue;
+      const info = await repositories.filesRepository.statAsync(path);
 
-      if (info && info.modified < now - this.retention.temporaryFileHours * hour)
+      if (info && info.modified < now - retention.temporaryFileHours * hour)
         files.push({ path, bytes: info.bytes, reason: 'temporary file' });
     }
 
-    const entries = await this.filesRepository.entriesAsync(resolve(this.storage, 'backups'));
+    const entries = await repositories.filesRepository.entriesAsync(resolve(storage, 'backups'));
 
     const backups = entries
       .filter((entry) => entry.isDirectory() && entry.name.startsWith('storage-v'))
@@ -114,70 +111,70 @@ export class RetentionService extends BaseService {
       .toSorted()
       .toReversed();
 
-    for (const name of backups.slice(this.retention.migrationBackups))
+    for (const name of backups.slice(retention.migrationBackups))
       files.push({
-        path: resolve(this.storage, 'backups', name),
-        bytes: await this.size(resolve(this.storage, 'backups', name)),
+        path: resolve(storage, 'backups', name),
+        bytes: await size(resolve(storage, 'backups', name)),
         reason: 'old migration backup',
       });
 
     return {
-      jobs: this.jobsRepository.prunable(now - this.retention.finishedJobsDays * day),
-      deliveries: this.uploadsRepository.prunable(now - this.retention.deliveryRecordsDays * day),
+      jobs: repositories.jobsRepository.prunable(now - retention.finishedJobsDays * day),
+      deliveries: repositories.uploadsRepository.prunable(now - retention.deliveryRecordsDays * day),
       media: media.map((row) => ({ table: row.table, id: row.id })),
       files,
     };
   }
 
   /** Keep the newest recordings in each ghost directory. */
-  private async ghosts(directory: string, files: RetentionCandidate[]) {
-    const entries = await this.filesRepository.entriesAsync(directory);
+  async function ghosts(directory: string, files: RetentionCandidate[]) {
+    const entries = await repositories.filesRepository.entriesAsync(directory);
     const recordings = [];
 
     for (const entry of entries) {
       const path = resolve(directory, entry.name);
 
-      if (entry.isDirectory()) await this.ghosts(path, files);
+      if (entry.isDirectory()) await ghosts(path, files);
       else if (entry.name.endsWith('.bin')) {
-        const info = await this.filesRepository.statAsync(path);
+        const info = await repositories.filesRepository.statAsync(path);
 
         if (info) recordings.push({ path, ...info });
       }
     }
 
-    for (const old of recordings.toSorted((a, b) => b.modified - a.modified).slice(this.retention.ghostsPerRoute))
+    for (const old of recordings.toSorted((a, b) => b.modified - a.modified).slice(retention.ghostsPerRoute))
       files.push({ path: old.path, bytes: old.bytes, reason: 'old ghost recording' });
   }
 
-  async apply(plan: RetentionPlan, now = Date.now()) {
-    immediate(this.repositories.db, () => {
-      this.jobsRepository.prune(now - this.retention.finishedJobsDays * day);
-      this.uploadsRepository.prune(now - this.retention.deliveryRecordsDays * day);
+  async function apply(plan: RetentionPlan, now = Date.now()) {
+    immediate(repositories.db, () => {
+      repositories.jobsRepository.prune(now - retention.finishedJobsDays * day);
+      repositories.uploadsRepository.prune(now - retention.deliveryRecordsDays * day);
 
-      for (const row of plan.media) this.activitiesRepository.deleteMedia(row.table, row.id);
+      for (const row of plan.media) repositories.activitiesRepository.deleteMedia(row.table, row.id);
     });
 
-    for (const file of plan.files) await this.filesRepository.removeTreeAsync(file.path);
+    for (const file of plan.files) await repositories.filesRepository.removeTreeAsync(file.path);
 
     return { files: plan.files.length, bytes: plan.files.reduce((total, file) => total + file.bytes, 0) };
   }
 
-  private async size(path: string): Promise<number> {
-    const info = await this.filesRepository.statAsync(path);
+  async function size(path: string): Promise<number> {
+    const info = await repositories.filesRepository.statAsync(path);
 
     if (!info) return 0;
 
     if (!info.directory) return info.bytes;
     let total = 0;
 
-    for (const entry of await this.filesRepository.entriesAsync(path))
-      total += await this.size(resolve(path, entry.name));
+    for (const entry of await repositories.filesRepository.entriesAsync(path))
+      total += await size(resolve(path, entry.name));
 
     return total;
   }
 
   /** Bytes by category, for the operator. */
-  async usage(): Promise<StorageUsage> {
+  async function usage(): Promise<StorageUsage> {
     const usage: StorageUsage = {
       database: 0,
       media: 0,
@@ -205,17 +202,17 @@ export class RetentionService extends BaseService {
       ['garth', 'legacy'],
     ]);
 
-    for (const entry of await this.filesRepository.entriesAsync(this.storage)) {
-      const path = resolve(this.storage, entry.name);
+    for (const entry of await repositories.filesRepository.entriesAsync(storage)) {
+      const path = resolve(storage, entry.name);
 
       if (!entry.isDirectory() || !/^\d+$/.test(entry.name)) {
         const category = entry.name.startsWith('zluggish.db') ? 'database' : (top.get(entry.name) ?? 'other');
-        usage[category] += await this.size(path);
+        usage[category] += await size(path);
         continue;
       }
 
-      for (const item of await this.filesRepository.entriesAsync(path))
-        usage[rider.get(item.name) ?? (legacy.has(item.name) ? 'legacy' : 'other')] += await this.size(
+      for (const item of await repositories.filesRepository.entriesAsync(path))
+        usage[rider.get(item.name) ?? (legacy.has(item.name) ? 'legacy' : 'other')] += await size(
           resolve(path, item.name),
         );
     }
@@ -223,30 +220,63 @@ export class RetentionService extends BaseService {
     return usage;
   }
 
-  /** A daily job. Each run schedules the next one when it commits. */
-  registerJobs(jobs: JobsService) {
-    jobs.register('retention', {
-      concurrency: 1,
-      attempts: 3,
-      timeoutMs: 600_000,
-      run: async (job) => {
-        const plan = await this.plan();
-        const removed = await this.apply(plan);
+  return {
+    /** What a cleanup would remove now, without removing anything. */
+    plan: Effect.fn('RetentionService.plan')(function* (now = Date.now()) {
+      return yield* Effect.promise(() => plan(now));
+    }),
+    apply: Effect.fn('RetentionService.apply')(function* (candidates: RetentionPlan, now = Date.now()) {
+      return yield* Effect.promise(() => apply(candidates, now));
+    }),
+    /** Bytes by category, for the operator. */
+    usage: Effect.fn('RetentionService.usage')(function* () {
+      return yield* Effect.promise(usage);
+    }),
+    /** Make sure one retention job is queued. */
+    schedule: Effect.fn('RetentionService.schedule')(function* () {
+      repositories.jobsRepository.enqueueOnce('retention', {});
+    }),
+  };
+}
 
-        job.commit(() => this.jobsRepository.enqueue('retention', {}, day));
-        this.loggingRepository.info('storage.retention', 'Storage cleanup finished', {
+const make = Effect.gen(function* () {
+  const context = yield* RuntimeContext;
+  const jobs = yield* JobsService;
+  const repositories = context.accounts.repositories;
+  const service = cleanup({ repositories, retention: context.config.retention, storage: context.config.storageDir });
+
+  // A daily job. Each run schedules the next one when it commits.
+  yield* jobs.register('retention', {
+    concurrency: 1,
+    attempts: 3,
+    timeoutMs: 600_000,
+    run: (job) =>
+      Effect.gen(function* () {
+        const candidates = yield* service.plan();
+        const removed = yield* service.apply(candidates);
+
+        job.commit(() => repositories.jobsRepository.enqueue('retention', {}, day));
+        repositories.loggingRepository.info('storage.retention', 'Storage cleanup finished', {
           files: removed.files,
           bytes: removed.bytes,
-          jobs: plan.jobs,
-          deliveries: plan.deliveries,
-          media: plan.media.length,
+          jobs: candidates.jobs,
+          deliveries: candidates.deliveries,
+          media: candidates.media.length,
         });
-      },
-    });
-  }
+      }),
+  });
 
-  /** Make sure one retention job is queued. */
-  schedule() {
-    this.jobsRepository.enqueueOnce('retention', {});
-  }
+  return service;
+});
+
+/** Storage growth limits. Never removes unfinished deliveries, retry dependencies or the
+canonical FIT payload: those live in the database and only finished rows qualify.
+*/
+export class RetentionService extends Context.Service<RetentionService, ReturnType<typeof cleanup>>()(
+  'zluggish/RetentionService',
+) {
+  static readonly layer = Layer.effect(RetentionService, make);
+
+  /** A cleanup outside the server, for the command line and tests. It registers no job. */
+  static readonly forScope = cleanup;
 }

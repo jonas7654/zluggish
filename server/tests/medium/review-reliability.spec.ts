@@ -1,3 +1,6 @@
+import { ActivitiesService } from '#src/services/activities.service';
+import { makeAppRuntime } from '#src/layers';
+import { DocumentsService } from '#src/services/documents.service';
 import { validateConfig } from '#src/config/index';
 import { createGameApp } from '#src/http/app';
 import { ActivitySchema } from '#src/protocol/generated/activity_pb';
@@ -19,11 +22,11 @@ import { EventEmitter, once } from 'node:events';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 await test('deleting a queued activity while another upload is sending prevents its later delivery', async (t) => {
   const f = await mediumFixture(t);
-  f.services.documents.put(f.rider.player_id, 'runalyze_token.txt', 'test');
+  f.effects.runSync(DocumentsService.use((service) => service.put(f.rider.player_id, 'runalyze_token.txt', 'test')));
   const ids: number[] = [];
 
   const data = {
@@ -42,8 +45,10 @@ await test('deleting a queued activity while another upload is sending prevents 
       ...binary(ActivitySchema, data),
     });
 
-    const { id } = z.object({ id: z.number() }).parse(await response.json());
-    f.services.activities.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }));
+    const { id } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await response.json());
+    f.effects.runSync(
+      ActivitiesService.use((service) => service.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }))),
+    );
     ids.push(id);
   }
 
@@ -58,12 +63,12 @@ await test('deleting a queued activity while another upload is sending prevents 
 
   const deleted = await f.request(`/api/profiles/${f.rider.player_id}/activities/${ids[1]}`, { method: 'DELETE' });
   assert.equal(deleted.status, 200);
-  const draining = f.services.jobs.drain();
+  const draining = f.effects.runPromise(JobsService.use((service) => service.drain()));
   await new Promise((resolve) => setImmediate(resolve));
   delivery.emit('release');
   await draining;
   assert.equal(uploads.mock.callCount(), 1);
-  assert.deepEqual(f.services.uploads.status(f.rider.player_id), [
+  assert.deepEqual(f.effects.runSync(UploadsService.use((service) => service.status(f.rider.player_id))), [
     { activity_id: ids[0], provider: 'runalyze', state: 'sent', last_error: null },
   ]);
 });
@@ -83,7 +88,7 @@ await test('a failed completion transaction commits nothing and a repeated save 
   };
 
   const first = await f.request(base, { method: 'POST', ...binary(ActivitySchema, data) });
-  const { id } = z.object({ id: z.number() }).parse(await first.json());
+  const { id } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await first.json());
   f.accounts.db.exec(`CREATE TRIGGER fail_completion BEFORE INSERT ON activity_completion
     BEGIN SELECT RAISE(ABORT, 'injected completion failure'); END`);
 
@@ -98,7 +103,10 @@ await test('a failed completion transaction commits nothing and a repeated save 
   assert.equal(f.accounts.db.prepare('SELECT name FROM activity WHERE id=?').get(id)?.name, 'Before failure');
   assert.equal(f.accounts.db.prepare('SELECT fit FROM activity WHERE id=?').get(id)?.fit, null);
   assert.equal(f.accounts.db.prepare('SELECT count(*) AS n FROM job').get()?.n, 0);
-  assert.equal(f.services.documents.has(f.rider.player_id, 'streaks.bin'), false);
+  assert.equal(
+    f.effects.runSync(DocumentsService.use((service) => service.has(f.rider.player_id, 'streaks.bin'))),
+    false,
+  );
   f.accounts.db.exec('DROP TRIGGER fail_completion');
 
   for (let i = 0; i < 2; i++) {
@@ -106,14 +114,16 @@ await test('a failed completion transaction commits nothing and a repeated save 
     assert.equal(saved.status, 200);
   }
 
-  await f.services.jobs.drain();
+  await f.effects.runPromise(JobsService.use((service) => service.drain()));
   const streaks = await decode(await f.request('/api/fitness/streaks'), StreaksSchema);
   assert.equal(streaks.curStreakDistance, 3000);
   assert.equal(f.accounts.db.prepare('SELECT count(*) AS n FROM power_curve').get()?.n, 1);
   assert.equal(f.accounts.db.prepare('SELECT name FROM activity WHERE id=?').get(id)?.name, 'Final name');
   assert.deepEqual(
     Buffer.from(
-      z.instanceof(Uint8Array).parse(f.accounts.db.prepare('SELECT fit FROM activity WHERE id=?').get(id)?.fit),
+      Schema.decodeUnknownSync(Schema.instanceOf(Uint8Array))(
+        f.accounts.db.prepare('SELECT fit FROM activity WHERE id=?').get(id)?.fit,
+      ),
     ),
     Buffer.from(data.fit),
   );
@@ -121,7 +131,7 @@ await test('a failed completion transaction commits nothing and a repeated save 
 
 await test('reopened delivery queues mark interrupted sends ambiguous and honor disconnection', async (t) => {
   const f = await mediumFixture(t);
-  f.services.documents.put(f.rider.player_id, 'runalyze_token.txt', 'test');
+  f.effects.runSync(DocumentsService.use((service) => service.put(f.rider.player_id, 'runalyze_token.txt', 'test')));
 
   const data = {
     playerId: BigInt(f.rider.player_id),
@@ -138,33 +148,37 @@ await test('reopened delivery queues mark interrupted sends ambiguous and honor 
     ...binary(ActivitySchema, data),
   });
 
-  const { id } = z.object({ id: z.number() }).parse(await response.json());
-  f.services.activities.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }));
+  const { id } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await response.json());
+  f.effects.runSync(
+    ActivitiesService.use((service) => service.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }))),
+  );
   f.accounts.db.exec("UPDATE activity_upload SET state='sending'");
   f.accounts.close();
-  const reopened = new AccountsService(f.accounts.storage);
+  const reopened = AccountsService.open(f.accounts.storage);
   const context = { ...f, accounts: reopened, settings: reopened.repositories.settingsRepository };
-  const queue = new UploadsService(context);
-  const jobs = new JobsService(context);
-  queue.registerJobs(jobs);
+  const effects = makeAppRuntime(context);
+  Object.assign(context, { effects });
+  const queue = effects.runSync(UploadsService);
+  const jobs = effects.runSync(JobsService);
 
   // Windows cannot remove the fixture directory while the reopened SQLite handle is live.
   // Scoped cleanup runs before runtimeFixture's after hook, including on assertion failure.
   try {
-    queue.start();
-    await jobs.drain();
-    assert.equal(queue.status(f.rider.player_id)[0]?.state, 'ambiguous');
-    await queue.retry(f.rider.player_id);
-    assert.equal(queue.status(f.rider.player_id)[0]?.state, 'ambiguous');
-    await queue.retry(f.other.player_id, true);
-    assert.equal(queue.status(f.rider.player_id)[0]?.state, 'ambiguous');
-    assert.deepEqual(queue.status(f.other.player_id), []);
+    effects.runSync(queue.start());
+    await effects.runPromise(jobs.drain());
+    assert.equal(effects.runSync(queue.status(f.rider.player_id))[0]?.state, 'ambiguous');
+    await effects.runPromise(queue.retry(f.rider.player_id));
+    assert.equal(effects.runSync(queue.status(f.rider.player_id))[0]?.state, 'ambiguous');
+    await effects.runPromise(queue.retry(f.other.player_id, true));
+    assert.equal(effects.runSync(queue.status(f.rider.player_id))[0]?.state, 'ambiguous');
+    assert.deepEqual(effects.runSync(queue.status(f.other.player_id)), []);
     reopened.repositories.riderDocuments.remove(f.rider.player_id, 'runalyze_token.txt');
-    await queue.retry(f.rider.player_id, true);
-    assert.equal(queue.status(f.rider.player_id)[0]?.state, 'cancelled');
+    await effects.runPromise(queue.retry(f.rider.player_id, true));
+    assert.equal(effects.runSync(queue.status(f.rider.player_id))[0]?.state, 'cancelled');
   } finally {
     try {
-      await jobs.close();
+      await effects.runPromise(jobs.close());
+      await effects.dispose();
     } finally {
       reopened.close();
     }
@@ -205,8 +219,8 @@ await test('charts retain running records with no power and intermittent sensor 
     { timestamp: 1_000_002, distance: 6, speed: 3, heartRate: 130 },
   ];
 
-  for (const record of records) encoder.onMesg(z.number().parse(Profile.MesgNum.RECORD), record);
-  const chart = f.services.activities.activityChart(encoder.close());
+  for (const record of records) encoder.onMesg(Schema.decodeUnknownSync(Schema.Finite)(Profile.MesgNum.RECORD), record);
+  const chart = f.effects.runSync(ActivitiesService.use((service) => service.activityChart(encoder.close())));
   assert.deepEqual(chart.timeInSec, [0, 1, 2]);
   assert.deepEqual(chart.distanceInCm, [0, 300, 600]);
   assert.deepEqual(chart.powerInWatts, [0, 0, 0]);
@@ -232,8 +246,8 @@ await test('repeated finalization keeps one streak update and deliveries retry o
     ...binary(ActivitySchema, data),
   });
 
-  const { id } = z.object({ id: z.number() }).parse(await response.json());
-  f.services.documents.put(f.rider.player_id, 'runalyze_token.txt', 'test');
+  const { id } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await response.json());
+  f.effects.runSync(DocumentsService.use((service) => service.put(f.rider.player_id, 'runalyze_token.txt', 'test')));
   let delivered = 0;
   t.mock.method(globalThis, 'fetch', () => {
     delivered++;
@@ -247,17 +261,20 @@ await test('repeated finalization keeps one streak update and deliveries retry o
     assert.equal(saved.status, 200);
   }
 
-  await f.services.jobs.drain();
+  await f.effects.runPromise(JobsService.use((service) => service.drain()));
   assert.equal(delivered, 1);
-  assert.equal(f.services.uploads.status(f.rider.player_id)[0]?.state, 'failed');
+  assert.equal(
+    f.effects.runSync(UploadsService.use((service) => service.status(f.rider.player_id)))[0]?.state,
+    'failed',
+  );
   const streaks = await decode(await f.request('/api/fitness/streaks'), StreaksSchema);
   assert.equal(streaks.curStreakDistance, 3000);
   assert.equal(f.accounts.db.prepare('SELECT count(*) AS n FROM power_curve').get()?.n, 1);
   const retried = await mediumWeb(f, f.rider).request('/api/me/uploads/retry', 'POST', {});
   assert.equal(retried.status, 200);
-  await f.services.jobs.drain();
+  await f.effects.runPromise(JobsService.use((service) => service.drain()));
   assert.equal(delivered, 2);
-  assert.equal(f.services.uploads.status(f.rider.player_id)[0]?.state, 'sent');
+  assert.equal(f.effects.runSync(UploadsService.use((service) => service.status(f.rider.player_id)))[0]?.state, 'sent');
 
   const changed = await f.request(path, {
     method: 'PUT',
@@ -275,12 +292,12 @@ await test('import recovery discards preparation without a manifest but preserve
     resolve(folder, 'profile.bin'),
     toBinary(PlayerProfileSchema, create(PlayerProfileSchema, { id: 1n })),
   );
-  const imports = new ImportsService(f.accounts, f.world);
-  imports.recover();
+  const imports = f.effects.runSync(ImportsService);
+  f.effects.runSync(imports.recover());
   assert.equal(existsSync(folder), false);
   mkdirSync(folder);
   new AssetFiles().writeDurable(resolve(folder, 'manifest.json'), '{bad');
-  assert.throws(() => imports.recover());
+  assert.throws(() => f.effects.runSync(imports.recover()));
   assert.equal(existsSync(folder), true);
 });
 
@@ -294,7 +311,7 @@ await test('charts keep records without optional sensors and power curves includ
   ]) {
     const encoder = new Encoder();
     const file: FileIdMesg = { type: 'activity', manufacturer: 'development', product: 1, timeCreated: new Date() };
-    encoder.onMesg(z.number().parse(Profile.MesgNum.FILE_ID), file);
+    encoder.onMesg(Schema.decodeUnknownSync(Schema.Finite)(Profile.MesgNum.FILE_ID), file);
 
     for (const [i, power] of powers.entries()) {
       const record: RecordMesg = {
@@ -305,7 +322,7 @@ await test('charts keep records without optional sensors and power curves includ
 
       if (power !== undefined) record.power = power;
 
-      encoder.onMesg(z.number().parse(Profile.MesgNum.RECORD), record);
+      encoder.onMesg(Schema.decodeUnknownSync(Schema.Finite)(Profile.MesgNum.RECORD), record);
     }
 
     const bytes = encoder.close();
@@ -319,7 +336,7 @@ await test('charts keep records without optional sensors and power curves includ
       chart.powerInWatts,
       powers.map((power = 0) => power),
     );
-    f.services.activities.savePowerCurve(f.rider.player_id, bytes);
+    f.effects.runSync(ActivitiesService.use((service) => service.savePowerCurve(f.rider.player_id, bytes)));
     assert.equal(f.accounts.db.prepare('SELECT power FROM power_curve ORDER BY id DESC LIMIT 1').get()?.power, best);
   }
 });

@@ -1,3 +1,8 @@
+import { ActivitiesService } from '#src/services/activities.service';
+import { makeAppRuntime } from '#src/layers';
+import { DocumentsService } from '#src/services/documents.service';
+import { decodeOwned } from '#src/schema';
+import { Schema } from 'effect';
 import { openDatabase } from '#src/db/open';
 import { ActivitySchema } from '#src/protocol/generated/activity_pb';
 import { backupStorage, restoreStorage } from '#src/migrations/backup';
@@ -13,7 +18,6 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import type { TestContext } from 'node:test';
 import { test } from 'node:test';
-import { z } from 'zod';
 
 const fit = readFileSync(new URL('../fixtures/ride.fit', import.meta.url));
 
@@ -24,7 +28,7 @@ async function backedUp(t: TestContext) {
     for (const close of cleanup) await close();
   });
   const f = await mediumFixture(t);
-  f.services.documents.put(f.rider.player_id, 'runalyze_token.txt', 'token');
+  f.effects.runSync(DocumentsService.use((service) => service.put(f.rider.player_id, 'runalyze_token.txt', 'token')));
 
   const data = {
     playerId: BigInt(f.rider.player_id),
@@ -41,8 +45,10 @@ async function backedUp(t: TestContext) {
     ...binary(ActivitySchema, data),
   });
 
-  const { id } = z.object({ id: z.number() }).parse(await response.json());
-  f.services.activities.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }));
+  const { id } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await response.json());
+  f.effects.runSync(
+    ActivitiesService.use((service) => service.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }))),
+  );
   const backup = mkdtempSync(resolve(tmpdir(), 'zluggish-backup-'));
   t.after(() => rmSync(backup, { recursive: true, force: true }));
   backupStorage(f.config.storageDir, backup, null);
@@ -51,40 +57,42 @@ async function backedUp(t: TestContext) {
 }
 
 function reopen(cleanup: (() => Promise<void>)[], f: Awaited<ReturnType<typeof mediumFixture>>) {
-  const accounts = new AccountsService(f.config.storageDir);
+  const accounts = AccountsService.open(f.config.storageDir);
   const context = { ...f, accounts, settings: accounts.repositories.settingsRepository };
-  const uploads = new UploadsService(context);
-  const jobs = new JobsService(context);
-  uploads.registerJobs(jobs);
+  const effects = makeAppRuntime(context);
+  Object.assign(context, { effects });
+  const uploads = effects.runSync(UploadsService);
+  const jobs = effects.runSync(JobsService);
   cleanup.push(async () => {
-    await jobs.close();
+    await effects.runPromise(jobs.close());
+    await effects.dispose();
     accounts.close();
   });
 
-  return { accounts, uploads, jobs };
+  return { accounts, uploads, jobs, effects };
 }
 
 await test('a restored backup sends no delivery that was sent after the backup', async (t) => {
   const { f, backup, cleanup } = await backedUp(t);
   const sends = t.mock.method(globalThis, 'fetch', () => Promise.resolve(new Response(null, { status: 200 })));
-  await f.services.jobs.drain();
+  await f.effects.runPromise(JobsService.use((service) => service.drain()));
   assert.equal(sends.mock.callCount(), 1);
-  assert.equal(f.services.uploads.status(f.rider.player_id)[0]?.state, 'sent');
+  assert.equal(f.effects.runSync(UploadsService.use((service) => service.status(f.rider.player_id)))[0]?.state, 'sent');
   f.accounts.close();
 
   restoreStorage(f.config.storageDir, backup, null);
   const restored = reopen(cleanup, f);
-  restored.uploads.start();
-  restored.jobs.start();
-  await restored.jobs.drain();
-  assert.equal(restored.uploads.status(f.rider.player_id)[0]?.state, 'pending');
+  restored.effects.runSync(restored.uploads.start());
+  restored.effects.runSync(restored.jobs.start());
+  await restored.effects.runPromise(restored.jobs.drain());
+  assert.equal(restored.effects.runSync(restored.uploads.status(f.rider.player_id))[0]?.state, 'pending');
   assert.equal(sends.mock.callCount(), 1, 'the upload pause stops the restored delivery');
   assert.equal(restored.accounts.repositories.systemFlagsRepository.get('uploads.paused')?.startsWith('restore'), true);
 
   // The operator cancels the restored delivery before clearing the pause.
   assert.equal(restored.accounts.repositories.uploadsRepository.cancel(1, 'runalyze'), true);
   restored.accounts.repositories.systemFlagsRepository.clear('uploads.paused');
-  await restored.jobs.drain();
+  await restored.effects.runPromise(restored.jobs.drain());
   assert.equal(sends.mock.callCount(), 1);
 });
 
@@ -93,10 +101,11 @@ await test('a restore without the credentials key stops with a clear error', asy
   rmSync(resolve(backup, StorageFile.CredentialsKey));
   const manifestPath = resolve(backup, 'backup-manifest.json');
 
-  const manifest = z
-    .object({ checksums: z.record(z.string(), z.string()) })
-    .loose()
-    .parse(JSON.parse(readFileSync(manifestPath, 'utf8')));
+  const manifest = decodeOwned(
+    Schema.StructWithRest(Schema.Struct({ checksums: Schema.Record(Schema.String, Schema.String) }), [
+      Schema.Record(Schema.String, Schema.Unknown),
+    ]),
+  )(JSON.parse(readFileSync(manifestPath, 'utf8')));
 
   delete manifest.checksums[StorageFile.CredentialsKey];
   writeFileSync(manifestPath, JSON.stringify(manifest));
@@ -148,8 +157,8 @@ for (const step of ['marked', 'prepared', 'published', 'copied'] as const)
     assert.throws(() => openDatabase(f.config.storageDir), /restore did not finish/);
     restoreStorage(f.config.storageDir, backup, null);
     const restored = reopen(cleanup, f);
-    restored.jobs.start();
-    await restored.jobs.drain();
+    restored.effects.runSync(restored.jobs.start());
+    await restored.effects.runPromise(restored.jobs.drain());
     assert.equal(sends.mock.callCount(), 0);
-    assert.equal(restored.uploads.status(f.rider.player_id)[0]?.state, 'pending');
+    assert.equal(restored.effects.runSync(restored.uploads.status(f.rider.player_id))[0]?.state, 'pending');
   });

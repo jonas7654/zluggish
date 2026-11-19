@@ -1,7 +1,6 @@
+import { RuntimeContext } from '#src/context';
 import { ApplicationError } from '#src/errors';
-import type { AccountsService } from '#src/services/auth.service';
-import { BaseService } from '#src/services/base.service';
-import { z } from 'zod';
+import { Context, Effect, Layer, Schema } from 'effect';
 
 export interface WebSession {
   csrf: string;
@@ -12,50 +11,42 @@ export interface WebSession {
   stravaState?: string;
 }
 
-/** Only signed-in users hold server state. Anonymous requests use a double-submit CSRF
-cookie, so requests without cookies cannot fill this store.
-*/
-export class WebSessionsService extends BaseService {
-  readonly sessions = new Map<string, WebSession>();
+const make = Effect.gen(function* () {
+  const context = yield* RuntimeContext;
+  const repositories = context.accounts.repositories;
+  const { accounts } = context;
 
-  constructor(private readonly accounts: AccountsService) {
-    super(accounts.repositories);
+  const sessions = new Map<string, WebSession>();
+
+  function token() {
+    return repositories.cryptoRepository.randomBytes(32).toString('base64url');
   }
 
-  token() {
-    return this.cryptoRepository.randomBytes(32).toString('base64url');
-  }
-
-  private hash(id: string) {
-    return this.cryptoRepository.sha256(id);
+  function hash(id: string) {
+    return repositories.cryptoRepository.sha256(id);
   }
 
   /** A restart empties the map; a session found in the database is loaded back into it. */
-  private restore(id: string) {
-    const row = z
-      .object({ csrf: z.string(), identity: z.string(), expires: z.number() })
-      .nullable()
-      .parse(
-        this.accounts.db
-          .prepare('SELECT csrf, identity, expires FROM web_session WHERE id_hash = ?')
-          .get(this.hash(id)) ?? null,
-      );
+  function restore(id: string) {
+    const row = Schema.decodeUnknownSync(
+      Schema.NullOr(Schema.Struct({ csrf: Schema.String, identity: Schema.String, expires: Schema.Finite })),
+    )(accounts.db.prepare('SELECT csrf, identity, expires FROM web_session WHERE id_hash = ?').get(hash(id)) ?? null);
 
     if (!row) return;
     const session: WebSession = { ...row, confirmedUntil: 0 };
-    this.sessions.set(id, session);
+    sessions.set(id, session);
 
     return session;
   }
 
-  find(id: string | undefined) {
+  function find(id: string | undefined) {
     if (!id) return null;
-    const session = this.sessions.get(id) ?? this.restore(id);
+    const session = sessions.get(id) ?? restore(id);
 
     if (!session) return null;
 
     if (session.expires <= Date.now()) {
-      this.end(id);
+      end(id);
 
       return null;
     }
@@ -63,52 +54,94 @@ export class WebSessionsService extends BaseService {
     return session;
   }
 
-  create(identity: string, confirmedUntil = 0) {
+  function create(identity: string, confirmedUntil = 0) {
     const now = Date.now();
 
-    for (const [key, value] of this.sessions) if (value.expires <= now) this.sessions.delete(key);
-    this.accounts.db.prepare('DELETE FROM web_session WHERE expires <= ?').run(now);
+    for (const [key, value] of sessions) if (value.expires <= now) sessions.delete(key);
+    accounts.db.prepare('DELETE FROM web_session WHERE expires <= ?').run(now);
 
-    if (this.sessions.size >= 10_000) throw new ApplicationError(503, 'Too many web sessions');
-    const id = this.token();
-    const session: WebSession = { csrf: this.token(), identity, expires: now + 86_400_000, confirmedUntil };
-    this.sessions.set(id, session);
-    this.accounts.db
+    if (sessions.size >= 10_000) throw new ApplicationError({ status: 503, message: 'Too many web sessions' });
+    const id = token();
+    const session: WebSession = { csrf: token(), identity, expires: now + 86_400_000, confirmedUntil };
+    sessions.set(id, session);
+    accounts.db
       .prepare('INSERT INTO web_session (id_hash, csrf, identity, expires) VALUES (?, ?, ?, ?)')
-      .run(this.hash(id), session.csrf, identity, session.expires);
+      .run(hash(id), session.csrf, identity, session.expires);
 
     return { id, session };
   }
 
-  end(id: string) {
-    this.sessions.delete(id);
+  function end(id: string) {
+    sessions.delete(id);
 
-    if (id) this.accounts.db.prepare('DELETE FROM web_session WHERE id_hash = ?').run(this.hash(id));
+    if (id) accounts.db.prepare('DELETE FROM web_session WHERE id_hash = ?').run(hash(id));
   }
 
-  user(id: string) {
-    const session = this.find(id);
+  function userNow(id: string) {
+    const session = find(id);
 
     if (!session) return null;
-    const user = this.accounts.identity(session.identity);
+    const user = accounts.identity(session.identity);
 
     // An identity change (password, role, enabled state, revocation) ends the session and its confirmation.
-    if (!user) this.end(id);
+    if (!user) end(id);
 
     return user;
   }
 
-  require(id: string, manage = false, _confirm = true) {
-    const user = this.user(id);
+  function requireUser(id: string, manage = false, _confirm = true) {
+    const user = userNow(id);
 
-    if (!user) throw new ApplicationError(401, 'Sign in again.');
+    if (!user) throw new ApplicationError({ status: 401, message: 'Sign in again.' });
 
-    if (manage && user.role !== 'administrator') throw new ApplicationError(403, 'Administrator role required.');
+    if (manage && user.role !== 'administrator')
+      throw new ApplicationError({ status: 403, message: 'Administrator role required.' });
 
     return user;
   }
 
-  current(id: string, identity: string) {
-    return !!this.user(id) && this.sessions.get(id)?.identity === identity;
+  function current(id: string, identity: string) {
+    return !!userNow(id) && sessions.get(id)?.identity === identity;
   }
+
+  return {
+    sessions,
+
+    token: Effect.fn('WebSessionsService.token')(function* () {
+      return token();
+    }),
+
+    find: Effect.fn('WebSessionsService.find')(function* (id: string | undefined) {
+      return find(id);
+    }),
+
+    create: Effect.fn('WebSessionsService.create')(function* (identity: string, confirmedUntil = 0) {
+      return create(identity, confirmedUntil);
+    }),
+
+    end: Effect.fn('WebSessionsService.end')(function* (id: string) {
+      return end(id);
+    }),
+
+    user: Effect.fn('WebSessionsService.user')(function* (id: string) {
+      return userNow(id);
+    }),
+
+    require: Effect.fn('WebSessionsService.require')(function* (id: string, manage = false, _confirm = true) {
+      return requireUser(id, manage, _confirm);
+    }),
+
+    current: Effect.fn('WebSessionsService.current')(function* (id: string, identity: string) {
+      return current(id, identity);
+    }),
+  };
+});
+
+/** Only signed-in users hold server state. Anonymous requests use a double-submit CSRF
+cookie, so requests without cookies cannot fill this store.
+*/
+export class WebSessionsService extends Context.Service<WebSessionsService, Effect.Success<typeof make>>()(
+  'zluggish/WebSessionsService',
+) {
+  static readonly layer = Layer.effect(WebSessionsService, make);
 }

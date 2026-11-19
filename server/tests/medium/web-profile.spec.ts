@@ -1,3 +1,8 @@
+import { WebSessionsService } from '#src/services/web-session.service';
+import { Effect } from 'effect';
+import { IntegrationsService } from '#src/services/integrations.service';
+import { ConnectionsService } from '#src/services/connections.service';
+import { DocumentsService } from '#src/services/documents.service';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { create, toBinary } from '@bufbuild/protobuf';
@@ -28,9 +33,9 @@ async function json(input: Response | Promise<Response>) {
 await test('web imports isolate staged data, require CSRF and source confirmation, and preserve local identity', async (t) => {
   const f = await mediumFixture(t);
   const web = createWebApp(f);
-  const sessions = f.services.management.sessions;
-  const owner = sessions.create(f.accounts.identityOf(f.rider));
-  const other = sessions.create(f.accounts.identityOf(f.other));
+  const sessions = f.effects.runSync(WebSessionsService);
+  const owner = f.effects.runSync(sessions.create(f.accounts.identityOf(f.rider)));
+  const other = f.effects.runSync(sessions.create(f.accounts.identityOf(f.other)));
 
   const request = (path: string, method = 'GET', data?: FormData | Record<string, string | boolean>, session = owner) =>
     web.request(`http://local:8080${path}`, {
@@ -87,7 +92,10 @@ await test('web imports isolate staged data, require CSRF and source confirmatio
 await test('web Zwift credentials stay encrypted and downloaded data waits for review', async (t) => {
   const f = await mediumFixture(t);
   const web = createWebApp(f);
-  const { id, session } = f.services.management.sessions.create(f.accounts.identityOf(f.rider));
+
+  const { id, session } = f.effects.runSync(
+    WebSessionsService.use((sessions) => sessions.create(f.accounts.identityOf(f.rider))),
+  );
 
   const request = (path: string, method = 'GET', data?: Record<string, string | boolean>) =>
     web.request(`http://local:8080${path}`, {
@@ -115,15 +123,18 @@ await test('web Zwift credentials stay encrypted and downloaded data waits for r
 
   assert.equal(saved.status, 200);
   assert.deepEqual(await saved.json(), { connected: true, upload: true, click: true });
-  assert.deepEqual(f.services.connections.read(f.rider.player_id, 'zwift'), ['official-user', 'official-secret']);
+  assert.deepEqual(f.effects.runSync(ConnectionsService.use((service) => service.read(f.rider.player_id, 'zwift'))), [
+    'official-user',
+    'official-secret',
+  ]);
   assert.equal(
-    Buffer.from(f.services.documents.get(f.rider.player_id, 'zwift_credentials.bin')!).includes(
-      Buffer.from('official-secret'),
-    ),
+    Buffer.from(
+      f.effects.runSync(DocumentsService.use((service) => service.get(f.rider.player_id, 'zwift_credentials.bin')))!,
+    ).includes(Buffer.from('official-secret')),
     false,
   );
-  t.mock.method(f.services.integrations, 'downloadOfficialData', () =>
-    Promise.resolve({ 'achievements.bin': new Uint8Array() }),
+  t.mock.method(f.effects.runSync(IntegrationsService), 'downloadOfficialData', () =>
+    Effect.succeed({ 'achievements.bin': new Uint8Array() }),
   );
   const downloaded = await request('/api/me/zwift/import', 'POST', { profile: false, achievements: true });
   assert.equal(downloaded.status, 200);
@@ -134,17 +145,24 @@ await test('web Zwift credentials stay encrypted and downloaded data waits for r
     await responseStatus(request('/api/me/import/confirm', 'POST', { stage: downloadBody.review.stage })),
     400,
   );
-  assert.equal(f.services.documents.has(f.rider.player_id, 'achievements.bin'), false);
+  assert.equal(
+    f.effects.runSync(DocumentsService.use((service) => service.has(f.rider.player_id, 'achievements.bin'))),
+    false,
+  );
   assert.equal(await responseStatus(request('/api/me/zwift', 'DELETE', {})), 200);
-  assert.equal(f.services.connections.has(f.rider.player_id, 'zwift'), false);
+  assert.equal(f.effects.runSync(ConnectionsService.use((service) => service.has(f.rider.player_id, 'zwift'))), false);
 });
 
 await test('web exports only the signed-in rider data and power curve changes require confirmation', async (t) => {
   const f = await mediumFixture(t);
   const web = createWebApp(f);
-  const { id, session } = f.services.management.sessions.create(f.accounts.identityOf(f.rider));
+
+  const { id, session } = f.effects.runSync(
+    WebSessionsService.use((sessions) => sessions.create(f.accounts.identityOf(f.rider))),
+  );
+
   const data = new Uint8Array([1, 2, 3]);
-  f.services.documents.put(f.rider.player_id, 'streaks.bin', data);
+  f.effects.runSync(DocumentsService.use((service) => service.put(f.rider.player_id, 'streaks.bin', data)));
 
   const request = (path: string, method = 'GET', body?: Record<string, string | boolean>) =>
     web.request(`http://local:8080${path}`, {

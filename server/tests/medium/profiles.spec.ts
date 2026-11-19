@@ -2,24 +2,24 @@ import { PlayerProfileSchema, PlayerProfilesSchema } from '#src/protocol/generat
 import { binary, decode, mediumFixture } from '#tests/medium/support';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
-const profileJSON = z.object({
-  id: z.number(),
-  age: z.number(),
-  worldId: z.number(),
-  currentActivityId: z.number(),
-  male: z.boolean(),
-  useMetric: z.boolean(),
-  imageSrc: z.string().nullable(),
-  virtualBikeModel: z.string(),
-  publicAttributes: z.record(z.string(), z.union([z.string(), z.number()])),
-  privateAttributes: z.record(z.string(), z.union([z.string(), z.number()])),
-  profilePropertyChanges: z.array(z.object({ propertyName: z.string(), changeCount: z.number() })),
-  userAgent: z.string(),
-  launchedGameClient: z.string(),
-  createdOn: z.string(),
-  bt: z.string(),
+const profileJSON = Schema.Struct({
+  id: Schema.Finite,
+  age: Schema.Finite,
+  worldId: Schema.Finite,
+  currentActivityId: Schema.Finite,
+  male: Schema.Boolean,
+  useMetric: Schema.Boolean,
+  imageSrc: Schema.NullOr(Schema.String),
+  virtualBikeModel: Schema.String,
+  publicAttributes: Schema.Record(Schema.String, Schema.Union([Schema.String, Schema.Finite])),
+  privateAttributes: Schema.Record(Schema.String, Schema.Union([Schema.String, Schema.Finite])),
+  profilePropertyChanges: Schema.Array(Schema.Struct({ propertyName: Schema.String, changeCount: Schema.Finite })),
+  userAgent: Schema.String,
+  launchedGameClient: Schema.String,
+  createdOn: Schema.String,
+  bt: Schema.String,
 });
 
 await test('F13 Companion profile reads preserve numeric IDs, DOB age, equipment, explicit false and attribute maps', async (t) => {
@@ -52,7 +52,7 @@ await test('F13 Companion profile reads preserve numeric IDs, DOB age, equipment
   for (const path of ['/api/profiles/me', `/api/profiles/${f.rider.player_id}`]) {
     const response = await f.request(path, { headers: { Accept: 'application/json' } });
     assert.equal(response.status, 200);
-    const json = profileJSON.parse(await response.json());
+    const json = Schema.decodeUnknownSync(profileJSON)(await response.json());
     assert.equal(json.id, f.rider.player_id);
     assert.equal(json.age, 25);
     assert.equal(json.worldId, 1);
@@ -69,7 +69,7 @@ await test('F13 Companion profile reads preserve numeric IDs, DOB age, equipment
 
   t.mock.timers.tick(86_400_000);
   const birthday = await f.request('/api/profiles/me', { headers: { Accept: 'application/json' } });
-  assert.equal(profileJSON.parse(await birthday.json()).age, 26);
+  assert.equal(Schema.decodeUnknownSync(profileJSON)(await birthday.json()).age, 26);
   const binaryProfile = await decode(await f.request('/api/profiles/me'), PlayerProfileSchema);
   assert.equal(binaryProfile.currentActivityId, 9_007_199_254_740_991n);
   assert.equal(binaryProfile.publicAttributes[0]?.numberValue, 9_223_372_036_854_775_807n);
@@ -90,15 +90,15 @@ await test('F13 profile edits negotiate JSON/protobuf and preserve avatar URLs a
 
   assert.equal(edited.status, 200);
 
-  const json = z
-    .object({
-      firstName: z.string(),
-      lastName: z.string(),
-      imageSrc: z.string(),
-      imageSrcLarge: z.string(),
-      age: z.number(),
-    })
-    .parse(await edited.json());
+  const json = Schema.decodeUnknownSync(
+    Schema.Struct({
+      firstName: Schema.String,
+      lastName: Schema.String,
+      imageSrc: Schema.String,
+      imageSrcLarge: Schema.String,
+      age: Schema.Finite,
+    }),
+  )(await edited.json());
 
   assert.equal(json.firstName, 'Changed');
   assert.equal(json.lastName, 'Name');
@@ -183,9 +183,9 @@ await test('anonymous and other-rider profile projections retain appearance but 
 
   const other = await f.request(`/api/profiles/${f.rider.player_id}`, {}, f.other);
 
-  const json = z
-    .object({ emailAddress: z.null(), dob: z.null(), weight: z.null(), age: z.literal(0) })
-    .parse(await other.json());
+  const json = Schema.decodeUnknownSync(
+    Schema.Struct({ emailAddress: Schema.Null, dob: Schema.Null, weight: Schema.Null, age: Schema.Literal(0) }),
+  )(await other.json());
 
   assert.equal(json.emailAddress, null);
   const own = await decode(await f.request('/api/profiles/me'), PlayerProfileSchema);

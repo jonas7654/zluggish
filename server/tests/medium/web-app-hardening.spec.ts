@@ -1,3 +1,7 @@
+import { WebSessionsService } from '#src/services/web-session.service';
+import { ManagementService } from '#src/services/management.service';
+import { ActivitiesService } from '#src/services/activities.service';
+import { JobsService } from '#src/services/jobs.service';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -12,7 +16,7 @@ import { worldTime } from '#src/world/state';
 import { ActivitySchema } from '#src/protocol/generated/activity_pb';
 import { binary, mediumFixture } from '#tests/medium/support';
 import { runtimeFixture } from '#tests/support/runtime';
-import { z } from 'zod';
+import { Schema, Effect } from 'effect';
 import { responseStatus } from '#tests/support/html';
 
 const flush = () => Promise.resolve();
@@ -26,7 +30,7 @@ async function json(request: Response | Promise<Response>) {
 await test('requests without cookies allocate no web sessions, and anonymous writes need the CSRF cookie', async (t) => {
   const f = runtimeFixture(t);
   const web = createWebApp(f);
-  const sessions = f.services.management.sessions;
+  const sessions = f.effects.runSync(WebSessionsService);
 
   for (let i = 0; i < 200; i++) assert.equal(await responseStatus(web.request('http://local:8080/api/setup')), 200);
   assert.equal(sessions.sessions.size, 0);
@@ -41,7 +45,7 @@ await test('requests without cookies allocate no web sessions, and anonymous wri
       headers: { 'Content-Type': 'application/json', Origin: 'http://local:8080', ...headers },
       body: JSON.stringify({
         mode: 'new',
-        key: f.services.management.issueSetupKey(),
+        key: f.effects.runSync(ManagementService.use((management) => management.issueSetupKey())),
         username: 'owner',
         first_name: 'First',
         last_name: 'Rider',
@@ -79,23 +83,27 @@ await test('login names match after Unicode normalization, and similar imported 
   assert.equal(f.accounts.byUsername('anna'), null);
   assert.equal(f.accounts.loginNameTaken('anna'), true);
 
-  const service = f.services.management;
+  const service = f.effects.runSync(ManagementService);
 
-  const owner = await service.setup({
-    mode: 'new',
-    key: service.issueSetupKey()!,
-    username: 'owner',
-    first_name: 'First',
-    last_name: 'Rider',
-    password: 'test-password',
-  });
+  const owner = await f.effects.runPromise(
+    service.setup({
+      mode: 'new',
+      key: f.effects.runSync(service.issueSetupKey())!,
+      username: 'owner',
+      first_name: 'First',
+      last_name: 'Rider',
+      password: 'test-password',
+    }),
+  );
 
-  const opened = service.sessions.create(f.accounts.identityOf(owner), Date.now() + 900_000);
+  const opened = Effect.runSync(service.sessions.create(f.accounts.identityOf(owner), Date.now() + 900_000));
   await assert.rejects(
-    service.create(
-      opened.id,
-      { username: 'anna', first_name: 'Third', last_name: 'Anna', password: 'test-password' },
-      crypto.randomUUID(),
+    f.effects.runPromise(
+      service.create(
+        opened.id,
+        { username: 'anna', first_name: 'Third', last_name: 'Anna', password: 'test-password' },
+        crypto.randomUUID(),
+      ),
     ),
     /Login name already exists/,
   );
@@ -112,16 +120,18 @@ await test('disabled and passwordless riders cost the same password work as othe
 
 await test('bot commands run only from the management area, once per operation', async (t) => {
   const f = runtimeFixture(t);
-  const service = f.services.management;
+  const service = f.effects.runSync(ManagementService);
 
-  const owner = await service.setup({
-    mode: 'new',
-    key: service.issueSetupKey()!,
-    username: 'owner',
-    first_name: 'First',
-    last_name: 'Rider',
-    password: 'test-password',
-  });
+  const owner = await f.effects.runPromise(
+    service.setup({
+      mode: 'new',
+      key: f.effects.runSync(service.issueSetupKey())!,
+      username: 'owner',
+      first_name: 'First',
+      last_name: 'Rider',
+      password: 'test-password',
+    }),
+  );
 
   const simulation = new Simulation(f, () => 100);
   t.after(() => simulation.close());
@@ -130,7 +140,7 @@ await test('bot commands run only from the management area, once per operation',
   assert.equal(simulation.command(id, 'group'), 'Use the web app management area for server commands.');
   assert.equal(simulation.command(id, 'peloton 5'), 'Use the web app management area for server commands.');
 
-  const opened = service.sessions.create(f.accounts.identityOf(owner), Date.now() + 900_000);
+  const opened = Effect.runSync(service.sessions.create(f.accounts.identityOf(owner), Date.now() + 900_000));
   const sent: string[] = [];
 
   const dispatch = {
@@ -144,14 +154,17 @@ await test('bot commands run only from the management area, once per operation',
 
   const operation = crypto.randomUUID();
   const input = { operation, user: owner.player_id, command: 'group' as const };
-  await assert.rejects(service.serverOperation(opened.id, 'bots', input, flush, dispatch), /riding now/);
+  await assert.rejects(
+    f.effects.runPromise(service.serverOperation(opened.id, 'bots', input, flush, dispatch)),
+    /riding now/,
+  );
   f.world.online.set(id, create(PlayerStateSchema, { id, worldTime: worldTime() }));
 
   const second = { ...input, operation: crypto.randomUUID() };
 
   const outcomes = await Promise.all([
-    service.serverOperation(opened.id, 'bots', second, flush, dispatch),
-    service.serverOperation(opened.id, 'bots', second, flush, dispatch),
+    f.effects.runPromise(service.serverOperation(opened.id, 'bots', second, flush, dispatch)),
+    f.effects.runPromise(service.serverOperation(opened.id, 'bots', second, flush, dispatch)),
   ]);
 
   assert.deepEqual(sent, [`${owner.player_id}:group`]);
@@ -159,27 +172,34 @@ await test('bot commands run only from the management area, once per operation',
     outcomes.map((outcome) => outcome.status),
     ['complete', 'unknown'],
   );
-  assert.deepEqual(await service.serverOperation(opened.id, 'bots', second, flush, dispatch), outcomes[0]);
+  assert.deepEqual(
+    await f.effects.runPromise(service.serverOperation(opened.id, 'bots', second, flush, dispatch)),
+    outcomes[0],
+  );
   await assert.rejects(
-    service.serverOperation(opened.id, 'bots', { ...second, command: 'disperse' }, flush, dispatch),
+    f.effects.runPromise(
+      service.serverOperation(opened.id, 'bots', { ...second, command: 'disperse' }, flush, dispatch),
+    ),
     /Operation changed/,
   );
 });
 
 await test('administrators can dispatch after the old confirmation deadline; retries dispatch only once', async (t) => {
   const f = runtimeFixture(t);
-  const service = f.services.management;
+  const service = f.effects.runSync(ManagementService);
 
-  const owner = await service.setup({
-    mode: 'new',
-    key: service.issueSetupKey()!,
-    username: 'owner',
-    first_name: 'First',
-    last_name: 'Rider',
-    password: 'test-password',
-  });
+  const owner = await f.effects.runPromise(
+    service.setup({
+      mode: 'new',
+      key: f.effects.runSync(service.issueSetupKey())!,
+      username: 'owner',
+      first_name: 'First',
+      last_name: 'Rider',
+      password: 'test-password',
+    }),
+  );
 
-  const opened = service.sessions.create(f.accounts.identityOf(owner), Date.now() + 900_000);
+  const opened = Effect.runSync(service.sessions.create(f.accounts.identityOf(owner), Date.now() + 900_000));
   let reloads = 0;
 
   const dispatch = {
@@ -199,10 +219,10 @@ await test('administrators can dispatch after the old confirmation deadline; ret
     return Promise.resolve();
   };
 
-  const result = await service.serverOperation(opened.id, 'reload-bots', input, lapse, dispatch);
+  const result = await f.effects.runPromise(service.serverOperation(opened.id, 'reload-bots', input, lapse, dispatch));
   assert.equal(result.ok, true);
   opened.session.confirmedUntil = Date.now() + 900_000;
-  const retry = await service.serverOperation(opened.id, 'reload-bots', input, flush, dispatch);
+  const retry = await f.effects.runPromise(service.serverOperation(opened.id, 'reload-bots', input, flush, dispatch));
   assert.equal(retry.ok, true);
   assert.equal(reloads, 1);
 });
@@ -262,7 +282,9 @@ await test('a public URL pins the accepted origin and marks https cookies Secure
         Cookie: cookie.split(';', 1)[0]!,
         'X-CSRF-Token': csrf,
       },
-      body: JSON.stringify({ key: f.services.management.issueSetupKey() }),
+      body: JSON.stringify({
+        key: f.effects.runSync(ManagementService.use((management) => management.issueSetupKey())),
+      }),
     });
 
   // The request host no longer decides: only the configured address passes.
@@ -280,13 +302,21 @@ await test('imported activities without completion records rebuild missing chart
     .run(f.rider.player_id, 'Imported ride', fit);
 
   assert.equal(f.accounts.db.prepare('SELECT count(*) AS n FROM activity_completion').get()?.n, 0);
-  const pending = f.services.activities.ownDetail(f.rider.player_id, String(id));
+
+  const pending = f.effects.runSync(
+    ActivitiesService.use((service) => service.ownDetail(f.rider.player_id, String(id))),
+  );
+
   assert.equal(pending.chartPending, true);
   // Repeated detail requests must share the same pending chart job.
-  f.services.activities.ownDetail(f.rider.player_id, String(id));
+  f.effects.runSync(ActivitiesService.use((service) => service.ownDetail(f.rider.player_id, String(id))));
   assert.equal(f.accounts.db.prepare("SELECT count(*) AS n FROM job WHERE type='chart'").get()?.n, 1);
-  await f.services.jobs.drain();
-  const detail = f.services.activities.ownDetail(f.rider.player_id, String(id));
+  await f.effects.runPromise(JobsService.use((service) => service.drain()));
+
+  const detail = f.effects.runSync(
+    ActivitiesService.use((service) => service.ownDetail(f.rider.player_id, String(id))),
+  );
+
   assert.equal(detail.chartPending, false);
   assert.ok(detail.chart.timeInSec.length > 0);
 });
@@ -310,9 +340,14 @@ await test('web app lists an activity whose Strava ids exceed 32 bits', async (t
     ...binary(ActivitySchema, data),
   });
 
-  const { id } = z.object({ id: z.number() }).parse(await posted.json());
-  f.services.activities.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }));
-  const { id: session } = f.services.management.sessions.create(f.accounts.identityOf(f.rider));
+  const { id } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await posted.json());
+  f.effects.runSync(
+    ActivitiesService.use((service) => service.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }))),
+  );
+
+  const { id: session } = f.effects.runSync(
+    WebSessionsService.use((sessions) => sessions.create(f.accounts.identityOf(f.rider))),
+  );
 
   const list = await web.request('http://local:8080/api/me/activities', {
     headers: { Cookie: `zluggish_web_session=${session}` },
@@ -347,12 +382,21 @@ await test('riders list, inspect and download only their own activities in the w
     ...binary(ActivitySchema, data),
   });
 
-  const { id } = z.object({ id: z.number() }).parse(await posted.json());
-  f.services.activities.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }));
-  const image = await f.services.activities.saveImage(f.rider.player_id, String(id), new Uint8Array([0xff, 0xd8, 1]));
+  const { id } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await posted.json());
+  f.effects.runSync(
+    ActivitiesService.use((service) => service.finalize(create(ActivitySchema, { ...data, id: BigInt(id) }))),
+  );
+
+  const image = await f.effects.runPromise(
+    ActivitiesService.use((service) =>
+      service.saveImage(f.rider.player_id, String(id), new Uint8Array([0xff, 0xd8, 1])),
+    ),
+  );
 
   const as = (rider: typeof f.rider) => {
-    const { id: session } = f.services.management.sessions.create(f.accounts.identityOf(rider));
+    const { id: session } = f.effects.runSync(
+      WebSessionsService.use((sessions) => sessions.create(f.accounts.identityOf(rider))),
+    );
 
     return (path: string) =>
       web.request(`http://local:8080${path}`, { headers: { Cookie: `zluggish_web_session=${session}` } });
@@ -377,7 +421,7 @@ await test('riders list, inspect and download only their own activities in the w
 
   const pending = await json(owner(`/api/me/activities/${id}`));
   assert.deepEqual([pending.imageIds, pending.chart, pending.chartPending], [[image], null, true]);
-  await f.services.jobs.drain();
+  await f.effects.runPromise(JobsService.use((service) => service.drain()));
   const detail = await json(owner(`/api/me/activities/${id}`));
   assert.equal(detail.chartPending, false);
   assert.ok(detail.chart.timeInSec.length > 0);
@@ -417,7 +461,9 @@ await test('web app lists the climb portals a rider has ridden with the best tim
   insert.run(f.rider.player_id, 3_114_603_308, 381_000_000_000, 1000);
   insert.run(f.other.player_id, 10_011, 381_000_000_000, 700_000);
 
-  const { id: session } = f.services.management.sessions.create(f.accounts.identityOf(f.rider));
+  const { id: session } = f.effects.runSync(
+    WebSessionsService.use((sessions) => sessions.create(f.accounts.identityOf(f.rider))),
+  );
 
   const response = await web.request('http://local:8080/api/me/climbs', {
     headers: { Cookie: `zluggish_web_session=${session}` },
@@ -442,13 +488,13 @@ await test('web app lists the climb portals a rider has ridden with the best tim
 });
 
 await test('every climb with Strava segments is a climb of the launcher, with no segment used twice', () => {
-  const climbs = z
-    .array(z.object({ name: z.string(), road: z.string() }))
-    .parse(JSON.parse(readFileSync(resolve(packageRoot(), '../assets/data/climbs.txt'), 'utf8')));
+  const climbs = Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ name: Schema.String, road: Schema.String })))(
+    JSON.parse(readFileSync(resolve(packageRoot(), '../assets/data/climbs.txt'), 'utf8')),
+  );
 
-  const segments = z
-    .record(z.string(), z.object({ watopia: z.number(), france: z.number() }))
-    .parse(JSON.parse(readFileSync(resolve(packageRoot(), '../assets/data/climb_segments.txt'), 'utf8')));
+  const segments = Schema.decodeUnknownSync(
+    Schema.Record(Schema.String, Schema.Struct({ watopia: Schema.Finite, france: Schema.Finite })),
+  )(JSON.parse(readFileSync(resolve(packageRoot(), '../assets/data/climb_segments.txt'), 'utf8')));
 
   const roads = new Set(climbs.map((climb) => climb.road));
   const ids = Object.values(segments).flatMap((segment) => [segment.watopia, segment.france]);

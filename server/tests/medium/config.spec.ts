@@ -147,7 +147,7 @@ await test('invalid network settings and unknown config keys fail at file load',
   await assert.rejects(loadConfig({ path }), (error) => {
     assert.ok(error instanceof Error);
     assert.match(error.message, /server\.advertisedIp: Expected a non-wildcard IP address/);
-    assert.match(error.message, /<root>: unrecognized_keys/);
+    assert.match(error.message, /userDefaults: Expected no excess property/);
     assert.doesNotMatch(error.message, /secret-value/);
 
     return true;
@@ -176,7 +176,7 @@ await test('invalid real config files stop the server before creating runtime st
     ['missing file', null, /Missing .*zluggish\.config\.ts/],
     ['empty file', '', /<root>|Cannot evaluate/],
     ['missing default export', 'export const config = {};', /<root>|Cannot evaluate/],
-    ['undefined export', 'export default undefined;', /<root>/],
+    ['undefined export', 'export default undefined;', /<root>|default: Expected no excess property/],
     ['null export', 'export default null;', /<root>|Cannot evaluate/],
     ['array export', 'export default [];', /<root>/],
     ['invalid syntax', 'export default {', /Cannot evaluate .*: syntax error at line 1, column \d+/],
@@ -231,8 +231,12 @@ await test('invalid real config files stop the server before creating runtime st
     ],
     ['blank host', "export default { network: { host: ' ' } };", /network\.host/],
     ['invalid IP', "export default { server: { advertisedIp: '999.0.0.1' } };", /server\.advertisedIp/],
-    ['unknown nested field', 'export default { network: { api: { prot: 443 } } };', /network\.api: unrecognized_keys/],
-    ['unknown field', 'export default { typo: true };', /<root>: unrecognized_keys/],
+    [
+      'unknown nested field',
+      'export default { network: { api: { prot: 443 } } };',
+      /network\.api\.prot: Expected no excess property/,
+    ],
+    ['unknown field', 'export default { typo: true };', /typo: Expected no excess property/],
     ['wrong boolean type', "export default { bots: { enabled: 'false' } };", /bots\.enabled/],
     ['null section', 'export default { network: null };', /network/],
     ['invalid port', 'export default { network: { api: { port: 65536 } } };', /network\.api\.port/],

@@ -1,3 +1,10 @@
+import { ManagementService } from '#src/services/management.service';
+import { ActivitiesService } from '#src/services/activities.service';
+import { JobsService } from '#src/services/jobs.service';
+import { Effect } from 'effect';
+import { WorkoutsService } from '#src/services/workout.service';
+import { ConnectionsService } from '#src/services/connections.service';
+import { DocumentsService } from '#src/services/documents.service';
 /**
 Captures the README screenshots from a throwaway server seeded with fictional riders.
 
@@ -23,7 +30,7 @@ import { test } from 'node:test';
 import type { TestContext } from 'node:test';
 import { chromium } from 'playwright';
 import type { Browser, Page } from 'playwright';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 const out = path.resolve(import.meta.dirname, '../../media/screenshots');
 const password = 'screenshot-password';
@@ -89,9 +96,9 @@ const rides: Ride[] = [
   ride('Watopia Flat Route Reverse', worlds.watopia, 43.4, 98, 36, 7, 0.68),
 ];
 
-const messages = z
-  .object({ FILE_ID: z.number(), RECORD: z.number(), SESSION: z.number(), ACTIVITY: z.number() })
-  .parse(Profile.MesgNum);
+const messages = Schema.decodeUnknownSync(
+  Schema.Struct({ FILE_ID: Schema.Finite, RECORD: Schema.Finite, SESSION: Schema.Finite, ACTIVITY: Schema.Finite }),
+)(Profile.MesgNum);
 
 // A wobbly closed loop with a few hills, so each ride reads as a real course on the map.
 function course(km: number, climb: number, samples: number) {
@@ -224,7 +231,7 @@ async function seedActivities(f: Fixture, user: User, rider: Rider) {
 
     const draft = toBinary(ActivitySchema, create(ActivitySchema, activity));
     const created = await f.app.request(base, { method: 'POST', headers, body: draft });
-    const { id } = z.object({ id: z.number() }).parse(await created.json());
+    const { id } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await created.json());
     const complete = toBinary(ActivitySchema, create(ActivitySchema, { ...activity, id: BigInt(id), fit }));
 
     const finished = await f.app.request(`${base}/${id}?upload-to-strava=true`, {
@@ -236,7 +243,7 @@ async function seedActivities(f: Fixture, user: User, rider: Rider) {
     if (finished.status !== 200) throw new Error(`Activity save failed: ${finished.status}`);
   }
 
-  await f.services.jobs.drain();
+  await f.effects.runPromise(JobsService.use((service) => service.drain()));
 }
 
 // Abstract landscape avatars: friendly, and clearly not photographs of anyone.
@@ -258,19 +265,21 @@ async function avatar(browser: Browser, [sky, sun, hills]: [string, string, stri
 
 // Connected services with fictional credentials, and the latest rides delivered to them.
 function connect(f: Fixture, player: number) {
-  const { connections, documents, activities } = f.services;
-  connections.save(player, 'strava', ['184203', 'not-a-real-strava-secret']);
-  documents.put(player, 'strava_token.txt', 'not-a-real-token');
-  connections.save(player, 'garmin', ['maja@example.com', 'not-a-real-garmin-password']);
-  documents.put(player, 'garth/oauth1_token.json', '{}');
-  connections.save(player, 'intervals', ['5551234', 'not-a-real-intervals-key']);
+  const activities = f.effects.runSync(ActivitiesService);
+  const connections = f.effects.runSync(ConnectionsService);
+  const documents = f.effects.runSync(DocumentsService);
+  f.effects.runSync(connections.save(player, 'strava', ['184203', 'not-a-real-strava-secret']));
+  f.effects.runSync(documents.put(player, 'strava_token.txt', 'not-a-real-token'));
+  f.effects.runSync(connections.save(player, 'garmin', ['maja@example.com', 'not-a-real-garmin-password']));
+  f.effects.runSync(documents.put(player, 'garth/oauth1_token.json', '{}'));
+  f.effects.runSync(connections.save(player, 'intervals', ['5551234', 'not-a-real-intervals-key']));
   f.settings.save(player, { 'workouts.trainingpeaks.bridgeFolder': '/srv/trainingpeaks' });
 
   const upload = f.accounts.db.prepare(
     "INSERT INTO activity_upload (activity_id, provider, state, updated_at) VALUES (?, ?, 'sent', ?)",
   );
 
-  for (const activity of activities.own(player).slice(0, 3))
+  for (const activity of f.effects.runSync(activities.own(player)).slice(0, 3))
     for (const provider of ['strava', 'garmin', 'intervals']) upload.run(Number(activity.id), provider, Date.now());
 }
 
@@ -280,7 +289,7 @@ async function listen(t: TestContext, fetch: (request: Request) => Response | Pr
   if (!server.listening) await once(server, 'listening');
   t.after(() => server.close());
 
-  return `http://127.0.0.1:${z.object({ port: z.number() }).parse(server.address()).port}`;
+  return `http://127.0.0.1:${Schema.decodeUnknownSync(Schema.Struct({ port: Schema.Finite }))(server.address()).port}`;
 }
 
 async function shot(page: Page, name: string) {
@@ -299,7 +308,7 @@ await test('capture README screenshots', { timeout: 120_000 }, async (t) => {
   });
 
   const f = runtimeFixture(t);
-  t.mock.method(f.services.workouts, 'syncWorkoutsAutomatically', () => Promise.resolve());
+  t.mock.method(f.effects.runSync(WorkoutsService), 'syncWorkoutsAutomatically', () => Effect.void);
   const browser = await chromium.launch();
   t.after(() => browser.close());
   mkdirSync(out, { recursive: true });
@@ -316,12 +325,16 @@ await test('capture README screenshots', { timeout: 120_000 }, async (t) => {
       );
   }
 
-  await f.services.management.setup({
-    mode: 'existing',
-    key: f.services.management.issueSetupKey()!,
-    player_id: users[0]!.player_id,
-    password,
-  });
+  await f.effects.runPromise(
+    ManagementService.use((management) =>
+      management.setup({
+        mode: 'existing',
+        key: f.effects.runSync(ManagementService.use((management) => management.issueSetupKey()))!,
+        player_id: users[0]!.player_id,
+        password,
+      }),
+    ),
+  );
 
   // Setup grants the administrator role, which starts a new identity.
   const maja = f.accounts.get(users[0]!.player_id)!;

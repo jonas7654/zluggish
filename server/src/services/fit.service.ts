@@ -1,41 +1,49 @@
+import { Context, Effect, Layer } from 'effect';
+import { RuntimeContext } from '#src/context';
 import { FitDecoder } from '#src/repositories/fit-decoder.repository';
 import type { PowerBests } from '#src/repositories/fit-decoder.repository';
 import { fitWorkers } from '#src/repositories/fit.repository';
 import { Metric, metrics } from '#src/repositories/metrics.repository';
-import { BaseService } from '#src/services/base.service';
 
-export class FitService extends BaseService {
-  static decodeFit(bytes: Uint8Array) {
-    return metrics.time(Metric.FitProcessing, () => new FitDecoder().decode(bytes));
-  }
+function decodeFit(bytes: Uint8Array) {
+  return metrics.time(Metric.FitProcessing, () => new FitDecoder().decode(bytes));
+}
 
-  static activityChart(bytes: Uint8Array) {
-    return metrics.time(Metric.FitProcessing, () => new FitDecoder().chart(bytes));
-  }
+function activityChart(bytes: Uint8Array) {
+  return metrics.time(Metric.FitProcessing, () => new FitDecoder().chart(bytes));
+}
 
-  /** Chart data computed in the FIT worker thread. */
-  static chart(bytes: Uint8Array) {
-    return fitWorkers.chart(bytes);
-  }
+/** Chart data computed in the FIT worker thread. */
+function chart(bytes: Uint8Array) {
+  return fitWorkers.chart(bytes);
+}
 
-  static powerBests(bytes: Uint8Array) {
-    return fitWorkers.powerBests(bytes);
-  }
+function powerBests(bytes: Uint8Array) {
+  return fitWorkers.powerBests(bytes);
+}
 
-  savePowerCurve(playerId: number, bytes: Uint8Array) {
-    this.insertPowerBests(
+const make = Effect.gen(function* () {
+  const context = yield* RuntimeContext;
+  const repositories = context.accounts.repositories;
+
+  const savePowerCurve = Effect.fn('FitService.savePowerCurve')(function* (playerId: number, bytes: Uint8Array) {
+    yield* insertPowerBests(
       playerId,
       metrics.time(Metric.FitProcessing, () => new FitDecoder().powerBests(bytes)),
     );
-  }
+  });
 
-  insertPowerBests(playerId: number, curve: PowerBests, activity: number | null = null) {
-    const weight = this.profileRepository.get(playerId).weightInGrams / 1000;
+  const insertPowerBests = Effect.fn('FitService.insertPowerBests')(function* (
+    playerId: number,
+    curve: PowerBests,
+    activity: number | null = null,
+  ) {
+    const weight = repositories.profileRepository.get(playerId).weightInGrams / 1000;
 
     if (weight <= 0) return;
 
     for (const { time, power } of curve.bests)
-      this.fitnessRepository.insertPowerCurve(
+      repositories.fitnessRepository.insertPowerCurve(
         playerId,
         String(time),
         power,
@@ -43,5 +51,19 @@ export class FitService extends BaseService {
         curve.timestamp,
         activity,
       );
-  }
+  });
+
+  return { savePowerCurve, insertPowerBests };
+});
+
+export class FitService extends Context.Service<FitService, Effect.Success<typeof make>>()('zluggish/FitService') {
+  static readonly layer = Layer.effect(FitService, make);
+
+  static readonly decodeFit = decodeFit;
+
+  static readonly activityChart = activityChart;
+
+  static readonly chart = chart;
+
+  static readonly powerBests = powerBests;
 }

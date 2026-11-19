@@ -1,9 +1,9 @@
 import { Metric, metrics } from '#src/repositories/metrics.repository';
 import type { DatabaseSync } from 'node:sqlite';
 import { Worker } from 'node:worker_threads';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
-const report = z.object({ walBytes: z.number(), durationMs: z.number().nullable() });
+const report = Schema.Struct({ walBytes: Schema.Finite, durationMs: Schema.NullOr(Schema.Finite) });
 
 /** Checkpoint ownership: while the runtime runs, a worker thread checkpoints the WAL
 with its own connection and the main connection does not auto-checkpoint. At shutdown
@@ -30,7 +30,7 @@ export class CheckpointRepository {
 
     worker.unref();
     worker.on('message', (message) => {
-      const parsed = report.parse(message);
+      const parsed = Schema.decodeUnknownSync(report)(message);
       metrics.record(Metric.WalBytes, parsed.walBytes);
 
       if (parsed.durationMs !== null) metrics.record(Metric.Checkpoint, parsed.durationMs);

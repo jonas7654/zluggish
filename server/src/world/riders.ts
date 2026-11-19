@@ -1,28 +1,32 @@
 import { create, mergeFromJson } from '@bufbuild/protobuf';
+import type { JsonValue } from '@bufbuild/protobuf';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { z } from 'zod';
+import { Schema } from 'effect';
+import { Strict } from '#src/schema';
 import { PlayerProfileSchema, type PlayerProfile } from '#src/protocol/generated/profile_pb';
 import { Random } from '#src/world/geometry';
 
-type RiderSpec = Record<string, z.infer<ReturnType<typeof z.json>>>;
+type RiderSpec = Record<string, typeof Schema.Json.Type>;
 
-export const ghostAppearanceSchema = z.strictObject({
-  is_male: z.boolean().optional(),
-  random_body: z.boolean().optional(),
-  country_code: z.number().int().nonnegative().optional(),
-  bike_frame: z.number().int().nonnegative().optional(),
-  bike_frame_colour: z.union([z.string().regex(/^\d+$/), z.number().int().nonnegative().safe()]).optional(),
-  bike_wheel_front: z.number().int().nonnegative().optional(),
-  bike_wheel_rear: z.number().int().nonnegative().optional(),
-  glasses_type: z.number().int().nonnegative().optional(),
-  ride_jersey: z.number().int().nonnegative().optional(),
-  ride_helmet_type: z.number().int().nonnegative().optional(),
-  ride_shoes_type: z.number().int().nonnegative().optional(),
-  ride_socks_type: z.number().int().nonnegative().optional(),
-  run_shirt_type: z.number().int().nonnegative().optional(),
-  run_shorts_type: z.number().int().nonnegative().optional(),
-  run_shoes_type: z.number().int().nonnegative().optional(),
+export const ghostAppearanceSchema = Strict({
+  is_male: Schema.optional(Schema.Boolean),
+  random_body: Schema.optional(Schema.Boolean),
+  country_code: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+  bike_frame: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+  bike_frame_colour: Schema.optional(
+    Schema.Union([Schema.String.check(Schema.isPattern(/^\d+$/)), Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))]),
+  ),
+  bike_wheel_front: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+  bike_wheel_rear: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+  glasses_type: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+  ride_jersey: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+  ride_helmet_type: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+  ride_shoes_type: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+  ride_socks_type: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+  run_shirt_type: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+  run_shorts_type: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+  run_shoes_type: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
 });
 
 export class RiderPool {
@@ -30,29 +34,29 @@ export class RiderPool {
 
   readonly dictionary: RiderSpec;
 
-  readonly names: RiderSpec[];
+  readonly names: readonly RiderSpec[];
 
   constructor(
     assets: string,
     ridersFile: string,
     readonly rng = new Random(),
   ) {
-    this.dictionary = z
-      .record(z.string(), z.json())
-      .parse(JSON.parse(readFileSync(resolve(assets, 'data/game_dictionary.txt'), 'utf8')));
+    this.dictionary = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))(
+      JSON.parse(readFileSync(resolve(assets, 'data/game_dictionary.txt'), 'utf8')),
+    );
 
     if (ridersFile)
-      this.names = z
-        .object({ riders: z.array(z.record(z.string(), z.json())) })
-        .parse(JSON.parse(readFileSync(ridersFile, 'utf8'))).riders;
+      this.names = Schema.decodeUnknownSync(
+        Schema.Struct({ riders: Schema.Array(Schema.Record(Schema.String, Schema.Json)) }),
+      )(JSON.parse(readFileSync(ridersFile, 'utf8'))).riders;
     else {
-      const names = z
-        .object({
-          male_first_names: z.array(z.string()),
-          female_first_names: z.array(z.string()),
-          last_names: z.array(z.string()),
-        })
-        .parse(JSON.parse(readFileSync(resolve(assets, 'data/names.txt'), 'utf8')));
+      const names = Schema.decodeUnknownSync(
+        Schema.Struct({
+          male_first_names: Schema.Array(Schema.String),
+          female_first_names: Schema.Array(Schema.String),
+          last_names: Schema.Array(Schema.String),
+        }),
+      )(JSON.parse(readFileSync(resolve(assets, 'data/names.txt'), 'utf8')));
 
       this.names = Array.from({ length: 1000 }, () => {
         const male = rng.value() > 0.5;
@@ -61,13 +65,13 @@ export class RiderPool {
           first_name: rng.pick(male ? names.male_first_names : names.female_first_names),
           last_name: rng.pick(names.last_names),
           is_male: male,
-          country_code: rng.pick(z.array(z.number()).parse(this.dictionary.country_codes)),
+          country_code: rng.pick(Schema.decodeUnknownSync(Schema.Array(Schema.Finite))(this.dictionary.country_codes)),
         };
       });
     }
   }
 
-  customizeGhost(profile: PlayerProfile, appearance: z.infer<typeof ghostAppearanceSchema>) {
+  customizeGhost(profile: PlayerProfile, appearance: (typeof ghostAppearanceSchema)['Type']) {
     const { random_body: randomBody, ...equipment } = appearance;
 
     if (randomBody) {
@@ -88,11 +92,7 @@ export class RiderPool {
     mergeFromJson(PlayerProfileSchema, profile, JSON.parse(JSON.stringify(equipment)));
   }
 
-  profile(
-    id: bigint,
-    overrides: Record<string, z.infer<ReturnType<typeof z.json>> | undefined> = {},
-    onlyKitted = false,
-  ) {
+  profile(id: bigint, overrides: Record<string, typeof Schema.Json.Type | undefined> = {}, onlyKitted = false) {
     const rng = this.rng;
 
     const kitted = this.names.filter((name) => name.ride_jersey || name.rideJersey);
@@ -109,7 +109,8 @@ export class RiderPool {
       heightInMillimeters: Math.round(rng.between(165, 192) * 10),
     });
 
-    const choose = (key: string) => rng.pick(z.array(z.number()).parse(this.dictionary[key]));
+    const choose = (key: string) =>
+      rng.pick(Schema.decodeUnknownSync(Schema.Array(Schema.Finite))(this.dictionary[key]));
 
     profile.rideHelmetType = choose('headgears');
     profile.glassesType = choose('glasses');
@@ -118,12 +119,16 @@ export class RiderPool {
     profile.rideSocksLength = Math.floor(rng.between(0, 4));
     profile.rideJersey = choose('jerseys');
 
-    const wheels = rng.pick(z.array(z.tuple([z.number(), z.number()])).parse(this.dictionary.wheels));
+    const wheels = rng.pick(
+      Schema.decodeUnknownSync(Schema.Array(Schema.Tuple([Schema.Finite, Schema.Finite])))(this.dictionary.wheels),
+    );
 
     profile.bikeWheelRear = wheels[0];
     profile.bikeWheelFront = wheels[1];
     profile.bikeFrame = Number(
-      rng.pick(Object.keys(z.record(z.string(), z.string()).parse(this.dictionary.bikeframes))),
+      rng.pick(
+        Object.keys(Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.String))(this.dictionary.bikeframes)),
+      ),
     );
     profile.runShirtType = choose('runshirts');
     profile.runShortsType = choose('runshorts');
@@ -131,7 +136,7 @@ export class RiderPool {
     profile.hairType = choose('hair_types');
     profile.hairColour = Math.floor(rng.between(0, 5));
 
-    function apply(spec: Record<string, z.infer<ReturnType<typeof z.json>> | undefined>) {
+    function apply(spec: Record<string, typeof Schema.Json.Type | undefined>) {
       const values: RiderSpec = {};
 
       for (const field of PlayerProfileSchema.fields) {
@@ -140,7 +145,8 @@ export class RiderPool {
         if (value !== undefined) values[field.jsonName] = value;
       }
 
-      mergeFromJson(PlayerProfileSchema, profile, values, {
+      // SAFETY: decoded JSON values are plain JSON; protobuf only reads them.
+      mergeFromJson(PlayerProfileSchema, profile, values as JsonValue, {
         ignoreUnknownFields: true,
       });
     }

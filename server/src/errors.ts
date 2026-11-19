@@ -1,25 +1,29 @@
-export class ApplicationError extends Error {
-  constructor(
-    readonly status: 400 | 401 | 403 | 404 | 409 | 503,
-    message = '',
-  ) {
-    super(message);
-  }
-}
+import { Effect, Schema } from 'effect';
+
+const emptyMessage = Schema.String.pipe(Schema.optionalKey, Schema.withConstructorDefault(Effect.succeed('')));
+
+/** A request the application rejects, with the HTTP status that reports it. */
+export class ApplicationError extends Schema.TaggedError<ApplicationError>()('ApplicationError', {
+  status: Schema.Literals([400, 401, 403, 404, 409, 503]),
+  message: emptyMessage,
+}) {}
 
 /** Stored provider credentials that the credentials key cannot decrypt: another key
 wrote them, or they are damaged. The rider has to enter them again.
 */
-export class UnreadableCredentialsError extends Error {
-  override name = 'UnreadableCredentialsError';
-}
+export class UnreadableCredentialsError extends Schema.TaggedError<UnreadableCredentialsError>()(
+  'UnreadableCredentialsError',
+  { message: Schema.String, cause: Schema.optionalKey(Schema.Defect()) },
+) {}
 
 /** The provider did not complete the delivery: the request was not sent, or the
 provider rejected it. Any other delivery error has an unknown remote result.
 */
-export class DeliveryRefusedError extends Error {
-  constructor(readonly code: string) {
-    super(code);
+export class DeliveryRefusedError extends Schema.TaggedError<DeliveryRefusedError>()('DeliveryRefusedError', {
+  code: Schema.String,
+}) {
+  override get message() {
+    return this.code;
   }
 }
 
@@ -29,11 +33,18 @@ export function refused(status: number) {
 }
 
 /** A failure with a safe code. Other errors record only their type name. */
-export class JobError extends Error {
-  constructor(
-    readonly code: string,
-    readonly retry = true,
-  ) {
-    super(code);
+export class JobError extends Schema.TaggedError<JobError>()('JobError', {
+  code: Schema.String,
+  retry: Schema.Boolean.pipe(Schema.optionalKey, Schema.withConstructorDefault(Effect.succeed(true))),
+}) {
+  override get message() {
+    return this.code;
+  }
+}
+
+/** The FIT worker queue has no room for another file. */
+export class FitQueueFullError extends Schema.TaggedError<FitQueueFullError>()('FitQueueFullError', {}) {
+  override get message() {
+    return 'FIT processing queue is full';
   }
 }

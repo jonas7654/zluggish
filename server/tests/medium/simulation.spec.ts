@@ -1,3 +1,5 @@
+import { Effect } from 'effect';
+import { RideRecoveryService } from '#src/services/ride-recovery.service';
 import { validateConfig } from '#src/config/index';
 import { PlayerProfileSchema } from '#src/protocol/generated/profile_pb';
 import { GhostSchema, PlayerStateSchema } from '#src/protocol/generated/udp-node-msgs_pb';
@@ -10,10 +12,10 @@ import assert from 'node:assert/strict';
 import fs, { rmSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { resolve } from 'node:path';
+import { setImmediate } from 'node:timers/promises';
 import { test } from 'node:test';
 
 await test('simulation playback stops, resumes and removes deleted pacers on reload', async (t) => {
-  t.mock.timers.enable({ apis: ['Date', 'setInterval'], now: Date.UTC(2026, 10, 12) });
   const f = runtimeFixture(t);
   const folder = resolve(f.accounts.storage, 'robopacers/demo');
   new AssetFiles().writeDurable(
@@ -33,23 +35,71 @@ await test('simulation playback stops, resumes and removes deleted pacers on rel
   const simulation = new Simulation(f, () => Date.now() / 1000);
   t.after(() => simulation.close());
   await simulation.ready;
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.now() });
   const first = f.world.synthetic.get(100n)?.x;
   assert.ok(first !== undefined);
   simulation.start();
   simulation.start();
   t.mock.timers.tick(1000);
+  await setImmediate();
   const moved = f.world.synthetic.get(100n)?.x;
   assert.notEqual(moved, first);
   await simulation.close();
   t.mock.timers.tick(1000);
+  await setImmediate();
   assert.equal(f.world.synthetic.get(100n)?.x, moved);
   simulation.start();
   t.mock.timers.tick(1000);
+  await setImmediate();
   assert.notEqual(f.world.synthetic.get(100n)?.x, moved);
   rmSync(folder, { recursive: true });
   await simulation.reload();
   assert.equal(f.world.synthetic.has(100n), false);
   assert.equal(f.profiles.synthetic.has(100n), false);
+});
+
+await test('simulation ticks recover from failures and stop until restarted', async (t) => {
+  const f = runtimeFixture(t);
+  const simulation = new Simulation(f);
+  t.after(() => simulation.close());
+  await simulation.ready;
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.now() });
+  const failure = new Error('tick failed');
+
+  const tick = t.mock.method(simulation, 'tick', () => {
+    if (tick.mock.callCount() === 0) throw failure;
+  });
+
+  const log = t.mock.method(f.world.lifecycle.log, 'error', () => {});
+
+  const advance = async (milliseconds: number) => {
+    t.mock.timers.tick(milliseconds);
+    await setImmediate();
+  };
+
+  simulation.start();
+  simulation.start();
+  await advance(499);
+  assert.equal(tick.mock.callCount(), 0);
+  await advance(1);
+  assert.equal(tick.mock.callCount(), 1);
+  assert.equal(log.mock.callCount(), 1);
+  assert.deepEqual(log.mock.calls[0]?.arguments, [
+    'simulation.tick_failed',
+    'Simulation tick failed',
+    { error: failure },
+  ]);
+  await advance(500);
+  assert.equal(tick.mock.callCount(), 2);
+  await Promise.all([simulation.close(), simulation.close()]);
+  await advance(2000);
+  assert.equal(tick.mock.callCount(), 2);
+  assert.equal(log.mock.callCount(), 1, 'stopping the loop is not a tick failure');
+  simulation.start();
+  await advance(499);
+  assert.equal(tick.mock.callCount(), 2);
+  await advance(1);
+  assert.equal(tick.mock.callCount(), 3);
 });
 
 await test('ghost regroup before lazy loading preserves independent playback and loading states', async (t) => {
@@ -123,8 +173,10 @@ await test('riding, ghost and bookmark loads, blobs, recovery and logout make no
   const simulation = new Simulation(f, () => now);
   t.after(() => simulation.close());
   await simulation.ready;
-  f.services.recovery.start();
-  t.after(() => f.services.recovery.close());
+  f.effects.runSync(RideRecoveryService.use((service) => service.start()));
+  // The fixture disposes the runtime first: the close runs on the service itself.
+  const recovery = f.effects.runSync(RideRecoveryService);
+  t.after(() => Effect.runPromise(recovery.close()));
 
   // From here on every synchronous file call throws and is recorded.
   const calls: string[] = [];
@@ -168,11 +220,11 @@ await test('riding, ghost and bookmark loads, blobs, recovery and logout make no
     assert.equal(simulation.command(id, 'blob 4'), 'Blob settings saved.');
     simulation.command(id, 'bookmark Home');
     await simulation.loadBookmarks(id);
-    await f.services.recovery.checkpoint();
+    await f.effects.runPromise(RideRecoveryService.use((service) => service.checkpoint()));
     await simulation.idle();
     f.world.logout(id);
     await simulation.idle();
-    await f.services.recovery.recordings.idle();
+    await f.effects.runSync(RideRecoveryService).recordings.idle();
   } finally {
     for (const mock of mocks) mock.mock.restore();
     syncBuiltinESMExports();

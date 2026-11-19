@@ -1,3 +1,4 @@
+import { Schema } from 'effect';
 import { openDatabase } from '#src/db/open';
 import { ActivitySchema } from '#src/protocol/generated/activity_pb';
 import { PlayerProfileSchema, StreaksSchema } from '#src/protocol/generated/profile_pb';
@@ -27,7 +28,6 @@ import { DatabaseSync } from 'node:sqlite';
 import type { SQLOutputValue } from 'node:sqlite';
 import type { TestContext } from 'node:test';
 import { test } from 'node:test';
-import { z } from 'zod';
 
 const crypto = new CryptoRepository();
 const fit = readFileSync(new URL('../fixtures/ride.fit', import.meta.url));
@@ -137,7 +137,8 @@ function openLegacy(storage: string) {
   return new DatabaseSync(resolve(storage, 'zluggish.db'));
 }
 
-const blob = (value: SQLOutputValue | undefined) => Buffer.from(z.instanceof(Uint8Array).parse(value));
+const blob = (value: SQLOutputValue | undefined) =>
+  Buffer.from(Schema.decodeUnknownSync(Schema.instanceOf(Uint8Array))(value));
 
 await test('the storage merge imports every legacy store once and keeps the legacy files', (t) => {
   const { storage, open } = legacy(t);
@@ -214,16 +215,20 @@ await test('the storage merge imports every legacy store once and keeps the lega
     ['{"activityId":10,"provider":"intervals"}'],
   );
 
-  const manifest = z
-    .object({ state: z.string(), backup: z.string(), report: z.object({ orphanFolders: z.array(z.string()) }) })
-    .parse(JSON.parse(readFileSync(resolve(storage, StorageFile.Manifest), 'utf8')));
+  const manifest = Schema.decodeUnknownSync(
+    Schema.Struct({
+      state: Schema.String,
+      backup: Schema.String,
+      report: Schema.Struct({ orphanFolders: Schema.Array(Schema.String) }),
+    }),
+  )(JSON.parse(readFileSync(resolve(storage, StorageFile.Manifest), 'utf8')));
 
   assert.equal(manifest.state, 'published');
   assert.deepEqual(manifest.report.orphanFolders, ['99']);
 
-  const backup = z
-    .object({ checksums: z.record(z.string(), z.string()) })
-    .parse(JSON.parse(readFileSync(resolve(manifest.backup, 'backup-manifest.json'), 'utf8')));
+  const backup = Schema.decodeUnknownSync(Schema.Struct({ checksums: Schema.Record(Schema.String, Schema.String) }))(
+    JSON.parse(readFileSync(resolve(manifest.backup, 'backup-manifest.json'), 'utf8')),
+  );
 
   for (const name of ['zluggish.db', 'settings.db', '1/streaks.bin', '1/medias/1.mp4', 'credentials-key.bin'])
     assert.ok(backup.checksums[join(...name.split('/'))], `backup holds ${name}`);
@@ -240,9 +245,9 @@ await test('legacy credentials written with another key are reported and left in
   assert.equal(new RiderDocuments(db, storage).has(2, 'garmin_credentials.bin'), false);
   assert.equal(new RiderDocuments(db, storage).has(1, 'zwift_credentials.bin'), true);
 
-  const manifest = z
-    .object({ report: z.object({ invalidOptional: z.array(z.string()) }) })
-    .parse(JSON.parse(readFileSync(resolve(storage, StorageFile.Manifest), 'utf8')));
+  const manifest = Schema.decodeUnknownSync(
+    Schema.Struct({ report: Schema.Struct({ invalidOptional: Schema.Array(Schema.String) }) }),
+  )(JSON.parse(readFileSync(resolve(storage, StorageFile.Manifest), 'utf8')));
 
   assert.deepEqual(manifest.report.invalidOptional, ['2/garmin_credentials.bin']);
   db.close();
@@ -452,9 +457,9 @@ await test('a legacy cleanup needs a published migration and its backup', (t) =>
   assert.throws(() => legacyPlan(storage), /No published storage migration/);
   open().close();
 
-  const backup = z
-    .object({ backup: z.string() })
-    .parse(JSON.parse(readFileSync(resolve(storage, StorageFile.Manifest), 'utf8'))).backup;
+  const backup = Schema.decodeUnknownSync(Schema.Struct({ backup: Schema.String }))(
+    JSON.parse(readFileSync(resolve(storage, StorageFile.Manifest), 'utf8')),
+  ).backup;
 
   rmSync(backup, { recursive: true });
   assert.throws(() => legacyPlan(storage), /backup .* is missing/);

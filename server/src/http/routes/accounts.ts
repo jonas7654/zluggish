@@ -1,3 +1,9 @@
+import { AccountsService } from '#src/services/auth.service';
+import { WorkoutsService } from '#src/services/workout.service';
+import { FilesService } from '#src/services/files.service';
+import { ProfilesService } from '#src/services/profile.service';
+import { effectRoutes } from '#src/http/effect';
+import { RecordsService } from '#src/services/records.service';
 import { calendarLabels, mapChoices } from '#src/http/game/calendar';
 import { checkbox, field, form as makeForm, hidden, model } from '#src/http/game/models';
 import { gamePage } from '#src/http/game/render';
@@ -5,13 +11,14 @@ import { browserJson, gameRedirect } from '#src/http/game/results';
 import { readClimbs } from '#src/http/climbs';
 import type { HttpRuntime as Runtime, RuntimeEnv } from '#src/http/runtime';
 import type { User } from '#src/repositories/accounts.repository';
-import { REMEMBER_SECONDS } from '#src/services/browser-session.service';
+import { REMEMBER_SECONDS, SessionsService } from '#src/services/browser-session.service';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import type { Context, Hono } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { HTTPException } from 'hono/http-exception';
 import { resolve } from 'node:path';
-import { z } from 'zod';
+import { Effect, Option, Schema } from 'effect';
+import { orElse, PositiveIntFromString } from '#src/schema';
 
 export function authenticated(c: Context<RuntimeEnv>) {
   const rider = c.get('user');
@@ -62,19 +69,30 @@ function unlockPage(c: Context<RuntimeEnv>, user: User, error = '') {
   );
 }
 
-type FormFields = Record<string, string | File | (string | File)[]>;
+type FormFields = Readonly<Record<string, string | File | readonly (string | File)[]>>;
 
 export async function csrf(c: Context<RuntimeEnv>, runtime: Runtime): Promise<FormFields> {
   const form = await c.req.parseBody();
 
-  if (!runtime.services.sessions.validCsrf(c.get('browser'), z.string().catch('').parse(form.csrf_token)))
+  if (
+    !runtime.effects
+      .runSync(SessionsService)
+      .validCsrf(c.get('browser'), Schema.decodeUnknownSync(Schema.String.pipe(orElse('')))(form.csrf_token))
+  )
     throw new HTTPException(400, {
       message: 'The form expired. Reload and retry.',
     });
 
-  return z
-    .record(z.string(), z.union([z.string(), z.instanceof(File), z.array(z.union([z.string(), z.instanceof(File)]))]))
-    .parse(form);
+  return Schema.decodeUnknownSync(
+    Schema.Record(
+      Schema.String,
+      Schema.Union([
+        Schema.String,
+        Schema.instanceOf(File),
+        Schema.Array(Schema.Union([Schema.String, Schema.instanceOf(File)])),
+      ]),
+    ),
+  )(form);
 }
 
 export function peerAddress(c: Context) {
@@ -86,7 +104,8 @@ export function peerAddress(c: Context) {
 }
 
 export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
-  const { accounts, sessions } = runtime.services;
+  const accounts = runtime.effects.runSync(AccountsService);
+  const sessions = runtime.effects.runSync(SessionsService);
   const { world } = runtime;
   app.use('*', async (c, next) => {
     const authorization = c.req.header('Authorization');
@@ -160,15 +179,16 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     (c) => {
       c.status(403);
 
-      return gamePage(
-        c,
-        runtime,
-        model(c, 'message', 'Registration is not available', [], {
-          message: 'Registration is not available. Ask the administrator to create a user in the web app.',
-          failed: true,
-          errorStatus: 403,
-          back: { href: '/login/', label: 'Choose a user' },
-        }),
+      return runtime.effects.runPromise(
+        gamePage(
+          c,
+          model(c, 'message', 'Registration is not available', [], {
+            message: 'Registration is not available. Ask the administrator to create a user in the web app.',
+            failed: true,
+            errorStatus: 403,
+            back: { href: '/login/', label: 'Choose a user' },
+          }),
+        ),
       );
     },
   );
@@ -191,8 +211,11 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
             {
               user: {
                 initials: `${user.first_name.charAt(0)}${user.last_name.charAt(0)}`.toUpperCase(),
-                photo: runtime.services.files.exists(
-                  resolve(runtime.services.profiles.folder(user.player_id), 'avatarLarge.jpg'),
+                photo: runtime.effects.runSync(
+                  Effect.flatMap(
+                    ProfilesService.use((service) => service.folder(user.player_id)),
+                    (folder) => FilesService.use((files) => files.exists(resolve(folder, 'avatarLarge.jpg'))),
+                  ),
                 )
                   ? `/download/${user.player_id}/avatarLarge.jpg`
                   : null,
@@ -222,10 +245,10 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     if (c.req.method === 'POST') {
       const form = await csrf(c, runtime);
 
-      const id = z.coerce.number().int().positive().safe().safeParse(form.player_id);
+      const id = Schema.decodeUnknownOption(PositiveIntFromString)(form.player_id);
 
-      const user = id.success ? accounts.get(id.data) : null;
-      const password = z.string().catch('').parse(form.password);
+      const user = Option.isSome(id) ? accounts.get(id.value) : null;
+      const password = Schema.decodeUnknownSync(Schema.String.pipe(orElse('')))(form.password);
       const step = form.step === 'password';
       let signedIn: User | null = null;
 
@@ -242,14 +265,14 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
           { playerId: user.player_id },
         );
 
-        return gamePage(c, runtime, loginPage(c, 'Login failed.'));
+        return runtime.effects.runPromise(gamePage(c, loginPage(c, 'Login failed.')));
       }
 
       if (user && !step) {
         // Choosing a rider signs in at once when this computer remembers them; otherwise it opens their password step.
         signedIn = sessions.remembered(getCookie(c, rememberCookie(user.player_id)) ?? '', user.player_id);
 
-        if (!signedIn) return gamePage(c, runtime, unlockPage(c, user));
+        if (!signedIn) return runtime.effects.runPromise(gamePage(c, unlockPage(c, user)));
       } else if (user && (await accounts.verify(user, password))) signedIn = user;
 
       if (signedIn) {
@@ -272,7 +295,10 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
         else deleteCookie(c, rememberCookie(user.player_id), { path: '/login/' });
         sessions.end(c.get('browserId'));
         const fresh = sessions.open();
-        sessions.transition(fresh.session, { type: 'login', identity: runtime.services.accounts.identityOf(user) });
+        sessions.transition(fresh.session, {
+          type: 'login',
+          identity: runtime.effects.runSync(AccountsService).identityOf(user),
+        });
         setCookie(c, 'zluggish_session', fresh.id, {
           httpOnly: true,
           sameSite: 'Lax',
@@ -296,14 +322,14 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
           { playerId: user.player_id, flow: 'browser' },
         );
 
-        return gamePage(c, runtime, unlockPage(c, user, 'Wrong password. Try again.'));
+        return runtime.effects.runPromise(gamePage(c, unlockPage(c, user, 'Wrong password. Try again.')));
       }
 
       runtime.world.lifecycle.log.warn('auth.login_failed', 'Login failed: unknown rider', { flow: 'browser' });
       error = 'That user no longer exists. Choose another user.';
     }
 
-    return gamePage(c, runtime, loginPage(c, error));
+    return runtime.effects.runPromise(gamePage(c, loginPage(c, error)));
   });
 
   app.post('/riders/switch/', async (c) => {
@@ -314,55 +340,65 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     return gameRedirect(c, '/login/');
   });
 
-  app.get('/user/:username/', async (c) => {
-    const user = authenticated(c);
-    await runtime.services.workouts.syncWorkoutsAutomatically(user.player_id);
+  const appRoutes = effectRoutes(app, runtime);
+  appRoutes.get('/user/:username/', (c) =>
+    Effect.gen(function* () {
+      const workoutsService = yield* WorkoutsService;
 
-    const climbs = readClimbs(runtime);
+      const filesService = yield* FilesService;
 
-    const ridden = new Set(runtime.services.records.riddenClimbRoads(user.player_id));
+      const recordsService = yield* RecordsService;
 
-    const calendar = calendarLabels(
-      runtime.services.files.read(resolve(runtime.assets, 'cdn/gameassets/MapSchedule_v2.xml'), 'utf8'),
-      runtime.services.files.read(resolve(runtime.assets, 'cdn/gameassets/PortalRoadSchedule_v1.xml'), 'utf8'),
-      climbs,
-    );
+      const user = authenticated(c);
+      yield* workoutsService.syncWorkoutsAutomatically(user.player_id);
 
-    return gamePage(
-      c,
-      runtime,
-      model(c, 'dashboard', `${user.first_name} ${user.last_name}`, [
-        makeForm(
-          'launch',
-          '/start-zwift',
-          [
-            field('map', 'Map', {
-              type: 'select',
-              value: 'CALENDAR',
-              options: [
-                { value: 'CALENDAR', label: calendar.map },
-                ...mapChoices.map(({ value, label }) => ({ value, label })),
+      const climbs = yield* readClimbs(runtime);
+
+      const ridden = new Set(yield* recordsService.riddenClimbRoads(user.player_id));
+
+      const calendar = calendarLabels(
+        yield* filesService.readText(resolve(runtime.assets, 'cdn/gameassets/MapSchedule_v2.xml')),
+        yield* filesService.readText(resolve(runtime.assets, 'cdn/gameassets/PortalRoadSchedule_v1.xml')),
+        climbs,
+      );
+
+      return yield* Effect.suspend(() =>
+        gamePage(
+          c,
+          model(c, 'dashboard', `${user.first_name} ${user.last_name}`, [
+            makeForm(
+              'launch',
+              '/start-zwift',
+              [
+                field('map', 'Map', {
+                  type: 'select',
+                  value: 'CALENDAR',
+                  options: [
+                    { value: 'CALENDAR', label: calendar.map },
+                    ...mapChoices.map(({ value, label }) => ({ value, label })),
+                  ],
+                }),
+                field('climb', 'Climb', {
+                  type: 'select',
+                  value: 'CALENDAR',
+                  options: [
+                    { value: 'CALENDAR', label: calendar.climb },
+                    ...climbs.map((climb) => ({
+                      value: climb.road,
+                      label: ridden.has(climb.road) ? `✓ ${climb.name}` : climb.name,
+                    })),
+                  ],
+                }),
               ],
-            }),
-            field('climb', 'Climb', {
-              type: 'select',
-              value: 'CALENDAR',
-              options: [
-                { value: 'CALENDAR', label: calendar.climb },
-                ...climbs.map((climb) => ({
-                  value: climb.road,
-                  label: ridden.has(climb.road) ? `✓ ${climb.name}` : climb.name,
-                })),
-              ],
-            }),
-          ],
-          'Start Zwift',
-          { navigation: true, primary: true },
+              'Start Zwift',
+              { navigation: true, primary: true },
+            ),
+            makeForm('switch', '/riders/switch/', [], 'Switch rider'),
+          ]),
         ),
-        makeForm('switch', '/riders/switch/', [], 'Switch rider'),
-      ]),
-    );
-  });
+      );
+    }),
+  );
 
   app.get('/ui/status/session', (c) => {
     if (!c.get('browserId')) throw new HTTPException(401);
@@ -394,7 +430,7 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     if (world.active(user.player_id)) throw new HTTPException(409);
 
     return c.redirect(
-      `http://zwift/?code=zwift_refresh_token${sessions.token(runtime.services.accounts.identityOf(user), runtime.tokens.refresh)}`,
+      `http://zwift/?code=zwift_refresh_token${sessions.token(runtime.effects.runSync(AccountsService).identityOf(user), runtime.tokens.refresh)}`,
     );
   });
 
@@ -408,10 +444,12 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
     const address = peerAddress(c);
 
-    if (form.map && form.map !== 'CALENDAR') world.mapOverrides.set(address, z.string().parse(form.map));
+    if (form.map && form.map !== 'CALENDAR')
+      world.mapOverrides.set(address, Schema.decodeUnknownSync(Schema.String)(form.map));
     else if (form.map === 'CALENDAR') world.mapOverrides.delete(address);
 
-    if (form.climb && form.climb !== 'CALENDAR') world.climbOverrides.set(address, z.string().parse(form.climb));
+    if (form.climb && form.climb !== 'CALENDAR')
+      world.climbOverrides.set(address, Schema.decodeUnknownSync(Schema.String)(form.climb));
     else if (form.climb === 'CALENDAR') world.climbOverrides.delete(address);
 
     return c.redirect('/ride');
@@ -422,14 +460,19 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
     let user;
 
     if (form.username) {
-      user = accounts.byUsername(z.string().parse(form.username));
+      user = accounts.byUsername(Schema.decodeUnknownSync(Schema.String)(form.username));
 
-      if (!user || !(await accounts.verify(user, z.string().catch('').parse(form.password)))) {
+      if (
+        !user ||
+        !(await accounts.verify(user, Schema.decodeUnknownSync(Schema.String.pipe(orElse('')))(form.password)))
+      ) {
         runtime.world.lifecycle.diagnostic('auth.login_failed', 'Login rejected', true);
         throw new HTTPException(401);
       }
     } else {
-      const token = form.code ? z.string().parse(form.code) : z.string().parse(form.refresh_token);
+      const token = form.code
+        ? Schema.decodeUnknownSync(Schema.String)(form.code)
+        : Schema.decodeUnknownSync(Schema.String)(form.refresh_token);
 
       if (form.code && !token.startsWith('zwift_refresh_token')) throw new HTTPException(401);
 
@@ -459,9 +502,12 @@ export function accountRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
 
     const form = c.req.header('Authorization') ? await c.req.parseBody() : await csrf(c, runtime);
 
-    if (user.pass_hash && !(await accounts.verify(user, z.string().catch('').parse(form.current_password))))
+    if (
+      user.pass_hash &&
+      !(await accounts.verify(user, Schema.decodeUnknownSync(Schema.String.pipe(orElse('')))(form.current_password)))
+    )
       throw new HTTPException(403);
-    const password = z.string().min(1).parse(form['password-new']);
+    const password = Schema.decodeUnknownSync(Schema.String.check(Schema.isMinLength(1)))(form['password-new']);
 
     if (password !== form['password-confirm']) throw new HTTPException(400);
 

@@ -1,3 +1,4 @@
+import { DocumentsService } from '#src/services/documents.service';
 import { responseStatus, inputValue } from '#tests/support/html';
 import { createGameApp } from '#src/http/app';
 import { DeliveryRefusedError } from '#src/errors';
@@ -12,7 +13,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { TestContext } from 'node:test';
 import { test } from 'node:test';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 function browser(app: ReturnType<typeof createGameApp>) {
   let cookie = '';
@@ -75,12 +76,21 @@ await test('Strava credentials are stored encrypted, never echoed, and disconnec
   const empty = await web.request('/api/me/connections/strava', 'PUT', { username: '', secret: '' });
   assert.equal(empty.status, 400);
   await web.request('/api/me/connections/strava/cookie', 'PUT', { cookie: 'cookie-value' });
-  assert.equal(f.services.documents.text(user.player_id, 'strava4_session.txt'), 'cookie-value');
+  assert.equal(
+    f.effects.runSync(DocumentsService.use((service) => service.text(user.player_id, 'strava4_session.txt'))),
+    'cookie-value',
+  );
   const stored = f.accounts.db.prepare("SELECT data FROM rider_document WHERE name='strava4_session.txt'").get();
-  assert.equal(Buffer.from(z.instanceof(Uint8Array).parse(stored?.data)).includes('cookie-value'), false);
+  assert.equal(
+    Buffer.from(Schema.decodeUnknownSync(Schema.instanceOf(Uint8Array))(stored?.data)).includes('cookie-value'),
+    false,
+  );
   const removed = await web.request('/api/me/connections/strava', 'DELETE');
   assert.equal(removed.status, 200);
-  assert.equal(f.services.documents.has(user.player_id, 'strava4_session.txt'), false);
+  assert.equal(
+    f.effects.runSync(DocumentsService.use((service) => service.has(user.player_id, 'strava4_session.txt'))),
+    false,
+  );
   assert.equal(f.accounts.repositories.connectionsRepository.read(user.player_id, 'strava'), null);
 });
 
@@ -154,16 +164,16 @@ await test('Intervals.icu upload pairs the planned workout and removes only that
   );
 
   const calls = stubFetch(t);
-  await new UploadsService(f).intervals(user.player_id, activityWithFit());
+  await f.effects.runPromise(UploadsService.use((service) => service.intervals(user.player_id, activityWithFit())));
 
   const upload = calls.find((call) => call.url.includes('intervals.icu'));
   assert.ok(upload);
   assert.match(upload.url, /athlete\/42\/activities\?name=Tempo&paired_event_id=5$/);
   assert.equal(upload.headers.get('Authorization'), `Basic ${Buffer.from('API_KEY:key').toString('base64')}`);
 
-  const remaining = z
-    .object({ workouts: z.array(z.object({ event_id: z.number() })) })
-    .parse(JSON.parse(readFileSync(resolve(folder, 'intervals_icu_workout.json'), 'utf8')));
+  const remaining = Schema.decodeUnknownSync(
+    Schema.Struct({ workouts: Schema.Array(Schema.Struct({ event_id: Schema.Finite })) }),
+  )(JSON.parse(readFileSync(resolve(folder, 'intervals_icu_workout.json'), 'utf8')));
 
   assert.deepEqual(
     remaining.workouts.map((item) => item.event_id),
@@ -176,8 +186,12 @@ await test('Intervals.icu upload pairs the planned workout and removes only that
 await test('an expired Strava token is saved before an upload whose result is unknown', async (t) => {
   const f = runtimeFixture(t);
   const user = await f.accounts.create('Upload Rider', 'test-password');
-  f.services.documents.put(user.player_id, 'strava_token.txt', '1\nsecret\nold\nrefresh\n1\n');
-  f.services.documents.put(user.player_id, 'runalyze_token.txt', 'runalyze-token\n');
+  f.effects.runSync(
+    DocumentsService.use((service) => service.put(user.player_id, 'strava_token.txt', '1\nsecret\nold\nrefresh\n1\n')),
+  );
+  f.effects.runSync(
+    DocumentsService.use((service) => service.put(user.player_id, 'runalyze_token.txt', 'runalyze-token\n')),
+  );
   const calls: string[] = [];
 
   t.mock.method(globalThis, 'fetch', (input: URL | string) => {
@@ -194,13 +208,16 @@ await test('an expired Strava token is saved before an upload whose result is un
     );
   });
 
-  const uploads = new UploadsService(f);
+  const uploads = f.effects.runSync(UploadsService);
   await assert.rejects(
-    uploads.strava(user.player_id, activityWithFit()),
+    f.effects.runPromise(uploads.strava(user.player_id, activityWithFit())),
     (error) => !(error instanceof DeliveryRefusedError),
   );
-  assert.equal(f.services.documents.text(user.player_id, 'strava_token.txt'), '1\nsecret\nnew\nnewer\n9000000000\n');
-  await uploads.runalyze(user.player_id, activityWithFit());
+  assert.equal(
+    f.effects.runSync(DocumentsService.use((service) => service.text(user.player_id, 'strava_token.txt'))),
+    '1\nsecret\nnew\nnewer\n9000000000\n',
+  );
+  await f.effects.runPromise(uploads.runalyze(user.player_id, activityWithFit()));
   assert.ok(calls.some((url) => url.includes('runalyze.com')));
 });
 
@@ -294,17 +311,17 @@ await test('the mobile aggregate composes goals, activities, events and invitati
 
   assert.equal(response.status, 200);
 
-  const body = z
-    .object({
-      events: z.array(z.json()).max(1),
-      goals: z.array(z.json()),
-      activities: z.array(z.json()),
-      pendingPrivateEventFeed: z.array(z.json()),
-      acceptedPrivateEventFeed: z.array(z.json()),
-      worldName: z.literal('MAKURIISLANDS'),
-      playerCount: z.literal(0),
-    })
-    .parse(await response.json());
+  const body = Schema.decodeUnknownSync(
+    Schema.Struct({
+      events: Schema.Array(Schema.Json).check(Schema.isMaxLength(1)),
+      goals: Schema.Array(Schema.Json),
+      activities: Schema.Array(Schema.Json),
+      pendingPrivateEventFeed: Schema.Array(Schema.Json),
+      acceptedPrivateEventFeed: Schema.Array(Schema.Json),
+      worldName: Schema.Literal('MAKURIISLANDS'),
+      playerCount: Schema.Literal(0),
+    }),
+  )(await response.json());
 
   assert.equal(body.events.length, 1);
   assert.equal(body.goals.length, 0);
@@ -325,8 +342,14 @@ await test('Strava authorization only completes for the web session that started
   const refused = await other.request('/api/me/connections/strava/authorize', 'POST', { code: 'abc', state });
   assert.equal(refused.status, 403);
   assert.equal(calls.length, 0);
-  assert.equal(f.services.documents.has(user.player_id, 'strava_token.txt'), false);
+  assert.equal(
+    f.effects.runSync(DocumentsService.use((service) => service.has(user.player_id, 'strava_token.txt'))),
+    false,
+  );
   const accepted = await web.request('/api/me/connections/strava/authorize', 'POST', { code: 'abc', state });
   assert.equal(accepted.status, 200);
-  assert.equal(f.services.documents.text(user.player_id, 'strava_token.txt'), '55\nsecret\na\nr\n9000000000\n');
+  assert.equal(
+    f.effects.runSync(DocumentsService.use((service) => service.text(user.player_id, 'strava_token.txt'))),
+    '55\nsecret\na\nr\n9000000000\n',
+  );
 });

@@ -1,24 +1,23 @@
-import type { RepositoryContext as Runtime } from '#src/context';
+import { RuntimeContext } from '#src/context';
 import { AchievementEntrySchema, AchievementsSchema } from '#src/protocol/generated/profile_pb';
 import { immediate } from '#src/db/transaction';
-import { BaseService } from '#src/services/base.service';
 import { create, fromBinary, toBinary } from '@bufbuild/protobuf';
 import { resolve } from 'node:path';
-import { z } from 'zod';
+import { Context, Effect, Layer, Schema } from 'effect';
 
-/** Per rider, missing file bootstraps saved-game unlocks; membership only grows through
-threshold/report events. Import replaces this state externally; reads may backfill routes.
-*/
-export class AchievementService extends BaseService {
-  loadAchievements(runtime: Runtime, id: number) {
-    const stored = this.riderDocuments.get(id, 'achievements.bin');
+const make = Effect.gen(function* () {
+  const context = yield* RuntimeContext;
+  const repositories = context.accounts.repositories;
+
+  const loadAchievements = Effect.fn('AchievementService.loadAchievements')(function* (id: number) {
+    const stored = repositories.riderDocuments.get(id, 'achievements.bin');
     const exists = stored !== null;
     const achievements = stored ? fromBinary(AchievementsSchema, stored) : create(AchievementsSchema);
 
     let changed = !exists;
 
     if (!exists) {
-      const saved = runtime.profiles.get(id).savedGame;
+      const saved = context.profiles.get(id).savedGame;
 
       if (saved.length > 0x1_50 && saved[0x1_08] === 2) {
         const bits = saved.subarray(0x1_10, 0x1_50);
@@ -29,7 +28,7 @@ export class AchievementService extends BaseService {
       }
     }
 
-    const count = this.recordsRepository.routeBadgeCount(id);
+    const count = repositories.recordsRepository.routeBadgeCount(id);
 
     for (const [minimum, badge] of [
       [1, 211],
@@ -41,26 +40,39 @@ export class AchievementService extends BaseService {
         changed = true;
       }
 
-    if (changed) this.riderDocuments.put(id, 'achievements.bin', toBinary(AchievementsSchema, achievements));
+    if (changed) repositories.riderDocuments.put(id, 'achievements.bin', toBinary(AchievementsSchema, achievements));
 
     return achievements;
-  }
+  });
 
-  backfillRoutes(runtime: Runtime, id: number) {
-    const achievements = this.loadAchievements(runtime, id);
+  const backfillRoutes = Effect.fn('AchievementService.backfillRoutes')(function* (id: number) {
+    const achievements = yield* loadAchievements(id);
 
-    const dictionary = z
-      .object({ achievements: z.record(z.string(), z.number().int()) })
-      .parse(
-        JSON.parse(this.filesRepository.readFileSync(resolve(runtime.assets, 'data/game_dictionary.txt'), 'utf8')),
-      );
+    const dictionary = Schema.decodeUnknownSync(
+      Schema.Struct({ achievements: Schema.Record(Schema.String, Schema.Int) }),
+    )(
+      JSON.parse(
+        repositories.filesRepository.readFileSync(resolve(context.assets, 'data/game_dictionary.txt'), 'utf8'),
+      ),
+    );
 
-    immediate(runtime.accounts.db, () => {
+    immediate(context.accounts.db, () => {
       for (const badge of achievements.achievements) {
         const hash = dictionary.achievements[String(badge.id)];
 
-        if (hash !== undefined) this.recordsRepository.ensureRoute(id, hash);
+        if (hash !== undefined) repositories.recordsRepository.ensureRoute(id, hash);
       }
     });
-  }
+  });
+
+  return { loadAchievements, backfillRoutes };
+});
+
+/** Per rider, missing file bootstraps saved-game unlocks; membership only grows through
+threshold/report events. Import replaces this state externally; reads may backfill routes.
+*/
+export class AchievementService extends Context.Service<AchievementService, Effect.Success<typeof make>>()(
+  'zluggish/AchievementService',
+) {
+  static readonly layer = Layer.effect(AchievementService, make);
 }

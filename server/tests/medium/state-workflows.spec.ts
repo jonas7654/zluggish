@@ -1,5 +1,12 @@
+import { WebSessionsService } from '#src/services/web-session.service';
+import { ActivitiesService } from '#src/services/activities.service';
+import { JobsService } from '#src/services/jobs.service';
+import { Effect } from 'effect';
+import { ConnectionsService } from '#src/services/connections.service';
+import { IntegrationsService } from '#src/services/integrations.service';
+import { DocumentsService } from '#src/services/documents.service';
+import { RecordDataService } from '#src/services/record-data.service';
 import { StravaRepository } from '#src/repositories/strava.repository';
-import { UploadsService } from '#src/services/uploads.service';
 import { openRuntime } from '#src/runtime';
 import { ActivitySchema } from '#src/protocol/generated/activity_pb';
 import { UploadsRepository } from '#src/repositories/uploads.repository';
@@ -37,11 +44,15 @@ const mfa: MfaState = {
 
 /** A signed-in web session for the rider, as the web app's authorization routes see it. */
 function webSession(f: Awaited<ReturnType<typeof mediumFixture>>) {
-  const sessions = f.services.management.sessions;
+  const sessions = f.effects.runSync(WebSessionsService);
   const identity = f.accounts.identityOf(f.rider);
-  const { id } = sessions.create(identity);
+  const { id } = f.effects.runSync(sessions.create(identity));
 
-  return { id, live: () => sessions.current(id, identity), end: () => sessions.end(id) };
+  return {
+    id,
+    live: () => f.effects.runSync(sessions.current(id, identity)),
+    end: () => f.effects.runSync(sessions.end(id)),
+  };
 }
 
 await test('delivery records send once, retry failures manually and never recreate deleted records', async (t) => {
@@ -70,27 +81,30 @@ await test('delivery records send once, retry failures manually and never recrea
 
 await test('the job runner finishes admitted work at close and admits nothing after', async (t) => {
   const f = await mediumFixture(t);
-  const jobs = f.services.jobs;
+  const jobs = f.effects.runSync(JobsService);
   const gate = Promise.withResolvers<void>();
   let runs = 0;
-  jobs.register('retention', {
-    concurrency: 1,
-    attempts: 1,
-    timeoutMs: 60_000,
-    run: async () => {
-      runs++;
-      await gate.promise;
-    },
-  });
-  jobs.enqueue('retention', {});
-  jobs.start();
+  f.effects.runSync(
+    jobs.register('retention', {
+      concurrency: 1,
+      attempts: 1,
+      timeoutMs: 60_000,
+      run: () =>
+        Effect.promise(async () => {
+          runs++;
+          await gate.promise;
+        }),
+    }),
+  );
+  f.effects.runSync(jobs.enqueue('retention', {}));
+  f.effects.runSync(jobs.start());
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(runs, 1);
-  const closing = jobs.close();
-  jobs.enqueue('retention', {});
+  const closing = f.effects.runPromise(jobs.close());
+  f.effects.runSync(jobs.enqueue('retention', {}));
   gate.resolve();
   await closing;
-  jobs.start();
+  f.effects.runSync(jobs.start());
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(runs, 1);
   assert.deepEqual(
@@ -109,16 +123,30 @@ await test('media upload claims serialize requests and deletion during body read
     playerId: BigInt(f.rider.player_id),
   });
 
-  const id = f.services.recordData.insert('activity', ActivitySchema, activity, ['fit']);
-  const media = f.services.activities.insertActivityMedia(f.rider.player_id, id, 'video/mp4').lastInsertRowid;
-  const issued = f.services.activities.issueMedia(String(media));
+  const id = f.effects.runSync(
+    RecordDataService.use((service) => service.insert('activity', ActivitySchema, activity, ['fit'])),
+  );
+
+  const media = f.effects.runSync(
+    ActivitiesService.use((service) => service.insertActivityMedia(f.rider.player_id, id, 'video/mp4')),
+  ).lastInsertRowid;
+
+  const issued = f.effects.runSync(ActivitiesService.use((service) => service.issueMedia(String(media))));
   const gate = Promise.withResolvers<ArrayBuffer>();
-  const uploading = f.services.activities.receiveMedia(String(media), issued.token, () => gate.promise);
+
+  const uploading = f.effects.runPromise(
+    ActivitiesService.use((service) => service.receiveMedia(String(media), issued.token, () => gate.promise)),
+  );
+
   await assert.rejects(
-    f.services.activities.receiveMedia(String(media), issued.token, () => Promise.resolve(new ArrayBuffer(1))),
+    f.effects.runPromise(
+      ActivitiesService.use((service) =>
+        service.receiveMedia(String(media), issued.token, () => Promise.resolve(new ArrayBuffer(1))),
+      ),
+    ),
     { status: 403 },
   );
-  f.services.activities.deleteActivity(BigInt(id), f.rider.player_id);
+  f.effects.runSync(ActivitiesService.use((service) => service.deleteActivity(BigInt(id), f.rider.player_id)));
   gate.resolve(new ArrayBuffer(1));
   await assert.rejects(uploading, { status: 404 });
   assert.equal(existsSync(resolve(f.profiles.folder(f.rider.player_id), 'medias', `${media}.mp4`)), false);
@@ -127,27 +155,46 @@ await test('media upload claims serialize requests and deletion during body read
 await test('failed media body reads release the claim; successful uploads consume it', async (t) => {
   const f = await mediumFixture(t);
 
-  const id = f.services.recordData.insert(
-    'activity',
-    ActivitySchema,
-    create(ActivitySchema, {
-      courseId: 6n,
-      name: 'Test',
-      startDate: '2026-11-14T08:00:00Z',
-      playerId: BigInt(f.rider.player_id),
-    }),
-    ['fit'],
+  const id = f.effects.runSync(
+    RecordDataService.use((service) =>
+      service.insert(
+        'activity',
+        ActivitySchema,
+        create(ActivitySchema, {
+          courseId: 6n,
+          name: 'Test',
+          startDate: '2026-11-14T08:00:00Z',
+          playerId: BigInt(f.rider.player_id),
+        }),
+        ['fit'],
+      ),
+    ),
   );
 
-  const media = f.services.activities.insertActivityMedia(f.rider.player_id, id, 'video/mp4').lastInsertRowid;
-  const issued = f.services.activities.issueMedia(String(media));
+  const media = f.effects.runSync(
+    ActivitiesService.use((service) => service.insertActivityMedia(f.rider.player_id, id, 'video/mp4')),
+  ).lastInsertRowid;
+
+  const issued = f.effects.runSync(ActivitiesService.use((service) => service.issueMedia(String(media))));
   await assert.rejects(
-    f.services.activities.receiveMedia(String(media), issued.token, () => Promise.reject(new Error('read failed'))),
+    f.effects.runPromise(
+      ActivitiesService.use((service) =>
+        service.receiveMedia(String(media), issued.token, () => Promise.reject(new Error('read failed'))),
+      ),
+    ),
     /read failed/,
   );
-  await f.services.activities.receiveMedia(String(media), issued.token, () => Promise.resolve(new ArrayBuffer(2)));
+  await f.effects.runPromise(
+    ActivitiesService.use((service) =>
+      service.receiveMedia(String(media), issued.token, () => Promise.resolve(new ArrayBuffer(2))),
+    ),
+  );
   await assert.rejects(
-    f.services.activities.receiveMedia(String(media), issued.token, () => Promise.resolve(new ArrayBuffer(1))),
+    f.effects.runPromise(
+      ActivitiesService.use((service) =>
+        service.receiveMedia(String(media), issued.token, () => Promise.resolve(new ArrayBuffer(1))),
+      ),
+    ),
     { status: 403 },
   );
 });
@@ -170,7 +217,9 @@ await test('browser continuation requires the same session and current identity 
 await test('Garmin MFA consumes one code and persists compatible tokens only for the current attempt', async (t) => {
   const f = await mediumFixture(t);
   const opened = webSession(f);
-  f.services.connections.save(f.rider.player_id, 'garmin', ['test', 'password']);
+  f.effects.runSync(
+    ConnectionsService.use((service) => service.save(f.rider.player_id, 'garmin', ['test', 'password'])),
+  );
   t.mock.method(
     GarminClient.prototype,
     'login',
@@ -181,17 +230,30 @@ await test('Garmin MFA consumes one code and persists compatible tokens only for
 
     return Promise.resolve();
   });
-  assert.equal(await f.services.integrations.authorizeGarminSession(opened.id, opened.live, f.rider), 'mfa');
   assert.equal(
-    await f.services.integrations.authorizeGarminSession(opened.id, opened.live, f.rider, '123'),
+    await f.effects.runPromise(
+      IntegrationsService.use((service) => service.authorizeGarminSession(opened.id, opened.live, f.rider)),
+    ),
+    'mfa',
+  );
+  assert.equal(
+    await f.effects.runPromise(
+      IntegrationsService.use((service) => service.authorizeGarminSession(opened.id, opened.live, f.rider, '123')),
+    ),
     'authorized',
   );
   assert.deepEqual(
-    JSON.parse(f.services.documents.text(f.rider.player_id, 'garth/oauth1_token.json') ?? ''),
+    JSON.parse(
+      f.effects.runSync(
+        DocumentsService.use((service) => service.text(f.rider.player_id, 'garth/oauth1_token.json')),
+      ) ?? '',
+    ),
     tokens.oauth1,
   );
   await assert.rejects(
-    f.services.integrations.authorizeGarminSession(opened.id, opened.live, f.rider, '123'),
+    f.effects.runPromise(
+      IntegrationsService.use((service) => service.authorizeGarminSession(opened.id, opened.live, f.rider, '123')),
+    ),
     /Expired/,
   );
 });
@@ -199,7 +261,9 @@ await test('Garmin MFA consumes one code and persists compatible tokens only for
 await test('an obsolete Garmin login cannot publish tokens or erase the newer MFA attempt', async (t) => {
   const f = await mediumFixture(t);
   const opened = webSession(f);
-  f.services.connections.save(f.rider.player_id, 'garmin', ['test', 'password']);
+  f.effects.runSync(
+    ConnectionsService.use((service) => service.save(f.rider.player_id, 'garmin', ['test', 'password'])),
+  );
   const gate = Promise.withResolvers<LoginResult>();
   let calls = 0;
   t.mock.method(GarminClient.prototype, 'login', function (this: GarminClient): Promise<LoginResult> {
@@ -208,14 +272,25 @@ await test('an obsolete Garmin login cannot publish tokens or erase the newer MF
     return ++calls === 1 ? gate.promise : Promise.resolve({ state: 'mfa_required', mfaState: mfa });
   });
   const publish = t.mock.method(GarminRepository.prototype, 'saveAuthorization');
-  const old = f.services.integrations.authorizeGarminSession(opened.id, opened.live, f.rider);
-  assert.equal(await f.services.integrations.authorizeGarminSession(opened.id, opened.live, f.rider), 'mfa');
+
+  const old = f.effects.runPromise(
+    IntegrationsService.use((service) => service.authorizeGarminSession(opened.id, opened.live, f.rider)),
+  );
+
+  assert.equal(
+    await f.effects.runPromise(
+      IntegrationsService.use((service) => service.authorizeGarminSession(opened.id, opened.live, f.rider)),
+    ),
+    'mfa',
+  );
   gate.resolve({ state: 'success', ...tokens });
   await assert.rejects(old, /Expired/);
   assert.equal(publish.mock.callCount(), 0);
   t.mock.method(GarminClient.prototype, 'resumeLogin', () => Promise.resolve());
   assert.equal(
-    await f.services.integrations.authorizeGarminSession(opened.id, opened.live, f.rider, '123'),
+    await f.effects.runPromise(
+      IntegrationsService.use((service) => service.authorizeGarminSession(opened.id, opened.live, f.rider, '123')),
+    ),
     'authorized',
   );
   assert.equal(publish.mock.callCount(), 1);
@@ -225,13 +300,20 @@ for (const reason of ['expiry', 'logout', 'password', 'disconnect'] as const)
   await test(`Garmin continuation rejects ${reason}`, async (t) => {
     const f = await mediumFixture(t);
     const opened = webSession(f);
-    f.services.connections.save(f.rider.player_id, 'garmin', ['test', 'password']);
+    f.effects.runSync(
+      ConnectionsService.use((service) => service.save(f.rider.player_id, 'garmin', ['test', 'password'])),
+    );
     t.mock.method(
       GarminClient.prototype,
       'login',
       (): Promise<LoginResult> => Promise.resolve({ state: 'mfa_required', mfaState: mfa }),
     );
-    assert.equal(await f.services.integrations.authorizeGarminSession(opened.id, opened.live, f.rider), 'mfa');
+    assert.equal(
+      await f.effects.runPromise(
+        IntegrationsService.use((service) => service.authorizeGarminSession(opened.id, opened.live, f.rider)),
+      ),
+      'mfa',
+    );
 
     switch (reason) {
       case 'expiry': {
@@ -251,7 +333,7 @@ for (const reason of ['expiry', 'logout', 'password', 'disconnect'] as const)
       }
 
       case 'disconnect': {
-        f.services.connections.remove(f.rider.player_id, 'garmin');
+        f.effects.runSync(ConnectionsService.use((service) => service.remove(f.rider.player_id, 'garmin')));
         break;
       }
       // No default
@@ -259,7 +341,9 @@ for (const reason of ['expiry', 'logout', 'password', 'disconnect'] as const)
 
     const resume = t.mock.method(GarminClient.prototype, 'resumeLogin', () => Promise.resolve());
     await assert.rejects(
-      f.services.integrations.authorizeGarminSession(opened.id, opened.live, f.rider, '123'),
+      f.effects.runPromise(
+        IntegrationsService.use((service) => service.authorizeGarminSession(opened.id, opened.live, f.rider, '123')),
+      ),
       /Expired/,
     );
     assert.equal(resume.mock.callCount(), 0);
@@ -268,7 +352,9 @@ for (const reason of ['expiry', 'logout', 'password', 'disconnect'] as const)
 await test('Strava authorization cannot publish a token after web sign-out', async (t) => {
   const f = await mediumFixture(t);
   const opened = webSession(f);
-  f.services.connections.save(f.rider.player_id, 'strava', ['client', 'secret']);
+  f.effects.runSync(
+    ConnectionsService.use((service) => service.save(f.rider.player_id, 'strava', ['client', 'secret'])),
+  );
   const gate = Promise.withResolvers<void>();
   t.mock.method(StravaRepository.prototype, 'exchangeCode', async () => {
     await gate.promise;
@@ -281,17 +367,24 @@ await test('Strava authorization cannot publish a token after web sign-out', asy
       expiresAt: 9_999_999_999,
     };
   });
-  const pending = f.services.integrations.authorizeStravaSession(opened.live, f.rider, 'code');
+
+  const pending = f.effects.runPromise(
+    IntegrationsService.use((service) => service.authorizeStravaSession(opened.live, f.rider, 'code')),
+  );
+
   opened.end();
   gate.resolve();
   await assert.rejects(pending, /Expired/);
-  assert.equal(f.services.documents.has(f.rider.player_id, 'strava_token.txt'), false);
+  assert.equal(
+    f.effects.runSync(DocumentsService.use((service) => service.has(f.rider.player_id, 'strava_token.txt'))),
+    false,
+  );
 });
 
 await test('partially opened runtimes release storage ownership and close is idempotent', async (t) => {
   const f = await mediumFixture(t);
 
-  const fail = t.mock.method(UploadsService.prototype, 'start', () => {
+  const fail = t.mock.method(UploadsRepository.prototype, 'interrupted', () => {
     throw new Error('worker start');
   });
 
@@ -308,11 +401,9 @@ await test('partially opened runtimes release storage ownership and close is ide
 await test('runtime cleanup releases the storage lock even when an earlier service close fails', async (t) => {
   const f = await mediumFixture(t);
   const owner = await openRuntime(f.config, f.assets);
-  const close = owner.runtime.services.jobs.close.bind(owner.runtime.services.jobs);
-  t.mock.method(owner.runtime.services.jobs, 'close', async () => {
-    await close();
-    throw new Error('close failed');
-  });
+  const jobs = owner.runtime.effects.runSync(JobsService);
+  const close = jobs.close;
+  t.mock.method(jobs, 'close', () => close().pipe(Effect.andThen(Effect.die(new Error('close failed')))));
   await assert.rejects(owner.close(), AggregateError);
   const reopened = await openRuntime(f.config, f.assets);
   await reopened.close();

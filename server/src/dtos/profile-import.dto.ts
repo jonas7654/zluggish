@@ -1,27 +1,27 @@
 import { ImportFile as ImportFilename, ImportState } from '#src/enum';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
-export const importFilenameSchema = z.enum(ImportFilename);
+export const importFilenameSchema = Schema.Enum(ImportFilename);
 
-export type ImportFile = z.infer<typeof importFilenameSchema>;
+export type ImportFile = (typeof importFilenameSchema)['Type'];
 
 export type ImportFiles = Partial<Record<ImportFile, Uint8Array>>;
 
 export const filenameSchema = importFilenameSchema;
 
-export const manifestSchema = z.object({
-  playerId: z.number().int().positive(),
-  authVersion: z.number().int(),
-  sourceId: z.string().nullable(),
-  firstName: z.string(),
-  lastName: z.string(),
-  files: z.array(filenameSchema),
-  before: z.object({
-    firstName: z.string(),
-    lastName: z.string(),
-    officialPlayerId: z.string().nullable(),
+export const manifestSchema = Schema.Struct({
+  playerId: Schema.Int.check(Schema.isGreaterThan(0)),
+  authVersion: Schema.Int,
+  sourceId: Schema.NullOr(Schema.String),
+  firstName: Schema.String,
+  lastName: Schema.String,
+  files: Schema.Array(filenameSchema),
+  before: Schema.Struct({
+    firstName: Schema.String,
+    lastName: Schema.String,
+    officialPlayerId: Schema.NullOr(Schema.String),
   }),
-  state: z.enum(ImportState),
+  state: Schema.Enum(ImportState),
 });
 
-export type ImportManifest = z.infer<typeof manifestSchema>;
+export type ImportManifest = (typeof manifestSchema)['Type'];

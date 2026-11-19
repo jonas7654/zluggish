@@ -6,7 +6,7 @@ Run the commands below from the **repository root**. Replace sample paths and ri
 
 ## Run natively
 
-Use Node **24.15 or later within the 24.x series** and **pnpm 12.18.0**. The admin CLI is part of the server package and operates directly on server storage.
+Use Node **26.13 or later within the 26.x series** and **pnpm 12.18.0**. The admin CLI is part of the server package and operates directly on server storage.
 
 ### macOS and Linux
 

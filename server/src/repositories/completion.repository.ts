@@ -1,13 +1,13 @@
 import { query, SqliteExecutor } from '#src/db/query';
 import type { DatabaseSync } from 'node:sqlite';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
-const completion = z.object({
-  activity_id: z.number(),
-  player_id: z.number(),
-  payload: z.instanceof(Uint8Array),
-  streak: z.instanceof(Uint8Array).nullable(),
-  done: z.number(),
+const completion = Schema.Struct({
+  activity_id: Schema.Finite,
+  player_id: Schema.Finite,
+  payload: Schema.instanceOf(Uint8Array),
+  streak: Schema.NullOr(Schema.instanceOf(Uint8Array)),
+  done: Schema.Finite,
 });
 
 /** One record per completed activity. The payload is the activity without FIT bytes:
@@ -24,7 +24,7 @@ export class Completions {
   get(id: bigint) {
     const row = this.executor.get(query.selectFrom('activity_completion').selectAll().where('activity_id', '=', id));
 
-    return row ? completion.parse(row) : null;
+    return row ? Schema.decodeUnknownSync(completion)(row) : null;
   }
 
   insert(id: bigint, player: number, payload: Uint8Array, streak: Uint8Array | null) {

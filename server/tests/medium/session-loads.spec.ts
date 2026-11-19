@@ -1,6 +1,11 @@
+import { ActivitiesService } from '#src/services/activities.service';
+import { DocumentsService } from '#src/services/documents.service';
+import type { Overrides } from '#src/dtos/settings.dto';
+import type { Types } from 'effect';
 import { PlayerProfileSchema } from '#src/protocol/generated/profile_pb';
 import { GhostSchema, PlayerStateSchema } from '#src/protocol/generated/udp-node-msgs_pb';
-import { FitQueueFullError, FitRepository } from '#src/repositories/fit.repository';
+import { FitQueueFullError } from '#src/errors';
+import { FitRepository } from '#src/repositories/fit.repository';
 import { AssetFiles } from '#src/repositories/files.repository';
 import { FitService } from '#src/services/fit.service';
 import { metrics } from '#src/repositories/metrics.repository';
@@ -107,7 +112,7 @@ await test('settings reads come from the cache and follow each committed change'
   f.settings.save(rider.player_id, { 'ghosts.enabled': true });
   assert.deepEqual(f.settings.read(rider.player_id), { 'ghosts.enabled': true });
 
-  const copy = f.settings.read(rider.player_id);
+  const copy: Types.Mutable<Overrides> = f.settings.read(rider.player_id);
   copy['ghosts.enabled'] = false;
   assert.deepEqual(f.settings.read(rider.player_id), { 'ghosts.enabled': true });
 
@@ -145,12 +150,15 @@ await test('a profile and its account names commit together or not at all', asyn
   f.accounts.db.exec(`CREATE TRIGGER fail_name BEFORE UPDATE OF first_name ON user
     BEGIN SELECT RAISE(ABORT, 'injected crash'); END`);
   assert.throws(() => f.profiles.save(rider.player_id, profile), /injected crash/);
-  assert.equal(f.services.documents.has(rider.player_id, 'profile.bin'), false);
+  assert.equal(
+    f.effects.runSync(DocumentsService.use((service) => service.has(rider.player_id, 'profile.bin'))),
+    false,
+  );
   assert.equal(f.profiles.get(rider.player_id).firstName, 'Before');
   f.accounts.db.exec('DROP TRIGGER fail_name');
   f.profiles.save(rider.player_id, profile);
   assert.equal(f.accounts.get(rider.player_id)?.first_name, 'After');
-  const stored = f.services.documents.get(rider.player_id, 'profile.bin');
+  const stored = f.effects.runSync(DocumentsService.use((service) => service.get(rider.player_id, 'profile.bin')));
   assert.equal(fromBinary(PlayerProfileSchema, stored ?? new Uint8Array()).firstName, 'After');
 });
 
@@ -166,7 +174,10 @@ await test('the completion and FIT queues record depth, wait and rejections', as
     startDate: new Date().toISOString(),
   });
 
-  await Promise.all([f.services.activities.saveInTurn(draft, false), f.services.activities.saveInTurn(draft, false)]);
+  await Promise.all([
+    f.effects.runPromise(ActivitiesService.use((service) => service.saveInTurn(draft, false))),
+    f.effects.runPromise(ActivitiesService.use((service) => service.saveInTurn(draft, false))),
+  ]);
   const pool = new FitRepository(1);
   const fit = readFileSync(new URL('../fixtures/ride.fit', import.meta.url));
   const first = pool.chart(fit);

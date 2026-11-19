@@ -1,46 +1,59 @@
+import { ConnectionsService } from '#src/services/connections.service';
+import { IntegrationsService } from '#src/services/integrations.service';
+import { Effect } from 'effect';
+import { effectRoutes } from '#src/http/effect';
+import { SettingsService } from '#src/services/settings.service';
 import { authenticated } from '#src/http/routes/accounts';
 import type { HttpRuntime as Runtime, RuntimeEnv } from '#src/http/runtime';
 import type { Hono } from 'hono';
 
 export function integrationRoutes(app: Hono<RuntimeEnv>, runtime: Runtime) {
-  const connections = runtime.services.connections;
+  const appRoutes = effectRoutes(app, runtime);
+  appRoutes.post('/api/d-lock-service/device/authenticate', (c) =>
+    Effect.gen(function* () {
+      const connectionsService = yield* ConnectionsService;
 
-  app.post('/api/d-lock-service/device/authenticate', async (c) => {
-    const rider = authenticated(c);
-    const { credentials } = connections.inspect(rider.player_id, 'zwift');
+      const integrationsService = yield* IntegrationsService;
 
-    const enabled = runtime.services.settings.resolveRiderSettings(
-      runtime.config.riderDefaults,
-      runtime.services.settings.read(rider.player_id),
-    ).devices.zwiftClick.enabled;
+      const settingsService = yield* SettingsService;
 
-    if (!enabled || !credentials) return c.body(null, 204);
+      const rider = authenticated(c);
+      const { credentials } = yield* connectionsService.inspect(rider.player_id, 'zwift');
 
-    try {
-      const token = await runtime.services.integrations.officialLogin(credentials[0], credentials[1]);
+      const enabled = (yield* settingsService.resolveRiderSettings(
+        runtime.config.riderDefaults,
+        yield* settingsService.read(rider.player_id),
+      )).devices.zwiftClick.enabled;
 
-      const response = await runtime.services.integrations.request(
-        `${runtime.services.integrations.officialRelay}/api/d-lock-service/device/authenticate`,
-        {
-          method: 'POST',
-          headers: {
-            ...runtime.services.integrations.officialHeaders(token),
-            'Content-Type': c.req.header('Content-Type') ?? 'application/octet-stream',
-            Accept: c.req.header('Accept') ?? '*/*',
+      if (!enabled || !credentials) return c.body(null, 204);
+
+      // Any failure of the official service means "no device": the client carries on without it.
+      return yield* Effect.gen(function* () {
+        const token = yield* integrationsService.officialLogin(credentials[0], credentials[1]);
+        const headers = yield* integrationsService.officialHeaders(token);
+        const body = new Uint8Array(yield* Effect.promise(() => c.req.arrayBuffer()));
+
+        const response = yield* integrationsService.request(
+          `${integrationsService.officialRelay}/api/d-lock-service/device/authenticate`,
+          {
+            method: 'POST',
+            headers: {
+              ...headers,
+              'Content-Type': c.req.header('Content-Type') ?? 'application/octet-stream',
+              Accept: c.req.header('Accept') ?? '*/*',
+            },
+            body,
+            signal: AbortSignal.timeout(30_000),
           },
-          body: new Uint8Array(await c.req.arrayBuffer()),
-          signal: AbortSignal.timeout(30_000),
-        },
-      );
+        );
 
-      return new Response(await response.arrayBuffer(), {
-        status: response.status,
-        headers: {
-          'Content-Type': response.headers.get('Content-Type') ?? 'application/octet-stream',
-        },
-      });
-    } catch {
-      return c.body(null, 204);
-    }
-  });
+        return new Response(yield* Effect.promise(() => response.arrayBuffer()), {
+          status: response.status,
+          headers: {
+            'Content-Type': response.headers.get('Content-Type') ?? 'application/octet-stream',
+          },
+        });
+      }).pipe(Effect.catchCause(() => Effect.succeed(c.body(null, 204))));
+    }),
+  );
 }

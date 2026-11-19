@@ -5,26 +5,26 @@ import { JobError } from '#src/errors';
 import { CryptoRepository } from '#src/repositories/crypto.repository';
 import { sql } from 'kysely';
 import type { DatabaseSync } from 'node:sqlite';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 /** Payloads hold identifiers only: never credentials or binary data. */
 export type JobPayload = Record<string, number | string>;
 
-const payloadSchema = z.record(z.string(), z.union([z.number(), z.string()]));
+const payloadSchema = Schema.Record(Schema.String, Schema.Union([Schema.Finite, Schema.String]));
 
-const jobSchema = z.object({
-  id: z.number(),
-  type: z.enum(JobType),
-  payload_version: z.number(),
-  payload: z.string(),
-  state: z.string(),
-  attempts: z.number(),
-  next_run_at: z.number(),
-  lease_expires_at: z.number().nullable(),
-  claim_token: z.string().nullable(),
-  last_error: z.string().nullable(),
-  created_at: z.number(),
-  finished_at: z.number().nullable(),
+const jobSchema = Schema.Struct({
+  id: Schema.Finite,
+  type: Schema.Enum(JobType),
+  payload_version: Schema.Finite,
+  payload: Schema.String,
+  state: Schema.String,
+  attempts: Schema.Finite,
+  next_run_at: Schema.Finite,
+  lease_expires_at: Schema.NullOr(Schema.Finite),
+  claim_token: Schema.NullOr(Schema.String),
+  last_error: Schema.NullOr(Schema.String),
+  created_at: Schema.Finite,
+  finished_at: Schema.NullOr(Schema.Finite),
 });
 
 export type Claim = {
@@ -105,7 +105,7 @@ export class JobsRepository {
               ]),
             ),
         )
-        .map((row) => z.enum(JobType).parse(row.type)),
+        .map((row) => Schema.decodeUnknownSync(Schema.Enum(JobType))(row.type)),
     );
   }
 
@@ -145,7 +145,7 @@ export class JobsRepository {
           .where('id', '=', candidate.id),
       );
 
-      const job = jobSchema.parse(
+      const job = Schema.decodeUnknownSync(jobSchema)(
         this.executor.get(query.selectFrom('job').selectAll().where('id', '=', candidate.id)),
       );
 
@@ -153,7 +153,7 @@ export class JobsRepository {
         id: job.id,
         type: job.type,
         payloadVersion: job.payload_version,
-        payload: payloadSchema.parse(JSON.parse(job.payload)),
+        payload: Schema.decodeUnknownSync(payloadSchema)(JSON.parse(job.payload)),
         attempts: job.attempts,
         token,
       };
@@ -246,7 +246,7 @@ export class JobsRepository {
 
     if (type) selection = selection.where('type', '=', type);
 
-    return this.executor.all(selection).map((job) => jobSchema.parse(job));
+    return this.executor.all(selection).map((job) => Schema.decodeUnknownSync(jobSchema)(job));
   }
 
   pending(type: JobType) {
@@ -272,7 +272,7 @@ export class RunningJob {
   number(key: string) {
     const value = this.claim.payload[key];
 
-    if (!Number.isSafeInteger(value)) throw new JobError('invalid_payload', false);
+    if (!Number.isSafeInteger(value)) throw new JobError({ code: 'invalid_payload', retry: false });
 
     return Number(value);
   }
@@ -280,7 +280,7 @@ export class RunningJob {
   text(key: string) {
     const value = this.claim.payload[key];
 
-    if (value === undefined) throw new JobError('invalid_payload', false);
+    if (value === undefined) throw new JobError({ code: 'invalid_payload', retry: false });
 
     return String(value);
   }

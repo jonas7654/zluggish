@@ -1,54 +1,54 @@
-import type { RepositoryContext } from '#src/context';
+import { RuntimeContext } from '#src/context';
 import { ApplicationError } from '#src/errors';
 import type { Achievements } from '#src/protocol/generated/profile_pb';
 import { AchievementsSchema } from '#src/protocol/generated/profile_pb';
 import type { UserStorage } from '#src/protocol/generated/user_storage_pb';
 import { AttributesSchema, UserStorageSchema } from '#src/protocol/generated/user_storage_pb';
 import { AchievementService } from '#src/services/achievement.service';
-import { BaseService } from '#src/services/base.service';
 import { clone, create, fromBinary, isFieldSet, toBinary } from '@bufbuild/protobuf';
 import { reflect } from '@bufbuild/protobuf/reflect';
 import { resolve } from 'node:path';
-import { z } from 'zod';
+import { Context, Effect, Layer, Option, Schema } from 'effect';
+import { withDefault } from '#src/schema';
 
-const fileRow = z.object({
-  id: z.number(),
-  player_id: z.number(),
-  folder: z.string(),
-  filename: z.string(),
-  timestamp: z.number(),
+const fileRow = Schema.Struct({
+  id: Schema.Finite,
+  player_id: Schema.Finite,
+  folder: Schema.String,
+  filename: Schema.String,
+  timestamp: Schema.Finite,
 });
 
 function safeName(value: string) {
-  if (!value || value === '.' || value === '..' || /[\\/\0]/.test(value)) throw new ApplicationError(400);
+  if (!value || value === '.' || value === '..' || /[\\/\0]/.test(value)) throw new ApplicationError({ status: 400 });
 
   return value;
 }
 
-export class StorageService extends BaseService {
-  constructor(private readonly context: RepositoryContext) {
-    super(context.accounts.repositories);
-  }
+const make = Effect.gen(function* () {
+  const context = yield* RuntimeContext;
+  const repositories = context.accounts.repositories;
+  const achievementService = yield* AchievementService;
 
-  achievements(id: number) {
-    return new AchievementService(this.repositories).loadAchievements(this.context, id);
-  }
+  const achievements = Effect.fn('StorageService.achievements')(function* (id: number) {
+    return yield* achievementService.loadAchievements(id);
+  });
 
   /** Repeated unlocks are idempotent membership additions, not progression increments. */
-  unlock(id: number, incoming: Achievements) {
-    const stored = this.riderDocuments.get(id, 'achievements.bin');
+  const unlock = Effect.fn('StorageService.unlock')(function* (id: number, incoming: Achievements) {
+    const stored = repositories.riderDocuments.get(id, 'achievements.bin');
     const achievements = stored ? fromBinary(AchievementsSchema, stored) : create(AchievementsSchema);
 
     for (const achievement of incoming.achievements)
       if (achievements.achievements.every((item) => item.id !== achievement.id))
         achievements.achievements.push(achievement);
-    this.riderDocuments.put(id, 'achievements.bin', toBinary(AchievementsSchema, achievements));
-  }
+    repositories.riderDocuments.put(id, 'achievements.bin', toBinary(AchievementsSchema, achievements));
+  });
 
-  attributes(id: number, requested: Set<number>) {
-    const storage = this.userStorage(id);
+  const attributes = Effect.fn('StorageService.attributes')(function* (id: number, requested: Set<number>) {
+    const storage = userStorage(id);
 
-    const unlockBikes = requested.has(24) && this.context.config.equipment.unlockBikeUpgrades;
+    const unlockBikes = requested.has(24) && context.config.equipment.unlockBikeUpgrades;
 
     const attributes = storage.attributes.filter((attribute) =>
       AttributesSchema.fields.some(
@@ -64,16 +64,16 @@ export class StorageService extends BaseService {
         attributes[index] = attribute;
       }
 
-      const dictionary = z
-        .object({
-          bikeframes: z.record(z.string(), z.string()),
-          bikeframesextra: z.record(z.string(), z.string()).default({}),
-        })
-        .parse(
-          JSON.parse(
-            this.filesRepository.readFileSync(resolve(this.context.assets, 'data/game_dictionary.txt'), 'utf8'),
-          ),
-        );
+      const dictionary = Schema.decodeUnknownSync(
+        Schema.Struct({
+          bikeframes: Schema.Record(Schema.String, Schema.String),
+          bikeframesextra: Schema.Record(Schema.String, Schema.String).pipe(withDefault({})),
+        }),
+      )(
+        JSON.parse(
+          repositories.filesRepository.readFileSync(resolve(context.assets, 'data/game_dictionary.txt'), 'utf8'),
+        ),
+      );
 
       const now = BigInt(Date.now());
 
@@ -89,10 +89,10 @@ export class StorageService extends BaseService {
     }
 
     return create(UserStorageSchema, { attributes });
-  }
+  });
 
-  saveAttributes(id: number, incoming: UserStorage) {
-    const storage = this.userStorage(id);
+  const saveAttributes = Effect.fn('StorageService.saveAttributes')(function* (id: number, incoming: UserStorage) {
+    const storage = userStorage(id);
 
     for (const attribute of incoming.attributes) {
       const incomingFields = reflect(AttributesSchema, attribute);
@@ -113,62 +113,74 @@ export class StorageService extends BaseService {
       storage.attributes.push(attribute);
     }
 
-    this.riderDocuments.put(id, 'user_storage.bin', toBinary(UserStorageSchema, storage));
-  }
+    repositories.riderDocuments.put(id, 'user_storage.bin', toBinary(UserStorageSchema, storage));
+  });
 
-  private userStorage(id: number) {
-    const stored = this.riderDocuments.get(id, 'user_storage.bin');
+  function userStorage(id: number) {
+    const stored = repositories.riderDocuments.get(id, 'user_storage.bin');
 
     return stored ? fromBinary(UserStorageSchema, stored) : create(UserStorageSchema);
   }
 
-  upload(id: number, upload: { folder: string; filename: string; file: Uint8Array }) {
+  const upload = Effect.fn('StorageService.upload')(function* (
+    id: number,
+    upload: { folder: string; filename: string; file: Uint8Array },
+  ) {
     const folder = safeName(upload.folder);
 
-    if (folder.startsWith('.')) throw new ApplicationError(400);
+    if (folder.startsWith('.')) return yield* new ApplicationError({ status: 400 });
     const name = safeName(upload.filename);
-    this.filesRepository.write(resolve(this.context.profiles.folder(id), folder, name), upload.file);
-    const existing = this.storageRepository.findZfile(id, folder, name);
+    repositories.filesRepository.write(resolve(context.profiles.folder(id), folder, name), upload.file);
+    const existing = repositories.storageRepository.findZfile(id, folder, name);
     const timestamp = Math.floor(Date.now() / 1000);
 
-    if (existing) this.storageRepository.updateZfileTimestamp(timestamp, fileRow.parse(existing).id);
+    if (existing)
+      repositories.storageRepository.updateZfileTimestamp(timestamp, Schema.decodeUnknownSync(fileRow)(existing).id);
 
     const fileId = existing
-      ? fileRow.parse(existing).id
-      : Number(this.storageRepository.insertZfile(id, folder, name, timestamp).lastInsertRowid);
+      ? Schema.decodeUnknownSync(fileRow)(existing).id
+      : Number(repositories.storageRepository.insertZfile(id, folder, name, timestamp).lastInsertRowid);
 
     return { id: fileId, folder, name, timestamp };
+  });
+
+  const list = Effect.fn('StorageService.list')(function* (id: number, folder: string) {
+    return repositories.storageRepository.listZfile(id, folder).map((row) => Schema.decodeUnknownSync(fileRow)(row));
+  });
+
+  function owned(id: number, fileId: string) {
+    const parsed = Schema.decodeUnknownOption(fileRow)(repositories.storageRepository.findZfileRow(fileId, id));
+
+    if (Option.isNone(parsed)) throw new ApplicationError({ status: 404 });
+
+    return parsed.value;
   }
 
-  list(id: number, folder: string) {
-    return this.storageRepository.listZfile(id, folder).map((row) => fileRow.parse(row));
-  }
-
-  private owned(id: number, fileId: string) {
-    const parsed = fileRow.safeParse(this.storageRepository.findZfileRow(fileId, id));
-
-    if (!parsed.success) throw new ApplicationError(404);
-
-    return parsed.data;
-  }
-
-  delete(id: number, fileId: string) {
-    const row = this.owned(id, fileId);
-    this.filesRepository.remove(
-      resolve(this.context.profiles.folder(id), safeName(row.folder), safeName(row.filename)),
+  const deleteEntry = Effect.fn('StorageService.delete')(function* (id: number, fileId: string) {
+    const row = owned(id, fileId);
+    repositories.filesRepository.remove(
+      resolve(context.profiles.folder(id), safeName(row.folder), safeName(row.filename)),
     );
-    this.storageRepository.deleteZfile(row.id);
-  }
+    repositories.storageRepository.deleteZfile(row.id);
+  });
 
-  download(id: number, fileId: string) {
-    const row = this.owned(id, fileId);
+  const download = Effect.fn('StorageService.download')(function* (id: number, fileId: string) {
+    const row = owned(id, fileId);
 
-    const contents = this.filesRepository.read(
-      resolve(this.context.profiles.folder(id), safeName(row.folder), safeName(row.filename)),
+    const contents = repositories.filesRepository.read(
+      resolve(context.profiles.folder(id), safeName(row.folder), safeName(row.filename)),
     );
 
-    if (!contents) throw new ApplicationError(404);
+    if (!contents) return yield* new ApplicationError({ status: 404 });
 
     return contents;
-  }
+  });
+
+  return { achievements, unlock, attributes, saveAttributes, upload, list, delete: deleteEntry, download };
+});
+
+export class StorageService extends Context.Service<StorageService, Effect.Success<typeof make>>()(
+  'zluggish/StorageService',
+) {
+  static readonly layer = Layer.effect(StorageService, make);
 }

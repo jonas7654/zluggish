@@ -70,7 +70,7 @@ Config files are trusted code. The CLI has full administrator access to the moun
 
 ## Run natively
 
-Use Node.js **24.15 or later in the 24.x series** and **pnpm 12.18.0**. The CLI is part of the server package.
+Use Node.js **26.13 or later in the 26.x series** and **pnpm 12.18.0**. The CLI is part of the server package.
 
 ### macOS and Linux
 

@@ -1,13 +1,17 @@
 import { uuid, metadataSchema, storedEntrySchema, type StoredEntry } from '#src/dtos/workout.dto';
-import type { RepositoryContext as Runtime } from '#src/context';
+import { RuntimeContext } from '#src/context';
 import { UnreadableCredentialsError } from '#src/errors';
-import { BaseService } from '#src/services/base.service';
 import { SettingsService } from '#src/services/settings.service';
 import { XMLBuilder, XMLParser, XMLValidator } from 'fast-xml-parser';
 import { resolve } from 'node:path';
-import { z } from 'zod';
+import { Context, Effect, Layer, Option, Schema } from 'effect';
+import { decodeOwned, withDefault } from '#src/schema';
 
-const number = (value: z.infer<ReturnType<typeof z.json>> | undefined, fallback = 0) => {
+const isCollection = Schema.is(Schema.Struct({ workouts: Schema.Array(Schema.Json) }));
+
+const decodeStoredEntry = Schema.decodeUnknownOption(storedEntrySchema);
+
+const number = (value: typeof Schema.Json.Type | undefined, fallback = 0) => {
   const result = Number(value);
 
   return value !== undefined && Number.isFinite(result) && result >= 0 ? result : fallback;
@@ -21,9 +25,9 @@ const parser = new XMLParser({
   processEntities: false,
 });
 
-const documentSchema = z.record(z.string(), z.json());
+const documentSchema = Schema.Record(Schema.String, Schema.Json);
 
-const stepSchema = z.record(z.string(), z.union([z.string(), z.number(), z.json()]));
+const stepSchema = Schema.Record(Schema.String, Schema.Union([Schema.String, Schema.Finite, Schema.Json]));
 
 const localDay = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -36,12 +40,96 @@ function parseXML(content: string) {
   )
     throw new Error('Invalid workout XML');
 
-  return documentSchema.parse(parser.parse(content));
+  return Schema.decodeUnknownSync(documentSchema)(parser.parse(content));
 }
 
-export class WorkoutsService extends BaseService {
-  private scheduleID(identity: string) {
-    const digest = this.cryptoRepository
+/** Name, description, duration and zone split of a cycling workout file; null when it is not one. */
+function workoutDetails(content: string) {
+  const document = parseXML(content);
+  const root = Schema.decodeUnknownSync(documentSchema)(document.workout_file);
+  const workout = Schema.decodeUnknownSync(documentSchema)(root.workout);
+
+  if (!['bike', 'cycling'].includes(String(root.sportType ?? 'bike').toLowerCase())) return null;
+  const zones = [0, 0, 0, 0, 0, 0];
+  let duration = 0;
+  let known = true;
+
+  function add(seconds: number, low: number, high = low) {
+    if (seconds <= 0) return;
+    duration += seconds;
+
+    if (low < 0 || high < 0) {
+      known = false;
+
+      return;
+    }
+
+    const cuts = [0, 1];
+
+    if (low !== high)
+      for (const limit of [0.55, 0.75, 0.9, 1.05, 1.2])
+        if (Math.min(low, high) < limit && limit < Math.max(low, high)) cuts.push((limit - low) / (high - low));
+    cuts.sort((a, b) => a - b);
+
+    for (let index = 1; index < cuts.length; index++) {
+      const start = cuts[index - 1] ?? 0;
+      const end = cuts[index] ?? 1;
+      const power = low + ((high - low) * (start + end)) / 2;
+
+      const zone = [0.55, 0.75, 0.9, 1.05, 1.2].findIndex((limit) => power <= limit);
+
+      const target = zone === -1 ? 5 : zone;
+      zones[target] = (zones[target] ?? 0) + seconds * (end - start);
+    }
+  }
+
+  for (const [tag, value] of Object.entries(workout))
+    for (const entry of Array.isArray(value) ? value : [value]) {
+      const parsed = Schema.decodeUnknownOption(stepSchema)(entry);
+
+      if (Option.isNone(parsed)) continue;
+      const step = parsed.value;
+
+      if (tag === 'IntervalsT') {
+        const repeat = number(step['@_Repeat']);
+
+        if (!Number.isSafeInteger(repeat) || repeat < 1 || repeat > 604_800) return null;
+        add(repeat * number(step['@_OnDuration']), number(step['@_OnPower'], -1));
+        add(repeat * number(step['@_OffDuration']), number(step['@_OffPower'], -1));
+      } else if (['Warmup', 'Cooldown', 'Ramp'].includes(tag))
+        add(number(step['@_Duration']), number(step['@_PowerLow'], -1), number(step['@_PowerHigh'], -1));
+      else add(number(step['@_Duration']), number(step['@_Power'], -1));
+    }
+
+  if (duration <= 0 || duration > 604_800) return null;
+  const exact = zones.map((value) => (100 * value) / duration);
+  const percentages = known ? exact.map((element) => Math.floor(element)) : [0, 0, 0, 0, 0, 0];
+
+  if (known) {
+    const order = exact
+      .map((value, index) => ({ index, fraction: value - Math.floor(value) }))
+      .sort((a, b) => b.fraction - a.fraction);
+
+    const remaining = 100 - percentages.reduce((sum, value) => sum + value, 0);
+
+    for (const item of order.slice(0, remaining)) percentages[item.index] = (percentages[item.index] ?? 0) + 1;
+  }
+
+  return {
+    name: String(root.name ?? ''),
+    description: String(root.description ?? ''),
+    duration: Math.round(duration),
+    zonePercentages: percentages,
+    difficulty: Math.min(number(root.difficulty), 5),
+  };
+}
+
+const make = Effect.gen(function* () {
+  const runtime = yield* RuntimeContext;
+  const repositories = runtime.accounts.repositories;
+
+  function scheduleID(identity: string) {
+    const digest = repositories.cryptoRepository
       .sha1(Buffer.concat([Buffer.from('6ba7b8119dad11d180b400c04fd430c8', 'hex'), Buffer.from(identity)]))
       .subarray(0, 16);
 
@@ -54,103 +142,95 @@ export class WorkoutsService extends BaseService {
 
   // Publication is synchronous: capture -> replace -> commit, or restore on exception.
   // This is exception rollback, not a durable crash journal; no published marker is invented.
-  private publishFiles(files: ReadonlyMap<string, string | Uint8Array>, commit?: () => void) {
+  function publishFiles(files: ReadonlyMap<string, string | Uint8Array>, commit?: () => void) {
     const previous = new Map<string, Buffer | null>();
 
     try {
       for (const [file, content] of files) {
-        previous.set(file, this.filesRepository.existsSync(file) ? this.filesRepository.readFileSync(file) : null);
-        this.filesRepository.writeDurable(file, content, true);
+        previous.set(
+          file,
+          repositories.filesRepository.existsSync(file) ? repositories.filesRepository.readFileSync(file) : null,
+        );
+        repositories.filesRepository.writeDurable(file, content, true);
       }
 
       commit?.();
     } catch (error) {
       for (const [file, content] of previous)
-        if (content === null) this.filesRepository.rmSync(file, { force: true });
-        else this.filesRepository.writeDurable(file, content, true);
+        if (content === null) repositories.filesRepository.rmSync(file, { force: true });
+        else repositories.filesRepository.writeDurable(file, content, true);
       throw error;
     }
   }
 
-  constructor(readonly runtime: Runtime) {
-    super(runtime.accounts.repositories);
-  }
-
-  syncWorkoutsAutomatically(id: number, android = false) {
-    return WorkoutsService.syncWorkoutsAutomatically(this.runtime, id, android);
-  }
-
-  provider(id: number) {
-    const settings = SettingsService.resolveRiderSettings(
-      this.runtime.config.riderDefaults,
-      this.runtime.settings.read(id),
-    );
+  function providerOf(id: number) {
+    const settings = SettingsService.resolveRiderSettings(runtime.config.riderDefaults, runtime.settings.read(id));
 
     const available = [];
 
-    if (this.connectionsRepository.has(id, 'intervals')) available.push('intervals-icu');
+    if (repositories.connectionsRepository.has(id, 'intervals')) available.push('intervals-icu');
 
     if (settings.workouts.trainingpeaks.bridgeFolder) available.push('trainingpeaks');
 
-    const file = resolve(this.runtime.profiles.folder(id), 'active_workout_provider.txt');
+    const file = resolve(runtime.profiles.folder(id), 'active_workout_provider.txt');
 
-    const saved = this.filesRepository.existsSync(file) ? this.filesRepository.readFileSync(file, 'utf8').trim() : '';
+    const saved = repositories.filesRepository.existsSync(file)
+      ? repositories.filesRepository.readFileSync(file, 'utf8').trim()
+      : '';
 
     return available.includes(saved) ? saved : (available[0] ?? null);
   }
 
-  entries(id: number) {
-    const file = resolve(this.runtime.profiles.folder(id), 'intervals_icu_workout.json');
+  function entriesOf(id: number) {
+    const file = resolve(runtime.profiles.folder(id), 'intervals_icu_workout.json');
 
-    if (!this.filesRepository.existsSync(file)) return [];
-    const raw = documentSchema.parse(JSON.parse(this.filesRepository.readFileSync(file, 'utf8')));
+    if (!repositories.filesRepository.existsSync(file)) return [];
 
-    return z.array(metadataSchema).parse(Array.isArray(raw.workouts) ? raw.workouts : [raw]);
+    const raw = Schema.decodeUnknownSync(documentSchema)(
+      JSON.parse(repositories.filesRepository.readFileSync(file, 'utf8')),
+    );
+
+    return Schema.decodeUnknownSync(Schema.Array(metadataSchema))(Array.isArray(raw.workouts) ? raw.workouts : [raw]);
   }
 
-  metadataFile(id: number) {
-    return resolve(this.runtime.profiles.folder(id), 'intervals_icu_workout.json');
+  function metadataFileOf(id: number) {
+    return resolve(runtime.profiles.folder(id), 'intervals_icu_workout.json');
   }
 
   /** Unmodified stored entries, including fields the schema does not read. */
-  stored(id: number) {
+  function storedOf(id: number) {
     const none: StoredEntry[] = [];
-    const file = this.metadataFile(id);
+    const file = metadataFileOf(id);
 
-    if (!this.filesRepository.existsSync(file)) return { collection: false, entries: none };
+    if (!repositories.filesRepository.existsSync(file)) return { collection: false, entries: none };
 
-    const raw = JSON.parse(this.filesRepository.readFileSync(file, 'utf8'));
-    const collection = z.object({ workouts: z.array(z.json()) }).safeParse(raw);
+    const raw: unknown = JSON.parse(repositories.filesRepository.readFileSync(file, 'utf8'));
 
-    return collection.success
+    return isCollection(raw)
       ? {
           collection: true,
-          entries: collection.data.workouts.flatMap((entry) => {
-            const parsed = storedEntrySchema.safeParse(entry);
-
-            return parsed.success ? [parsed.data] : [];
-          }),
+          entries: raw.workouts.flatMap((entry) => Option.toArray(decodeStoredEntry(entry))),
         }
-      : { collection: false, entries: [storedEntrySchema.parse(raw)] };
+      : { collection: false, entries: [Schema.decodeUnknownSync(storedEntrySchema)(raw)] };
   }
 
-  removeEvent(id: number, eventId: string | number) {
-    const { entries } = this.stored(id);
+  function dropEvent(id: number, eventId: string | number) {
+    const { entries } = storedOf(id);
 
     const removed = entries.filter((entry) => String(entry.event_id) === String(eventId));
 
     if (removed.length === 0) return;
 
     for (const entry of removed) {
-      const file = this.file(entry.workout_id ?? '');
+      const file = fileOf(entry.workout_id ?? '');
 
-      if (file && this.filesRepository.existsSync(file)) this.filesRepository.rmSync(file);
+      if (file && repositories.filesRepository.existsSync(file)) repositories.filesRepository.rmSync(file);
     }
 
     const remaining = entries.filter((entry) => !removed.includes(entry));
 
-    this.filesRepository.writeDurable(
-      this.metadataFile(id),
+    repositories.filesRepository.writeDurable(
+      metadataFileOf(id),
       JSON.stringify({
         ...(remaining[0] ?? { provider: 'intervals-icu' }),
         workouts: remaining,
@@ -159,38 +239,38 @@ export class WorkoutsService extends BaseService {
     );
   }
 
-  list(id: number, now = new Date()) {
-    if (this.provider(id) !== 'intervals-icu') return [];
+  function scheduled(id: number, now = new Date()) {
+    if (providerOf(id) !== 'intervals-icu') return [];
     const day = localDay(now);
     const seen = new Set<string>();
 
-    return this.entries(id).flatMap((metadata) => {
-      const identity = uuid.safeParse(metadata.workout_id);
+    return entriesOf(id).flatMap((metadata) => {
+      const identity = Schema.decodeUnknownOption(uuid)(metadata.workout_id);
 
-      if (!identity.success || seen.has(identity.data)) return [];
+      if (Option.isNone(identity) || seen.has(identity.value)) return [];
 
       const planned =
         metadata.start_date_local?.slice(0, 10) ?? (metadata.start_date ? localDay(new Date(metadata.start_date)) : '');
 
       if (planned !== day || metadata.provider !== 'intervals-icu') return [];
-      const file = this.file(identity.data);
+      const file = fileOf(identity.value);
 
       if (
         !file ||
-        !this.filesRepository.existsSync(file) ||
+        !repositories.filesRepository.existsSync(file) ||
         [file, resolve(file, '..'), resolve(file, '../..')].some((path) =>
-          this.filesRepository.lstatSync(path).isSymbolicLink(),
+          repositories.filesRepository.lstatSync(path).isSymbolicLink(),
         )
       )
         return [];
-      const details = WorkoutsService.workoutDetails(this.filesRepository.readFileSync(file, 'utf8'));
+      const details = workoutDetails(repositories.filesRepository.readFileSync(file, 'utf8'));
 
       if (!details) return [];
-      seen.add(identity.data);
+      seen.add(identity.value);
 
-      const scheduleId = this.scheduleID(`zoffline:schedule:${id}:intervals-icu:${metadata.event_id}:${day}`);
+      const scheduleId = scheduleID(`zoffline:schedule:${id}:intervals-icu:${metadata.event_id}:${day}`);
 
-      const uri = `https://cdn.zwift.com/tp-workouts/intervalsicu/${identity.data}.zwo`;
+      const uri = `https://cdn.zwift.com/tp-workouts/intervalsicu/${identity.value}.zwo`;
       const midnight = new Date(now);
       midnight.setHours(0, 0, 0, 0);
       const tomorrow = new Date(midnight);
@@ -201,7 +281,7 @@ export class WorkoutsService extends BaseService {
         description: metadata.description || details.description,
         name: metadata.name || details.name,
         workoutAssetUrl: uri,
-        workoutId: identity.data,
+        workoutId: identity.value,
         legacyId: 0,
         sport: 'CYCLING',
         lastCompletion: null,
@@ -211,10 +291,10 @@ export class WorkoutsService extends BaseService {
       };
 
       return {
-        id: identity.data,
+        id: identity.value,
         schedule: {
           scheduleId,
-          workoutId: identity.data,
+          workoutId: identity.value,
           workoutUri: uri,
           trainingProviderId: 'intervalsicu',
           availableAfter: Math.floor(midnight.getTime() / 1000),
@@ -224,7 +304,7 @@ export class WorkoutsService extends BaseService {
         home: {
           nextUp: {
             selected: {
-              entityId: identity.data,
+              entityId: identity.value,
               entityType: 'WORKOUT',
               recommendedDurationMinutes: null,
               tags: [],
@@ -245,27 +325,25 @@ export class WorkoutsService extends BaseService {
     });
   }
 
-  file(id: string) {
-    return uuid.safeParse(id).success
-      ? resolve(this.runtime.config.storageDir, 'tp-workouts/intervalsicu', `${id}.zwo`)
-      : null;
+  function fileOf(id: string) {
+    return Schema.is(uuid)(id) ? resolve(runtime.config.storageDir, 'tp-workouts/intervalsicu', `${id}.zwo`) : null;
   }
 
-  async sync(id: number, signal = AbortSignal.timeout(30_000)) {
+  async function syncNow(id: number, signal: AbortSignal) {
     signal.throwIfAborted();
-    const provider = this.provider(id);
+    const provider = providerOf(id);
 
-    if (provider === 'trainingpeaks') return this.bridge(id, signal);
+    if (provider === 'trainingpeaks') return importBridge(id, signal);
 
     if (provider !== 'intervals-icu') return 'Configure a workout provider first.';
 
     let credentials: readonly [string, string] | null;
 
     try {
-      credentials = this.connectionsRepository.read(id, 'intervals');
+      credentials = repositories.connectionsRepository.read(id, 'intervals');
     } catch (error) {
       if (!(error instanceof UnreadableCredentialsError)) throw error;
-      this.runtime.world.lifecycle.log.warn('connections.unreadable', 'Saved credentials cannot be decrypted', {
+      runtime.world.lifecycle.log.warn('connections.unreadable', 'Saved credentials cannot be decrypted', {
         playerId: id,
         provider: 'intervals',
         error,
@@ -293,19 +371,19 @@ export class WorkoutsService extends BaseService {
 
     if (!response.ok) throw new Error('Intervals.icu sync failed');
 
-    const events = z
-      .array(
-        z.object({
-          id: z.union([z.number().int().positive(), z.string().regex(/^\d+$/)]),
-          name: z.string().nullable().optional(),
-          start_date_local: z.string().optional(),
-          start_date: z.string().optional(),
-          category: z.string().default('WORKOUT'),
-          description: z.string().nullable().optional(),
-          icu_training_load: z.number().nullable().optional(),
+    const events = Schema.decodeUnknownSync(
+      Schema.Array(
+        Schema.Struct({
+          id: Schema.Union([Schema.Int.check(Schema.isGreaterThan(0)), Schema.String.check(Schema.isPattern(/^\d+$/))]),
+          name: Schema.optional(Schema.NullOr(Schema.String)),
+          start_date_local: Schema.optional(Schema.String),
+          start_date: Schema.optional(Schema.String),
+          category: Schema.String.pipe(withDefault('WORKOUT')),
+          description: Schema.optional(Schema.NullOr(Schema.String)),
+          icu_training_load: Schema.optional(Schema.NullOr(Schema.Finite)),
         }),
-      )
-      .parse(await response.json());
+      ),
+    )(await response.json());
 
     const selected = events.filter(
       (event) =>
@@ -324,23 +402,23 @@ export class WorkoutsService extends BaseService {
       if (!response.ok) throw new Error('Intervals.icu download failed');
       const text = await response.text();
 
-      if (!WorkoutsService.workoutDetails(text)) throw new Error('Invalid cycling workout');
+      if (!workoutDetails(text)) throw new Error('Invalid cycling workout');
       downloads.push({ event, text });
     }
 
-    const previous = this.entries(id);
+    const previous = entriesOf(id);
 
     const pendingFiles = new Map<string, string>();
 
     const entries = downloads.map(({ event, text }) => {
       const old = previous.find((item) => String(item.event_id) === String(event.id));
 
-      const identity = uuid.safeParse(old?.workout_id).success
-        ? z.string().parse(old?.workout_id)
-        : this.cryptoRepository.randomUUID();
+      const identity = Schema.is(uuid)(old?.workout_id)
+        ? Schema.decodeUnknownSync(Schema.String)(old?.workout_id)
+        : repositories.cryptoRepository.randomUUID();
 
       // Preserve interleaved exercise and text-event order while replacing only the root ID.
-      const ordered = z.array(documentSchema).parse(
+      const ordered = decodeOwned(Schema.Array(documentSchema))(
         new XMLParser({
           preserveOrder: true,
           ignoreAttributes: false,
@@ -353,14 +431,14 @@ export class WorkoutsService extends BaseService {
       const root = ordered.find((node) => 'workout_file' in node);
 
       if (!root) throw new Error('Missing workout root');
-      const children = z.array(documentSchema).parse(root.workout_file);
+      const children = Schema.decodeUnknownSync(Schema.Array(documentSchema))(root.workout_file);
       root.workout_file = [...children.filter((node) => !('uniqueId' in node)), { uniqueId: [{ '#text': identity }] }];
       const content = new XMLBuilder({ preserveOrder: true, ignoreAttributes: false }).build(ordered);
 
-      const file = this.file(identity);
+      const file = fileOf(identity);
 
       if (!file) throw new Error('Invalid workout identity');
-      pendingFiles.set(file, z.string().parse(content));
+      pendingFiles.set(file, Schema.decodeUnknownSync(Schema.String)(content));
 
       return {
         ...event,
@@ -373,36 +451,36 @@ export class WorkoutsService extends BaseService {
     });
 
     pendingFiles.set(
-      this.metadataFile(id),
+      metadataFileOf(id),
       JSON.stringify({
         ...(entries[0] ?? { provider: 'intervals-icu' }),
         workouts: entries,
       }),
     );
-    pendingFiles.set(resolve(this.runtime.profiles.folder(id), 'active_workout_provider.txt'), 'intervals-icu');
+    pendingFiles.set(resolve(runtime.profiles.folder(id), 'active_workout_provider.txt'), 'intervals-icu');
     signal.throwIfAborted();
     // Publication is synchronous: no request can observe new metadata before all files exist.
-    this.publishFiles(pendingFiles);
+    publishFiles(pendingFiles);
 
     return `Synced ${entries.length} Intervals.icu workouts.`;
   }
 
-  bridge(id: number, signal = AbortSignal.timeout(30_000)) {
-    const settings = SettingsService.resolveRiderSettings(
-      this.runtime.config.riderDefaults,
-      this.runtime.settings.read(id),
-    );
+  function importBridge(id: number, signal = AbortSignal.timeout(30_000)) {
+    const settings = SettingsService.resolveRiderSettings(runtime.config.riderDefaults, runtime.settings.read(id));
 
     const folder = settings.workouts.trainingpeaks.bridgeFolder;
 
-    if (!folder || !this.filesRepository.existsSync(folder)) return 'TrainingPeaks bridge folder is missing.';
+    if (!folder || !repositories.filesRepository.existsSync(folder)) return 'TrainingPeaks bridge folder is missing.';
     const imports: { filename: string; content: Buffer }[] = [];
 
-    for (const name of this.filesRepository.readdirSync(folder).sort()) {
-      if (!name.toLowerCase().endsWith('.zwo') || !this.filesRepository.lstatSync(resolve(folder, name)).isFile())
+    for (const name of repositories.filesRepository.readdirSync(folder).sort()) {
+      if (
+        !name.toLowerCase().endsWith('.zwo') ||
+        !repositories.filesRepository.lstatSync(resolve(folder, name)).isFile()
+      )
         continue;
       signal.throwIfAborted();
-      const content = this.filesRepository.readFileSync(resolve(folder, name));
+      const content = repositories.filesRepository.readFileSync(resolve(folder, name));
       parseXML(content.toString('utf8'));
 
       const filename = `trainingpeaks-${
@@ -420,23 +498,23 @@ export class WorkoutsService extends BaseService {
     const pendingFiles = new Map<string, string | Uint8Array>();
 
     for (const item of imports)
-      pendingFiles.set(resolve(this.runtime.profiles.folder(id), 'customworkouts', item.filename), item.content);
-    pendingFiles.set(resolve(this.runtime.profiles.folder(id), 'active_workout_provider.txt'), 'trainingpeaks');
+      pendingFiles.set(resolve(runtime.profiles.folder(id), 'customworkouts', item.filename), item.content);
+    pendingFiles.set(resolve(runtime.profiles.folder(id), 'active_workout_provider.txt'), 'trainingpeaks');
     signal.throwIfAborted();
-    const db = this.runtime.accounts.db;
+    const db = runtime.accounts.db;
     const timestamp = Math.floor(Date.now() / 1000);
     db.exec('BEGIN IMMEDIATE');
 
     try {
       for (const { filename } of imports) {
-        const repository = this.storageRepository;
+        const repository = repositories.storageRepository;
         const old = repository.findZfile(id, 'customworkouts', filename);
 
         if (old) repository.updateZfileTimestamp(timestamp, old.id);
         else repository.insertZfile(id, 'customworkouts', filename, timestamp);
       }
 
-      this.publishFiles(pendingFiles, () => {
+      publishFiles(pendingFiles, () => {
         db.exec('COMMIT');
       });
     } catch (error) {
@@ -447,92 +525,14 @@ export class WorkoutsService extends BaseService {
     return `Imported ${imports.length} TrainingPeaks workouts.`;
   }
 
-  static workoutDetails(content: string) {
-    const document = parseXML(content);
-    const root = documentSchema.parse(document.workout_file);
-    const workout = documentSchema.parse(root.workout);
+  const requests = new Map<string, Promise<void>>();
 
-    if (!['bike', 'cycling'].includes(String(root.sportType ?? 'bike').toLowerCase())) return null;
-    const zones = [0, 0, 0, 0, 0, 0];
-    let duration = 0;
-    let known = true;
-
-    function add(seconds: number, low: number, high = low) {
-      if (seconds <= 0) return;
-      duration += seconds;
-
-      if (low < 0 || high < 0) {
-        known = false;
-
-        return;
-      }
-
-      const cuts = [0, 1];
-
-      if (low !== high)
-        for (const limit of [0.55, 0.75, 0.9, 1.05, 1.2])
-          if (Math.min(low, high) < limit && limit < Math.max(low, high)) cuts.push((limit - low) / (high - low));
-      cuts.sort((a, b) => a - b);
-
-      for (let index = 1; index < cuts.length; index++) {
-        const start = cuts[index - 1] ?? 0;
-        const end = cuts[index] ?? 1;
-        const power = low + ((high - low) * (start + end)) / 2;
-
-        const zone = [0.55, 0.75, 0.9, 1.05, 1.2].findIndex((limit) => power <= limit);
-
-        const target = zone === -1 ? 5 : zone;
-        zones[target] = (zones[target] ?? 0) + seconds * (end - start);
-      }
-    }
-
-    for (const [tag, value] of Object.entries(workout))
-      for (const entry of Array.isArray(value) ? value : [value]) {
-        const parsed = stepSchema.safeParse(entry);
-
-        if (!parsed.success) continue;
-        const step = parsed.data;
-
-        if (tag === 'IntervalsT') {
-          const repeat = number(step['@_Repeat']);
-
-          if (!Number.isSafeInteger(repeat) || repeat < 1 || repeat > 604_800) return null;
-          add(repeat * number(step['@_OnDuration']), number(step['@_OnPower'], -1));
-          add(repeat * number(step['@_OffDuration']), number(step['@_OffPower'], -1));
-        } else if (['Warmup', 'Cooldown', 'Ramp'].includes(tag))
-          add(number(step['@_Duration']), number(step['@_PowerLow'], -1), number(step['@_PowerHigh'], -1));
-        else add(number(step['@_Duration']), number(step['@_Power'], -1));
-      }
-
-    if (duration <= 0 || duration > 604_800) return null;
-    const exact = zones.map((value) => (100 * value) / duration);
-    const percentages = known ? exact.map((element) => Math.floor(element)) : [0, 0, 0, 0, 0, 0];
-
-    if (known) {
-      const order = exact
-        .map((value, index) => ({ index, fraction: value - Math.floor(value) }))
-        .sort((a, b) => b.fraction - a.fraction);
-
-      const remaining = 100 - percentages.reduce((sum, value) => sum + value, 0);
-
-      for (const item of order.slice(0, remaining)) percentages[item.index] = (percentages[item.index] ?? 0) + 1;
-    }
-
-    return {
-      name: String(root.name ?? ''),
-      description: String(root.description ?? ''),
-      duration: Math.round(duration),
-      zonePercentages: percentages,
-      difficulty: Math.min(number(root.difficulty), 5),
-    };
-  }
-
-  static syncWorkoutsAutomatically(runtime: Runtime, id: number, android = false) {
-    let provider: string | null;
-    const workouts = new WorkoutsService(runtime);
+  /** Sync the rider's workouts from their provider once at a time; failures keep the cached workouts. */
+  function automatic(id: number, android: boolean) {
+    let current: string | null;
 
     try {
-      provider = workouts.provider(id);
+      current = providerOf(id);
     } catch {
       runtime.world.lifecycle.log.warn('workout.provider_unavailable', 'Automatic workout provider unavailable', {
         playerId: id,
@@ -541,16 +541,13 @@ export class WorkoutsService extends BaseService {
       return Promise.resolve();
     }
 
-    if (!provider || (android && provider !== 'intervals-icu')) return Promise.resolve();
-    const requests = pending.get(runtime) ?? new Map<string, { status: 'syncing'; promise: Promise<void> }>();
-    pending.set(runtime, requests);
-    const key = `${id}:${provider}`;
+    if (!current || (android && current !== 'intervals-icu')) return Promise.resolve();
+    const key = `${id}:${current}`;
     const previous = requests.get(key);
 
-    if (previous) return previous.promise;
+    if (previous) return previous;
 
-    const request = workouts
-      .sync(id, AbortSignal.timeout(5000))
+    const request = syncNow(id, AbortSignal.timeout(5000))
       .then(() => {})
       .catch((error) => {
         runtime.world.lifecycle.log.warn(
@@ -560,13 +557,56 @@ export class WorkoutsService extends BaseService {
         );
       })
       .finally(() => {
-        if (requests.get(key)?.promise === request) requests.delete(key);
+        if (requests.get(key) === request) requests.delete(key);
       });
 
-    requests.set(key, { status: 'syncing', promise: request });
+    requests.set(key, request);
 
     return request;
   }
-}
 
-const pending = new WeakMap<Runtime, Map<string, { status: 'syncing'; promise: Promise<void> }>>();
+  return {
+    provider: Effect.fn('WorkoutsService.provider')(function* (id: number) {
+      return providerOf(id);
+    }),
+    entries: Effect.fn('WorkoutsService.entries')(function* (id: number) {
+      return entriesOf(id);
+    }),
+    metadataFile: Effect.fn('WorkoutsService.metadataFile')(function* (id: number) {
+      return metadataFileOf(id);
+    }),
+    /** Unmodified stored entries, including fields the schema does not read. */
+    stored: Effect.fn('WorkoutsService.stored')(function* (id: number) {
+      return storedOf(id);
+    }),
+    removeEvent: Effect.fn('WorkoutsService.removeEvent')(function* (id: number, eventId: string | number) {
+      dropEvent(id, eventId);
+    }),
+    /** Today's scheduled workouts, as the game lists them. */
+    list: Effect.fn('WorkoutsService.list')(function* (id: number, now = new Date()) {
+      return scheduled(id, now);
+    }),
+    file: Effect.fn('WorkoutsService.file')(function* (id: string) {
+      return fileOf(id);
+    }),
+    /** Fetch today's workouts from the rider's provider and publish them. A failure is a defect. */
+    sync: Effect.fn('WorkoutsService.sync')(function* (id: number, signal = AbortSignal.timeout(30_000)) {
+      return yield* Effect.promise(() => syncNow(id, signal));
+    }),
+    /** Sync in the background of a request: failures are logged, and concurrent requests share one sync. */
+    syncWorkoutsAutomatically: Effect.fn('WorkoutsService.syncWorkoutsAutomatically')(function* (
+      id: number,
+      android = false,
+    ) {
+      yield* Effect.promise(() => automatic(id, android));
+    }),
+  };
+});
+
+export class WorkoutsService extends Context.Service<WorkoutsService, Effect.Success<typeof make>>()(
+  'zluggish/WorkoutsService',
+) {
+  static readonly layer = Layer.effect(WorkoutsService, make);
+
+  static readonly workoutDetails = workoutDetails;
+}

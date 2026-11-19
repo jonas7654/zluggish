@@ -3,18 +3,18 @@ import type { RiderDocuments } from '#src/repositories/rider-document.repository
 import { SessionRepository } from '#src/repositories/session.repository';
 import type { OAuth1Token, TokenStore, Tokens } from 'garminconnect-js';
 import { Garmin, GarminAuthError, GarminClient, GarminHttpError, MemoryTokenStore } from 'garminconnect-js';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
-const oauth1 = z.object({
-  oauth_token: z.string(),
-  oauth_token_secret: z.string(),
-  mfa_token: z.string().optional(),
-  mfa_expiration_timestamp: z.string().optional(),
-  domain: z.string().optional(),
+const oauth1 = Schema.Struct({
+  oauth_token: Schema.String,
+  oauth_token_secret: Schema.String,
+  mfa_token: Schema.optional(Schema.String),
+  mfa_expiration_timestamp: Schema.optional(Schema.String),
+  domain: Schema.optional(Schema.String),
 });
 
 function oauth1Token(text: string) {
-  const parsed = oauth1.parse(JSON.parse(text));
+  const parsed = Schema.decodeUnknownSync(oauth1)(JSON.parse(text));
   const token: OAuth1Token = { oauth_token: parsed.oauth_token, oauth_token_secret: parsed.oauth_token_secret };
 
   if (parsed.mfa_token !== undefined) token.mfa_token = parsed.mfa_token;
@@ -26,16 +26,16 @@ function oauth1Token(text: string) {
   return token;
 }
 
-const oauth2 = z.object({
-  scope: z.string(),
-  jti: z.string(),
-  token_type: z.string(),
-  access_token: z.string(),
-  refresh_token: z.string(),
-  expires_in: z.number(),
-  refresh_token_expires_in: z.number(),
-  expires_at: z.number(),
-  refresh_token_expires_at: z.number(),
+const oauth2 = Schema.Struct({
+  scope: Schema.String,
+  jti: Schema.String,
+  token_type: Schema.String,
+  access_token: Schema.String,
+  refresh_token: Schema.String,
+  expires_in: Schema.Finite,
+  refresh_token_expires_in: Schema.Finite,
+  expires_at: Schema.Finite,
+  refresh_token_expires_at: Schema.Finite,
 });
 
 /** garth-format tokens, kept as encrypted rider documents. */
@@ -50,7 +50,9 @@ class DocumentTokenStore implements TokenStore {
       const first = this.documents.text(this.player, 'garth/oauth1_token.json');
       const second = this.documents.text(this.player, 'garth/oauth2_token.json');
 
-      return first && second ? { oauth1: oauth1Token(first), oauth2: oauth2.parse(JSON.parse(second)) } : null;
+      return first && second
+        ? { oauth1: oauth1Token(first), oauth2: Schema.decodeUnknownSync(oauth2)(JSON.parse(second)) }
+        : null;
     });
   }
 
@@ -97,7 +99,7 @@ export class GarminRepository {
   async uploadGarmin(store: TokenStore, domain: string, filename: string, fit: Uint8Array) {
     const client = this.garminClient(store, domain);
 
-    if (!(await client.loadTokens())) throw new DeliveryRefusedError('garmin_unauthorized');
+    if (!(await client.loadTokens())) throw new DeliveryRefusedError({ code: 'garmin_unauthorized' });
 
     try {
       await new Garmin(client).importActivity(
@@ -110,9 +112,9 @@ export class GarminRepository {
       if (http instanceof GarminHttpError && http.status === 409) return;
 
       if (http instanceof GarminHttpError && refused(http.status))
-        throw new DeliveryRefusedError(`garmin_${http.status}`);
+        throw new DeliveryRefusedError({ code: `garmin_${http.status}` });
 
-      if (error instanceof GarminAuthError) throw new DeliveryRefusedError('garmin_unauthorized');
+      if (error instanceof GarminAuthError) throw new DeliveryRefusedError({ code: 'garmin_unauthorized' });
       throw error;
     }
   }

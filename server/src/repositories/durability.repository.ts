@@ -1,7 +1,7 @@
 import { Metric, metrics } from '#src/repositories/metrics.repository';
 import { open } from 'node:fs/promises';
 import type { DatabaseSync } from 'node:sqlite';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 /** Commits on the main connection use synchronous=NORMAL while this barrier runs: they
 write the WAL without a flush on the main thread. flush() makes every earlier commit
@@ -28,7 +28,7 @@ export class DurabilityRepository {
 
   /** Rows changed on the main connection since it opened. */
   changes() {
-    return z.number().parse(this.db.prepare('SELECT total_changes() AS n').get()?.n);
+    return Schema.decodeUnknownSync(Schema.Finite)(this.db.prepare('SELECT total_changes() AS n').get()?.n);
   }
 
   /** Resolves when every commit made before the call is durable. */

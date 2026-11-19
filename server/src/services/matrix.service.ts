@@ -1,19 +1,16 @@
-import type { RepositoryContext as Runtime } from '#src/context';
+import { Context, Effect, Layer } from 'effect';
+import { RuntimeContext } from '#src/context';
 import type { MatrixTransport } from '#src/repositories/matrix.repository';
-import { BaseService } from '#src/services/base.service';
-import type { Bridge } from '#src/services/chat-bridge.service';
-import { ChatBridge } from '#src/services/chat-bridge.service';
+import { ChatService } from '#src/services/chat-bridge.service';
 
-export class MatrixBridge extends BaseService implements Bridge {
-  private readonly chat: ChatBridge;
+const make = Effect.gen(function* () {
+  const context = yield* RuntimeContext;
+  const chats = yield* ChatService;
+  const settings = () => context.config.integrations.matrix;
 
-  constructor(
-    readonly runtime: Runtime,
-    readonly transport: MatrixTransport,
-  ) {
-    super(runtime.accounts.repositories);
-    this.chat = new ChatBridge(
-      runtime,
+  /** The Matrix side of the chat bridge over a transport. */
+  const bridge = Effect.fn('MatrixService.bridge')(function* (transport: MatrixTransport) {
+    const chat = yield* chats.open(
       {
         // A Matrix message has no per-message username, so the sender leads the text.
         deliver: (content, sender) =>
@@ -22,52 +19,52 @@ export class MatrixBridge extends BaseService implements Bridge {
         close: () => transport.close(),
       },
       'Matrix',
-      () => runtime.config.integrations.matrix,
+      settings,
     );
-  }
 
-  receive(author: string, content: string) {
-    if (!this.chat.closed) this.chat.relay(author, content);
-  }
+    return {
+      receive(author: string, content: string) {
+        if (!chat.closed) chat.relay(author, content);
+      },
+      send: chat.send,
+      online: chat.online,
+      close: chat.close,
+    };
+  });
 
-  send(content: string, sender?: string) {
-    this.chat.send(content, sender);
-  }
-
-  online(id: bigint, joining: boolean) {
-    this.chat.online(id, joining);
-  }
-
-  close() {
-    return this.chat.close();
-  }
-}
-
-export class MatrixService extends BaseService {
-  startMatrix(runtime: Runtime) {
-    const transport = this.matrixRepository.openMatrixTransport(
-      runtime.config.integrations.matrix,
-      runtime.config.storageDir,
+  /** Connect to Matrix with the configured credentials. */
+  const start = Effect.fn('MatrixService.start')(function* () {
+    const transport = context.accounts.repositories.matrixRepository.openMatrixTransport(
+      settings(),
+      context.config.storageDir,
       {
-        receive: (author, content) => bridge.receive(author, content),
-        onlineCount: () => runtime.world.online.size,
+        receive: (author, content) => receiver.receive(author, content),
+        onlineCount: () => context.world.online.size,
         encrypted: () =>
-          runtime.world.lifecycle.log.warn(
+          context.world.lifecycle.log.warn(
             'matrix.encrypted_room',
             'Matrix room is encrypted; the bridge only supports unencrypted rooms',
           ),
         connectionFailed: () =>
-          runtime.world.lifecycle.log.warn('matrix.connection_failed', 'Matrix connection failed'),
+          context.world.lifecycle.log.warn('matrix.connection_failed', 'Matrix connection failed'),
         loginFailed: () =>
-          runtime.world.lifecycle.log.warn(
+          context.world.lifecycle.log.warn(
             'matrix.login_failed',
             'Matrix login failed; local riding remains available',
           ),
       },
     );
 
-    const bridge = new MatrixBridge(runtime, transport);
+    const receiver = yield* bridge(transport);
 
-    return bridge;
-  }
+    return receiver;
+  });
+
+  return { bridge, start };
+});
+
+export class MatrixService extends Context.Service<MatrixService, Effect.Success<typeof make>>()(
+  'zluggish/MatrixService',
+) {
+  static readonly layer = Layer.effect(MatrixService, make);
 }

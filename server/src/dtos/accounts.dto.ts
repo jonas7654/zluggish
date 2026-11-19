@@ -1,9 +1,10 @@
-import { z } from 'zod';
+import { Schema } from 'effect';
+import { Email } from '#src/schema';
 
-export const climbSchema = z.object({ name: z.string(), road: z.string() });
+export const climbSchema = Schema.Struct({ name: Schema.String, road: Schema.String });
 
-export const createUserSchema = z.object({
-  email: z.email(),
-  password: z.string().min(1),
-  profile: z.object({ firstName: z.string(), lastName: z.string() }),
+export const createUserSchema = Schema.Struct({
+  email: Email,
+  password: Schema.String.check(Schema.isMinLength(1)),
+  profile: Schema.Struct({ firstName: Schema.String, lastName: Schema.String }),
 });

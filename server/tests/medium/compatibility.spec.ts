@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 await test('Companion and game zfiles negotiate independently and refresh overwrite timestamps', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.UTC(2026, 10, 13, 12) });
@@ -69,7 +69,7 @@ await test('Companion and game zfiles negotiate independently and refresh overwr
   });
 
   assert.equal(
-    z.object({ lastModified: z.string() }).parse(await overwrite.json()).lastModified,
+    Schema.decodeUnknownSync(Schema.Struct({ lastModified: Schema.String }))(await overwrite.json()).lastModified,
     new Date(Date.now()).toISOString().replace('Z', '+0000'),
   );
   const listed = await f.app.request('/api/zfiles/list?folder=customworkouts', { headers: authorization });
@@ -195,11 +195,13 @@ await test('saved-game achievements and portal thresholds survive repeated reads
   for (let request = 0; request < 2; request++) {
     const response = await f.app.request('/api/route-results/completion-stats/all?page=0&pageSize=100', { headers });
 
-    const stats = z
-      .object({
-        response: z.object({ stats: z.array(z.object({ routeHash: z.number(), firstCompletedAt: z.string() })) }),
-      })
-      .parse(await response.json()).response.stats;
+    const stats = Schema.decodeUnknownSync(
+      Schema.Struct({
+        response: Schema.Struct({
+          stats: Schema.Array(Schema.Struct({ routeHash: Schema.Finite, firstCompletedAt: Schema.String })),
+        }),
+      }),
+    )(await response.json()).response.stats;
 
     assert.deepEqual(
       stats.find((item) => item.routeHash === 3_114_603_308),
@@ -219,9 +221,9 @@ await test('activity list applies the legacy SQL month cutoff without deleting h
   const f = runtimeFixture(t);
   const user = await f.accounts.create('History Rider', 'test-password');
 
-  const cutoff = z
-    .object({ cutoff: z.string() })
-    .parse(f.accounts.db.prepare("SELECT date('now','-1 month') AS cutoff").get()).cutoff;
+  const cutoff = Schema.decodeUnknownSync(Schema.Struct({ cutoff: Schema.String }))(
+    f.accounts.db.prepare("SELECT date('now','-1 month') AS cutoff").get(),
+  ).cutoff;
 
   const insert = f.accounts.db.prepare(
     "INSERT INTO activity(player_id,date,name,distanceInMeters,course_id,start_date) VALUES (?,?,?,100,6,'2026-01-01T00:00:00Z')",
@@ -269,7 +271,7 @@ await test('meetup creation announces organizer join and editing resets existing
 
   const response = await f.app.request('/api/private_event', { method: 'POST', headers, body: JSON.stringify(event) });
   assert.equal(response.status, 201);
-  const { id } = z.object({ id: z.number() }).parse(await response.json());
+  const { id } = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await response.json());
 
   for (const rider of [owner, invited]) {
     const update = f.world.updates.get(BigInt(rider.player_id))?.find((item) => item.waType === WA_TYPE.WAT_JOIN_E);
@@ -292,9 +294,9 @@ await test('meetup creation announces organizer join and editing resets existing
   assert.equal(edited.status, 200);
   const row = f.accounts.db.prepare('SELECT json FROM notification').get();
 
-  const notification = z
-    .object({ read: z.boolean(), readDate: z.null(), lastModified: z.string() })
-    .parse(JSON.parse(z.string().parse(row?.json)));
+  const notification = Schema.decodeUnknownSync(
+    Schema.Struct({ read: Schema.Boolean, readDate: Schema.Null, lastModified: Schema.String }),
+  )(JSON.parse(Schema.decodeUnknownSync(Schema.String)(row?.json)));
 
   assert.equal(notification.read, false);
   assert.notEqual(notification.lastModified, 'old');
@@ -355,7 +357,11 @@ await test('profile JSON edits reuse read negotiation and avatar resolution', as
   });
 
   assert.equal(json.status, 200);
-  const profile = z.object({ firstName: z.string(), imageSrc: z.string() }).parse(await json.json());
+
+  const profile = Schema.decodeUnknownSync(Schema.Struct({ firstName: Schema.String, imageSrc: Schema.String }))(
+    await json.json(),
+  );
+
   assert.equal(profile.firstName, 'Changed');
   assert.match(profile.imageSrc, /avatarLarge.jpg$/);
 

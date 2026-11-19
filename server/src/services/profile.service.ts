@@ -1,4 +1,4 @@
-import type { RepositoryContext } from '#src/context';
+import { RuntimeContext } from '#src/context';
 import {
   PlayerProfileSchema,
   ProfileEntitlement_EntitlementType,
@@ -6,38 +6,38 @@ import {
   ProfileEntitlementSchema,
 } from '#src/protocol/generated/profile_pb';
 import type { Profiles } from '#src/repositories/profile.repository';
-import { BaseService } from '#src/services/base.service';
 import { ProfileJsonService } from '#src/services/profile-json.service';
 import { create } from '@bufbuild/protobuf';
 import { resolve } from 'node:path';
-import { z } from 'zod';
+import { Context, Effect, Layer, Schema } from 'effect';
 
-export class ProfilesService extends BaseService {
-  constructor(private readonly context: RepositoryContext) {
-    super(context.accounts.repositories);
-  }
+const make = Effect.gen(function* () {
+  const context = yield* RuntimeContext;
+  const repositories = context.accounts.repositories;
 
-  folder(...args: Parameters<Profiles['folder']>) {
-    return this.profileRepository.folder(...args);
-  }
+  const folder = Effect.fn('ProfilesService.folder')(function* (...args: Parameters<Profiles['folder']>) {
+    return repositories.profileRepository.folder(...args);
+  });
 
-  get(...args: Parameters<Profiles['get']>) {
-    return this.profileRepository.get(...args);
-  }
+  const get = Effect.fn('ProfilesService.get')(function* (...args: Parameters<Profiles['get']>) {
+    return repositories.profileRepository.get(...args);
+  });
 
-  exists(...args: Parameters<Profiles['exists']>) {
-    return this.profileRepository.exists(...args);
-  }
+  const exists = Effect.fn('ProfilesService.exists')(function* (...args: Parameters<Profiles['exists']>) {
+    return repositories.profileRepository.exists(...args);
+  });
 
-  save(...args: Parameters<Profiles['save']>) {
-    return this.profileRepository.save(...args);
-  }
+  const save = Effect.fn('ProfilesService.save')(function* (...args: Parameters<Profiles['save']>) {
+    return repositories.profileRepository.save(...args);
+  });
 
-  get synthetic() {
-    return this.profileRepository.synthetic;
-  }
+  /** Profiles that exist only in memory, such as bots, by player ID. */
+  const synthetic = repositories.profileRepository.synthetic;
 
-  forViewer(profile: ReturnType<typeof create<typeof PlayerProfileSchema>>, viewer?: number) {
+  const forViewer = Effect.fn('ProfilesService.forViewer')(function* (
+    profile: ReturnType<typeof create<typeof PlayerProfileSchema>>,
+    viewer?: number,
+  ) {
     if (viewer !== undefined && profile.id === BigInt(viewer)) return profile;
 
     const publicProfile = create(PlayerProfileSchema, {
@@ -82,13 +82,20 @@ export class ProfilesService extends BaseService {
     if (!(profile.privacyBits & 64n)) publicProfile.age = ProfileJsonService.profileAge(profile);
 
     return publicProfile;
-  }
+  });
 
-  companionProfile(...args: [Parameters<typeof ProfileJsonService.companionProfile>[0], string | null]) {
-    return ProfileJsonService.companionProfile(...args, this.profileJsonRepository.bikeFrameName(args[0].bikeFrame));
-  }
+  const companionProfile = Effect.fn('ProfilesService.companionProfile')(function* (
+    ...args: [Parameters<typeof ProfileJsonService.companionProfile>[0], string | null]
+  ) {
+    return ProfileJsonService.companionProfile(
+      ...args,
+      repositories.profileJsonRepository.bikeFrameName(args[0].bikeFrame),
+    );
+  });
 
-  entitlements(profile: ReturnType<typeof create<typeof PlayerProfileSchema>>) {
+  const entitlements = Effect.fn('ProfilesService.entitlements')(function* (
+    profile: ReturnType<typeof create<typeof PlayerProfileSchema>>,
+  ) {
     profile.entitlements = profile.entitlements.filter((item) => item.type !== ProfileEntitlement_EntitlementType.RIDE);
     profile.entitlements.push(
       create(ProfileEntitlementSchema, {
@@ -98,16 +105,14 @@ export class ProfilesService extends BaseService {
       }),
     );
 
-    if (this.context.config.equipment.unlockAll || this.context.config.equipment.unlockEntitlements) {
-      const range = z
-        .object({ first: z.number().int(), last: z.number().int() })
-        .parse(
-          JSON.parse(this.filesRepository.readFileSync(resolve(this.context.assets, 'data/entitlements.txt'), 'utf8')),
-        );
+    if (context.config.equipment.unlockAll || context.config.equipment.unlockEntitlements) {
+      const range = Schema.decodeUnknownSync(Schema.Struct({ first: Schema.Int, last: Schema.Int }))(
+        JSON.parse(repositories.filesRepository.readFileSync(resolve(context.assets, 'data/entitlements.txt'), 'utf8')),
+      );
 
       const owned = new Set(profile.entitlements.map((item) => item.id));
 
-      for (let id = this.context.config.equipment.unlockAll ? 1 : range.first; id <= range.last; id++)
+      for (let id = context.config.equipment.unlockAll ? 1 : range.first; id <= range.last; id++)
         if (!owned.has(BigInt(id)))
           profile.entitlements.push(
             create(ProfileEntitlementSchema, {
@@ -119,5 +124,13 @@ export class ProfilesService extends BaseService {
     }
 
     return profile;
-  }
+  });
+
+  return { folder, get, exists, save, forViewer, companionProfile, entitlements, synthetic };
+});
+
+export class ProfilesService extends Context.Service<ProfilesService, Effect.Success<typeof make>>()(
+  'zluggish/ProfilesService',
+) {
+  static readonly layer = Layer.effect(ProfilesService, make);
 }

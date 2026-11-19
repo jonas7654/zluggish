@@ -1,9 +1,10 @@
 import { configSchema, riderSettingsSchema } from '#src/config/schema';
-import { z } from 'zod';
+import { schemaProblems, strict } from '#src/schema';
+import { Predicate, Schema } from 'effect';
 
 export type { ConfigInput, ResolvedConfig, RiderSettings } from '#src/config/schema';
 
-import type { ConfigInput, ResolvedConfig } from '#src/config/schema';
+import type { ConfigInput, ResolvedConfig, RiderSettings } from '#src/config/schema';
 
 export interface ConfigContext {
   readonly env: Readonly<Record<string, string | undefined>>;
@@ -18,40 +19,61 @@ export function defineConfig<T extends ConfigDefinition>(config: T): T {
 
 export class ConfigError extends Error {}
 
-export function validateConfig(value: ConfigInput): ResolvedConfig {
-  const result = configSchema.safeParse(value);
+const decodeConfig = Schema.decodeUnknownSync(configSchema, strict);
 
-  if (!result.success) throw validationError(result.error);
-  const ids = result.data.pelotons.map((p) => p.id);
+const decodeRiderSettings = Schema.decodeUnknownSync(riderSettingsSchema, strict);
 
-  if (new Set(ids).size !== ids.length) throw new ConfigError('pelotons: duplicate group ID');
-
-  if (result.data.integrations.discord.enabled && !result.data.integrations.discord.credentialsFile)
-    throw new ConfigError('integrations.discord.credentialsFile: required when enabled');
-
-  if (result.data.integrations.matrix.enabled)
-    for (const field of ['credentialsFile', 'homeserver', 'user', 'room'] as const)
-      if (!result.data.integrations.matrix[field])
-        throw new ConfigError(`integrations.matrix.${field}: required when enabled`);
-
-  if (Boolean(result.data.tls.certFile) !== Boolean(result.data.tls.keyFile))
-    throw new ConfigError('tls.certFile and tls.keyFile: both required when configuring custom TLS');
-
-  return result.data;
-}
-
-export function validationError(error: z.ZodError): ConfigError {
+/** A ConfigError naming each invalid field. */
+export function validationError(error: Schema.SchemaError): ConfigError {
   return new ConfigError(
-    error.issues.map((i) => `${i.path.join('.') || '<root>'}: ${i.code === 'custom' ? i.message : i.code}`).join('; '),
+    schemaProblems(error)
+      .map((problem) => `${problem.path || '<root>'}: ${problem.message}`)
+      .join('; '),
   );
 }
 
-export function validateRiderSettings(value: z.input<typeof riderSettingsSchema>) {
-  const result = riderSettingsSchema.safeParse(value);
+/** Freeze a decoded configuration and everything it contains: the runtime shares it. */
+function freezeDeep<T extends object>(value: T): T {
+  for (const item of Object.values(value)) if (Predicate.isObject(item)) freezeDeep(item);
 
-  if (!result.success) throw validationError(result.error);
+  return Object.freeze(value);
+}
 
-  return result.data;
+/** Run `decode`, reporting schema failures as a ConfigError. */
+function decoding<A>(decode: () => A): A {
+  try {
+    return decode();
+  } catch (error) {
+    throw Schema.isSchemaError(error) ? validationError(error) : error;
+  }
+}
+
+/** Decode an unvalidated configuration object, or throw a ConfigError naming each invalid field. */
+export const decodeConfigInput = (...input: Parameters<typeof decodeConfig>): ResolvedConfig =>
+  decoding(() => decodeConfig(...input));
+
+export function validateConfig(value: ConfigInput): ResolvedConfig {
+  const config = decodeConfigInput(value);
+  const ids = config.pelotons.map((p) => p.id);
+
+  if (new Set(ids).size !== ids.length) throw new ConfigError('pelotons: duplicate group ID');
+
+  if (config.integrations.discord.enabled && !config.integrations.discord.credentialsFile)
+    throw new ConfigError('integrations.discord.credentialsFile: required when enabled');
+
+  if (config.integrations.matrix.enabled)
+    for (const field of ['credentialsFile', 'homeserver', 'user', 'room'] as const)
+      if (!config.integrations.matrix[field])
+        throw new ConfigError(`integrations.matrix.${field}: required when enabled`);
+
+  if (Boolean(config.tls.certFile) !== Boolean(config.tls.keyFile))
+    throw new ConfigError('tls.certFile and tls.keyFile: both required when configuring custom TLS');
+
+  return freezeDeep(config);
+}
+
+export function validateRiderSettings(value: typeof riderSettingsSchema.Encoded): RiderSettings {
+  return freezeDeep(decoding(() => decodeRiderSettings(value)));
 }
 
 export function envBoolean(value: string | undefined, fallback = false): boolean {

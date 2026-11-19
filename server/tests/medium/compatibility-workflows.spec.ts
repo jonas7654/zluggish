@@ -1,3 +1,4 @@
+import { DocumentsService } from '#src/services/documents.service';
 import { LoginRequestSchema, LoginResponseSchema } from '#src/protocol/generated/login_pb';
 import { AchievementsSchema, PlayerProfileSchema, StreaksSchema } from '#src/protocol/generated/profile_pb';
 import { UserStorageSchema } from '#src/protocol/generated/user_storage_pb';
@@ -15,7 +16,7 @@ import { test } from 'node:test';
 await test('all rider state files stage, cancel, publish and recover with durable backups', async (t) => {
   const f = runtimeFixture(t);
   const user = await f.accounts.create('Import Rider', 'test-password');
-  const imports = new ImportsService(f.accounts, f.world);
+  const imports = f.effects.runSync(ImportsService);
 
   const files = {
     'profile.bin': toBinary(PlayerProfileSchema, create(PlayerProfileSchema, { id: 99n, firstName: 'Imported' })),
@@ -28,15 +29,19 @@ await test('all rider state files stage, cancel, publish and recover with durabl
   const old = toBinary(StreaksSchema, create(StreaksSchema, { curStreak: 1 }));
 
   const streaks = () =>
-    fromBinary(StreaksSchema, f.services.documents.get(user.player_id, 'streaks.bin') ?? new Uint8Array());
+    fromBinary(
+      StreaksSchema,
+      f.effects.runSync(DocumentsService.use((service) => service.get(user.player_id, 'streaks.bin'))) ??
+        new Uint8Array(),
+    );
 
-  f.services.documents.put(user.player_id, 'streaks.bin', old);
-  const canceled = imports.prepare(user, files);
-  imports.cancel(user, canceled);
+  f.effects.runSync(DocumentsService.use((service) => service.put(user.player_id, 'streaks.bin', old)));
+  const canceled = f.effects.runSync(imports.prepare(user, files));
+  f.effects.runSync(imports.cancel(user, canceled));
   assert.equal(streaks().curStreak, 1);
-  const stage = imports.prepare(user, files);
-  assert.equal(imports.inspect(user, stage).files.length, 5);
-  imports.publish(user, stage, false);
+  const stage = f.effects.runSync(imports.prepare(user, files));
+  assert.equal(f.effects.runSync(imports.inspect(user, stage)).files.length, 5);
+  f.effects.runSync(imports.publish(user, stage, false));
   assert.equal(f.profiles.get(user.player_id).id, BigInt(user.player_id));
   assert.equal(f.profiles.get(user.player_id).firstName, 'Imported');
   assert.equal(f.accounts.get(user.player_id)?.first_name, 'Imported');
@@ -51,20 +56,24 @@ await test('all rider state files stage, cancel, publish and recover with durabl
 
   // A crash after the publication commit leaves its stage behind: recovery removes it,
   // and the stage cannot apply a second time.
-  const repeated = imports.prepare(fresh, { 'streaks.bin': old });
-  const folder = imports.folder(fresh, repeated);
-  const manifest = imports.inspect(fresh, repeated);
-  imports.publish(fresh, repeated, false);
+  const repeated = f.effects.runSync(imports.prepare(fresh, { 'streaks.bin': old }));
+  const folder = f.effects.runSync(imports.folder(fresh, repeated));
+  const manifest = f.effects.runSync(imports.inspect(fresh, repeated));
+  f.effects.runSync(imports.publish(fresh, repeated, false));
   assert.equal(streaks().curStreak, 1);
-  f.services.documents.put(user.player_id, 'streaks.bin', files['streaks.bin']);
+  f.effects.runSync(
+    DocumentsService.use((service) => service.put(user.player_id, 'streaks.bin', files['streaks.bin'])),
+  );
   mkdirSync(folder);
   new AssetFiles().writeDurable(resolve(folder, 'streaks.bin'), old);
   new AssetFiles().writeDurable(resolve(folder, 'manifest.json'), JSON.stringify(manifest));
-  new ImportsService(f.accounts, f.world).recover();
+  f.effects.runSync(ImportsService.use((service) => service.recover()));
   assert.equal(existsSync(folder), false);
   assert.equal(streaks().curStreak, 3);
-  assert.throws(() => imports.prepare(fresh, { 'user_storage.bin': new Uint8Array([255]) }));
-  assert.throws(() => imports.prepare(fresh, { 'economy_config.txt': Buffer.from('{"cycling_levels":"invalid"}') }));
+  assert.throws(() => f.effects.runSync(imports.prepare(fresh, { 'user_storage.bin': new Uint8Array([255]) })));
+  assert.throws(() =>
+    f.effects.runSync(imports.prepare(fresh, { 'economy_config.txt': Buffer.from('{"cycling_levels":"invalid"}') })),
+  );
 });
 
 await test('web restore accepts empty protobuf state and waits for review before publishing', async (t) => {
@@ -78,11 +87,17 @@ await test('web restore accepts empty protobuf state and waits for review before
   assert.equal(response.status, 200);
   const { review } = await response.json();
   assert.ok(review.stage);
-  assert.equal(f.services.documents.has(user.player_id, 'streaks.bin'), false);
+  assert.equal(f.effects.runSync(DocumentsService.use((service) => service.has(user.player_id, 'streaks.bin'))), false);
   const published = await web.request('/api/me/import/confirm', 'POST', { stage: review.stage, confirmSource: true });
   assert.equal(published.status, 200);
-  assert.equal(f.services.documents.get(user.player_id, 'streaks.bin')?.length, 0);
-  assert.equal(f.services.documents.get(user.player_id, 'user_storage.bin')?.length, 0);
+  assert.equal(
+    f.effects.runSync(DocumentsService.use((service) => service.get(user.player_id, 'streaks.bin')))?.length,
+    0,
+  );
+  assert.equal(
+    f.effects.runSync(DocumentsService.use((service) => service.get(user.player_id, 'user_storage.bin')))?.length,
+    0,
+  );
 });
 
 await test('Zwift connection encrypts secrets and official downloads stage a rider-preserving import', async (t) => {
@@ -101,9 +116,9 @@ await test('Zwift connection encrypts secrets and official downloads stage a rid
   const connections = f.accounts.repositories.connectionsRepository;
   assert.deepEqual(connections.read(user.player_id, 'zwift'), ['official@example.test', 'super-secret']);
   assert.equal(
-    Buffer.from(f.services.documents.get(user.player_id, 'zwift_credentials.bin') ?? []).includes(
-      Buffer.from('super-secret'),
-    ),
+    Buffer.from(
+      f.effects.runSync(DocumentsService.use((service) => service.get(user.player_id, 'zwift_credentials.bin'))) ?? [],
+    ).includes(Buffer.from('super-secret')),
     false,
   );
   assert.equal(f.settings.read(user.player_id)['uploads.zwift.enabled'], true);
@@ -195,8 +210,8 @@ await test('automatic home and Android login sync coalesce, preserve UUIDs and e
   assert.match(await homeResponse.text(), /select name="climb"/);
   assert.equal(loginResponse.status, 200);
   assert.equal(eventRequests, 1);
-  const workouts = new WorkoutsService(f);
-  const id = workouts.list(user.player_id)[0]?.id;
+  const workouts = f.effects.runSync(WorkoutsService);
+  const id = f.effects.runSync(workouts.list(user.player_id))[0]?.id;
   assert.ok(id);
   f.world.logout(BigInt(user.player_id));
   await f.app.request('/api/users/login', {
@@ -205,7 +220,7 @@ await test('automatic home and Android login sync coalesce, preserve UUIDs and e
     body: toBinary(LoginRequestSchema, create(LoginRequestSchema, { key: new Uint8Array(16) })),
   });
   assert.equal(eventRequests, 2);
-  assert.equal(workouts.list(user.player_id)[0]?.id, id);
+  assert.equal(f.effects.runSync(workouts.list(user.player_id))[0]?.id, id);
 
   for (const sport of ['', 'CYCLING', 'cycling', 'RUNNING', 'other']) {
     const cycling = !sport || sport.toUpperCase() === 'CYCLING';
@@ -228,7 +243,7 @@ await test('automatic home and Android login sync coalesce, preserve UUIDs and e
     assert.equal(detail.status, cycling ? 200 : 404);
   }
 
-  const before = readFileSync(workouts.metadataFile(user.player_id));
+  const before = readFileSync(f.effects.runSync(workouts.metadataFile(user.player_id)));
   t.mock.method(
     globalThis,
     'fetch',
@@ -239,10 +254,10 @@ await test('automatic home and Android login sync coalesce, preserve UUIDs and e
       }),
   );
   const controller = new AbortController();
-  const aborted = workouts.sync(user.player_id, controller.signal);
+  const aborted = f.effects.runPromise(workouts.sync(user.player_id, controller.signal));
   controller.abort();
   await assert.rejects(aborted);
-  assert.deepEqual(readFileSync(workouts.metadataFile(user.player_id)), before);
+  assert.deepEqual(readFileSync(f.effects.runSync(workouts.metadataFile(user.player_id))), before);
   t.mock.method(globalThis, 'fetch', () => Promise.resolve(new Response(null, { status: 503 })));
   f.world.logout(BigInt(user.player_id));
 
@@ -253,7 +268,7 @@ await test('automatic home and Android login sync coalesce, preserve UUIDs and e
   });
 
   assert.equal(failure.status, 200);
-  assert.deepEqual(readFileSync(workouts.metadataFile(user.player_id)), before);
+  assert.deepEqual(readFileSync(f.effects.runSync(workouts.metadataFile(user.player_id))), before);
 });
 
 await test('automatic TrainingPeaks home refresh imports exported workouts without contacting a provider', async (t) => {
@@ -266,7 +281,7 @@ await test('automatic TrainingPeaks home refresh imports exported workouts witho
   t.mock.method(globalThis, 'fetch', () => {
     throw new Error('Unexpected network');
   });
-  await WorkoutsService.syncWorkoutsAutomatically(f, user.player_id);
+  await f.effects.runPromise(WorkoutsService.use((workouts) => workouts.syncWorkoutsAutomatically(user.player_id)));
   assert.equal(f.accounts.db.prepare('SELECT count(*) AS n FROM zfile WHERE player_id=?').get(user.player_id)?.n, 1);
 });
 
@@ -277,14 +292,14 @@ await test('a failed TrainingPeaks refresh retains all previously published file
   mkdirSync(folder);
   new AssetFiles().writeDurable(resolve(folder, 'first.zwo'), xml);
   f.settings.save(user.player_id, { 'workouts.trainingpeaks.bridgeFolder': folder });
-  const workouts = new WorkoutsService(f);
-  await workouts.sync(user.player_id);
+  const workouts = f.effects.runSync(WorkoutsService);
+  await f.effects.runPromise(workouts.sync(user.player_id));
   const target = resolve(f.profiles.folder(user.player_id), 'customworkouts/trainingpeaks-first.zwo');
   const before = readFileSync(target);
   const rows = f.accounts.db.prepare('SELECT * FROM zfile').all();
   new AssetFiles().writeDurable(resolve(folder, 'first.zwo'), xml.replace('Tempo', 'Changed'), true);
   new AssetFiles().writeDurable(resolve(folder, 'second.zwo'), '<broken>');
-  await WorkoutsService.syncWorkoutsAutomatically(f, user.player_id);
+  await f.effects.runPromise(WorkoutsService.use((workouts) => workouts.syncWorkoutsAutomatically(user.player_id)));
   assert.deepEqual(readFileSync(target), before);
   assert.deepEqual(f.accounts.db.prepare('SELECT * FROM zfile').all(), rows);
 });
@@ -293,9 +308,9 @@ await test('automatic sync deadline aborts provider work and never publishes a l
   const f = runtimeFixture(t);
   const user = await f.accounts.create('Deadline Rider', 'test-password');
   f.accounts.repositories.connectionsRepository.save(user.player_id, 'intervals', ['123', 'key']);
-  const workouts = new WorkoutsService(f);
+  const workouts = f.effects.runSync(WorkoutsService);
   const before = Buffer.from('{"provider":"intervals-icu","workouts":[]}');
-  new AssetFiles().writeDurable(workouts.metadataFile(user.player_id), before);
+  new AssetFiles().writeDurable(f.effects.runSync(workouts.metadataFile(user.player_id)), before);
   const timeout = AbortSignal.timeout.bind(AbortSignal);
   t.mock.method(AbortSignal, 'timeout', (milliseconds: number) => {
     assert.equal(milliseconds, 5000);
@@ -323,13 +338,13 @@ await test('automatic sync deadline aborts provider work and never publishes a l
   const keepAlive = setInterval(() => {}, 1000);
 
   try {
-    await WorkoutsService.syncWorkoutsAutomatically(f, user.player_id);
+    await f.effects.runPromise(WorkoutsService.use((workouts) => workouts.syncWorkoutsAutomatically(user.player_id)));
   } finally {
     clearInterval(keepAlive);
   }
 
   assert.equal(aborted, true);
-  assert.deepEqual(readFileSync(workouts.metadataFile(user.player_id)), before);
+  assert.deepEqual(readFileSync(f.effects.runSync(workouts.metadataFile(user.player_id))), before);
 });
 
 await test('home marks the climb portals this rider has already ridden', async (t) => {

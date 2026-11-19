@@ -1,3 +1,4 @@
+import { ManagementService } from '#src/services/management.service';
 import { responseStatus, inputValue } from '#tests/support/html';
 import { createGameApp } from '#src/http/app';
 import { migrateAccounts } from '#src/migrations/accounts';
@@ -16,7 +17,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, renameSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 function browser(app: ReturnType<typeof createGameApp>) {
   // A small cookie jar: the session cookie and per-rider remember cookies live side by side.
@@ -82,15 +83,17 @@ await test('empty game app directs the operator to web setup and cannot register
     }
 
   assert.equal(await responseStatus(client.request('/api/users', { method: 'POST' })), 403);
-  const service = f.services.management;
-  await service.setup({
-    mode: 'new',
-    key: service.issueSetupKey()!,
-    username: 'alex',
-    first_name: 'Alex',
-    last_name: 'Rider',
-    password: 'owner-password',
-  });
+  const service = f.effects.runSync(ManagementService);
+  await f.effects.runPromise(
+    service.setup({
+      mode: 'new',
+      key: f.effects.runSync(service.issueSetupKey())!,
+      username: 'alex',
+      first_name: 'Alex',
+      last_name: 'Rider',
+      password: 'owner-password',
+    }),
+  );
   await client.picker();
   const login = await client.form('/login/', { player_id: '1', step: 'password', password: 'owner-password' });
   assert.equal(login.status, 302);
@@ -229,7 +232,9 @@ await test('distinct riders launch and refresh independently; password change re
       body: new URLSearchParams({ code }),
     });
 
-    const tokens = z.object({ access_token: z.string(), refresh_token: z.string() }).parse(await exchange.json());
+    const tokens = Schema.decodeUnknownSync(
+      Schema.Struct({ access_token: Schema.String, refresh_token: Schema.String }),
+    )(await exchange.json());
 
     assert.equal(f.sessions.bearer(tokens.access_token)?.player_id, user.player_id);
 
@@ -279,12 +284,14 @@ await test('active riders cannot launch twice or replace their profile', async (
   await client.form('/login/', { player_id: String(user.player_id), step: 'password', password: 'test-password' });
   const response7 = await client.request('/ride');
   assert.equal(response7.status, 409);
-  const imports = new ImportsService(f.accounts, f.world);
+  const imports = f.effects.runSync(ImportsService);
   assert.throws(
     () =>
-      imports.prepare(user, {
-        'profile.bin': toBinary(PlayerProfileSchema, create(PlayerProfileSchema, { id: 99n, firstName: 'Remote' })),
-      }),
+      f.effects.runSync(
+        imports.prepare(user, {
+          'profile.bin': toBinary(PlayerProfileSchema, create(PlayerProfileSchema, { id: 99n, firstName: 'Remote' })),
+        }),
+      ),
     /active ride/,
   );
 });
@@ -292,7 +299,7 @@ await test('active riders cannot launch twice or replace their profile', async (
 await test('profile imports stage, preserve unknown fields, normalize IDs and keep passwords', async (t) => {
   const f = runtimeFixture(t);
   const user = await f.accounts.create('Local Rider', 'secret');
-  const imports = new ImportsService(f.accounts, f.world);
+  const imports = f.effects.runSync(ImportsService);
 
   const bytes = Buffer.concat([
     toBinary(
@@ -306,9 +313,9 @@ await test('profile imports stage, preserve unknown fields, normalize IDs and ke
     Buffer.from('a01f07', 'hex'),
   ]);
 
-  const stage = imports.prepare(user, { 'profile.bin': bytes });
+  const stage = f.effects.runSync(imports.prepare(user, { 'profile.bin': bytes }));
   assert.equal(f.profiles.get(user.player_id).firstName, 'Local');
-  imports.publish(user, stage, false);
+  f.effects.runSync(imports.publish(user, stage, false));
   const saved = f.profiles.get(user.player_id);
   assert.equal(saved.id, BigInt(user.player_id));
   assert.equal(saved.firstName, 'Remote');
@@ -331,7 +338,9 @@ await test('native login and HTTP login share one relay owner with protobuf econ
     }),
   });
 
-  const token = z.object({ access_token: z.string() }).parse(await tokenResponse.json()).access_token;
+  const token = Schema.decodeUnknownSync(Schema.Struct({ access_token: Schema.String }))(
+    await tokenResponse.json(),
+  ).access_token;
 
   const key = new Uint8Array(16).fill(7);
 
@@ -358,7 +367,7 @@ await test('existing Zluggish database is renamed without losing riders', async 
   const legacy = resolve(f.accounts.storage, 'zwift-offline.db');
   assert.ok(existsSync(current));
   renameSync(current, legacy);
-  const reopened = new AccountsService(f.accounts.storage);
+  const reopened = AccountsService.open(f.accounts.storage);
   t.after(() => reopened.close());
   assert.equal(reopened.get(rider.player_id)?.first_name, 'Existing');
   assert.ok(existsSync(current));
@@ -383,7 +392,7 @@ await test('account migration publishes the renamed database and preserves rider
   const current = resolve(f.accounts.storage, 'zluggish.db');
   const legacy = resolve(f.accounts.storage, 'zwift-offline.db');
   renameSync(current, legacy);
-  assert.throws(() => new AccountsService(f.accounts.storage), /upgrade required/);
+  assert.throws(() => AccountsService.open(f.accounts.storage), /upgrade required/);
   // SQLite backup work needs a live event loop on newer Node releases.
   const keepAlive = setInterval(() => {}, 1000);
 
@@ -396,7 +405,7 @@ await test('account migration publishes the renamed database and preserves rider
 
   assert.ok(existsSync(current));
   assert.ok(!existsSync(legacy));
-  const reopened = new AccountsService(f.accounts.storage);
+  const reopened = AccountsService.open(f.accounts.storage);
   assert.equal(reopened.get(rider.player_id)?.first_name, 'Migrated');
 
   for (const previous of [rider, oldScrypt]) {

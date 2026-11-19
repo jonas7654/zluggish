@@ -1,19 +1,19 @@
 import type { UploadState } from '#src/enum';
 import { query, SqliteExecutor } from '#src/db/query';
 import type { DatabaseSync } from 'node:sqlite';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
-const delivery = z.object({
-  activity_id: z.number(),
-  provider: z.string(),
-  state: z.string(),
-  attempt: z.string().nullable(),
-  remote_id: z.string().nullable(),
-  step: z.string().nullable(),
-  last_error: z.string().nullable(),
+const delivery = Schema.Struct({
+  activity_id: Schema.Finite,
+  provider: Schema.String,
+  state: Schema.String,
+  attempt: Schema.NullOr(Schema.String),
+  remote_id: Schema.NullOr(Schema.String),
+  step: Schema.NullOr(Schema.String),
+  last_error: Schema.NullOr(Schema.String),
 });
 
-export type Delivery = z.infer<typeof delivery>;
+export type Delivery = (typeof delivery)['Type'];
 
 /** Delivery records, separate from completion. pending -> sending (attempt token) ->
 sent | failed | ambiguous; pending | failed | ambiguous -> cancelled. Only the attempt
@@ -73,7 +73,7 @@ export class UploadsRepository {
         .where('provider', '=', provider),
     );
 
-    return row ? delivery.parse(row) : null;
+    return row ? Schema.decodeUnknownSync(delivery)(row) : null;
   }
 
   /** Commit sending before the provider request. */

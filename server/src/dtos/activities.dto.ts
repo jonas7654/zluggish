@@ -1,7 +1,7 @@
-import { z } from 'zod';
+import { Schema } from 'effect';
 
-export const activityMediaSchema = z.object({
-  id: z.number(),
-  player_id: z.number(),
-  content_type: z.string(),
+export const activityMediaSchema = Schema.Struct({
+  id: Schema.Finite,
+  player_id: Schema.Finite,
+  content_type: Schema.String,
 });

@@ -6,9 +6,9 @@ import { AssetFiles } from '#src/repositories/files.repository';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
-const row = z.object({ data: z.instanceof(Uint8Array), encrypted: z.number() });
+const row = Schema.Struct({ data: Schema.instanceOf(Uint8Array), encrypted: Schema.Finite });
 
 /** Rider state in the main database. Secrets are encrypted with the credentials key,
 which stays in a file outside the database: a database backup alone cannot decrypt them.
@@ -53,7 +53,7 @@ export class RiderDocuments {
     );
 
     if (!found) return null;
-    const document = row.parse(found);
+    const document = Schema.decodeUnknownSync(row)(found);
 
     return document.encrypted ? this.crypto.decryptSecret(this.key(), document.data) : document.data;
   }

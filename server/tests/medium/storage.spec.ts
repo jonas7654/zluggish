@@ -1,3 +1,6 @@
+import { AchievementService } from '#src/services/achievement.service';
+import { DocumentsService } from '#src/services/documents.service';
+import { RuntimeContext } from '#src/context';
 import { validateConfig } from '#src/config/index';
 import { StorageService } from '#src/services/storage.service';
 import { createCdn } from '#src/node/network/cdn';
@@ -13,7 +16,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
-import { z } from 'zod';
+import { Effect, Layer, Schema } from 'effect';
 
 for (const companion of [false, true])
   for (const json of [false, true]) {
@@ -52,7 +55,11 @@ for (const companion of [false, true])
       assert.equal(first.status, 200);
 
       const metadata = json
-        ? z.looseObject({ id: z.number(), lastModified: z.string() }).parse(await first.json())
+        ? Schema.decodeUnknownSync(
+            Schema.StructWithRest(Schema.Struct({ id: Schema.Finite, lastModified: Schema.String }), [
+              Schema.Record(Schema.String, Schema.Unknown),
+            ]),
+          )(await first.json())
         : await decode(first, ZFileProtoSchema);
 
       assert.ok(metadata.id);
@@ -224,7 +231,7 @@ for (const count of [0, 1, 9, 10, 24, 25]) {
       );
     }
 
-    assert.ok(f.services.documents.has(f.rider.player_id, 'achievements.bin'));
+    assert.ok(f.effects.runSync(DocumentsService.use((service) => service.has(f.rider.player_id, 'achievements.bin'))));
   });
 }
 
@@ -283,7 +290,7 @@ for (const count of [0, 1, 9, 10, 24, 25]) {
 await test('CDN workout endpoint serves exactly the cached XML', async (t) => {
   const f = await mediumFixture(t);
   const id = '84e16aa6-2e13-4cc5-9bea-76595a66abe0';
-  const file = new WorkoutsService(f).file(id);
+  const file = f.effects.runSync(WorkoutsService.use((service) => service.file(id)));
   assert.ok(file);
   new AssetFiles().writeDurable(file, '<workout_file><name>Tempo</name></workout_file>');
   const response = await createCdn(f).request(`/tp-workouts/intervalsicu/${id}.zwo`);
@@ -312,7 +319,7 @@ await test('zfile uploads cannot create internal import journals through either 
     }
 
   assert.equal(f.accounts.db.prepare('SELECT count(*) AS n FROM zfile').get()?.n, 0);
-  assert.doesNotThrow(() => new ImportsService(f.accounts, f.world).recover());
+  assert.doesNotThrow(() => f.effects.runSync(ImportsService.use((service) => service.recover())));
 });
 
 await test('bike upgrade unlocks include extra frames, preserve settings and leave saved progress unchanged', async (t) => {
@@ -324,19 +331,30 @@ await test('bike upgrade unlocks include extra frames, preserve settings and lea
       attributes: [{ bikeProgress: { signature: '270803031', level: 2 }, gameSettings: { minimalLeaderboards: 1 } }],
     }),
   });
-  const before = f.services.documents.get(id, 'user_storage.bin');
+  const before = f.effects.runSync(DocumentsService.use((service) => service.get(id, 'user_storage.bin')));
 
-  const service = new StorageService({
-    ...f,
-    config: validateConfig({ storageDir: f.config.storageDir, equipment: { unlockBikeUpgrades: true } }),
-  });
+  const unlocked = StorageService.layer.pipe(
+    Layer.provide(AchievementService.layer),
+    Layer.provide(
+      Layer.succeed(RuntimeContext, {
+        ...f,
+        config: validateConfig({ storageDir: f.config.storageDir, equipment: { unlockBikeUpgrades: true } }),
+      }),
+    ),
+  );
+
+  const attributes = (types: Set<number>) =>
+    Effect.runSync(StorageService.use((storage) => storage.attributes(id, types)).pipe(Effect.provide(unlocked)));
 
   const start = BigInt(Date.now());
-  const result = service.attributes(id, new Set([24, 22]));
+  const result = attributes(new Set([24, 22]));
 
-  const dictionary = z
-    .object({ bikeframes: z.record(z.string(), z.string()), bikeframesextra: z.record(z.string(), z.string()) })
-    .parse(JSON.parse(readFileSync(resolve(f.assets, 'data/game_dictionary.txt'), 'utf8')));
+  const dictionary = Schema.decodeUnknownSync(
+    Schema.Struct({
+      bikeframes: Schema.Record(Schema.String, Schema.String),
+      bikeframesextra: Schema.Record(Schema.String, Schema.String),
+    }),
+  )(JSON.parse(readFileSync(resolve(f.assets, 'data/game_dictionary.txt'), 'utf8')));
 
   const bikes = result.attributes.flatMap((a) => (a.bikeProgress ? [a.bikeProgress] : []));
   assert.equal(
@@ -356,9 +374,9 @@ await test('bike upgrade unlocks include extra frames, preserve settings and lea
   }
 
   assert.equal(result.attributes.filter((a) => a.gameSettings).length, 1);
-  assert.equal(service.attributes(id, new Set([22])).attributes.length, 1);
-  assert.equal(service.attributes(id, new Set()).attributes.length, 0);
-  assert.deepEqual(f.services.documents.get(id, 'user_storage.bin'), before);
+  assert.equal(attributes(new Set([22])).attributes.length, 1);
+  assert.equal(attributes(new Set()).attributes.length, 0);
+  assert.deepEqual(f.effects.runSync(DocumentsService.use((service) => service.get(id, 'user_storage.bin'))), before);
 
   const original = await decode(
     await f.request('/api/player-profile/user-game-storage/attributes?n=24'),

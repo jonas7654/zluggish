@@ -1,3 +1,8 @@
+import { Effect } from 'effect';
+import { ManagementService } from '#src/services/management.service';
+import { RideCompletionService } from '#src/services/ride-completion.service';
+import { DurabilityService } from '#src/services/durability.service';
+import { EventsService } from '#src/services/events.service';
 import { responseStatus } from '#tests/support/html';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -8,41 +13,43 @@ import { createWebApp } from '#src/http/web-app';
 
 await test('administrator user avatars include versions and serve the saved photo', async (t) => {
   const f = runtimeFixture(t);
-  const service = f.services.management;
+  const service = f.effects.runSync(ManagementService);
 
-  const owner = await service.setup({
-    mode: 'new',
-    key: service.issueSetupKey()!,
-    username: 'owner',
-    first_name: 'First',
-    last_name: 'Rider',
-    password: 'test-password',
-  });
+  const owner = await f.effects.runPromise(
+    service.setup({
+      mode: 'new',
+      key: f.effects.runSync(service.issueSetupKey())!,
+      username: 'owner',
+      first_name: 'First',
+      last_name: 'Rider',
+      password: 'test-password',
+    }),
+  );
 
-  const opened = service.sessions.create(f.accounts.identityOf(owner), Date.now() + 900_000);
+  const opened = Effect.runSync(service.sessions.create(f.accounts.identityOf(owner), Date.now() + 900_000));
   const web = createWebApp(f);
   const headers = { Cookie: `zluggish_web_session=${opened.id}` };
   const url = `/api/manage/users/${owner.player_id}/avatar`;
-  assert.equal(service.publicUser(owner).avatar, null);
+  assert.equal(f.effects.runSync(service.publicUser(owner)).avatar, null);
   const jpeg = Uint8Array.from([0xff, 0xd8, 0xff, 0xd9]);
-  const saved = service.saveAvatar(opened.id, jpeg);
-  assert.equal(service.publicUser(owner).avatar, saved.avatar);
+  const saved = f.effects.runSync(service.saveAvatar(opened.id, jpeg));
+  assert.equal(f.effects.runSync(service.publicUser(owner)).avatar, saved.avatar);
   assert.equal(await responseStatus(web.request(url)), 401);
   const image = await web.request(url, { headers });
   assert.equal(image.status, 200);
   assert.equal(image.headers.get('Content-Type'), 'image/jpeg');
   assert.deepEqual(new Uint8Array(await image.arrayBuffer()), jpeg);
-  service.removeAvatar(opened.id);
+  f.effects.runSync(service.removeAvatar(opened.id));
   assert.equal(await responseStatus(web.request(url, { headers })), 404);
 });
 
 await test('setup is atomic, permanent, independent of legacy ownership, and does not leak credentials', async (t) => {
   const f = runtimeFixture(t);
-  const service = f.services.management;
+  const service = f.effects.runSync(ManagementService);
   const legacy = await f.accounts.create('Legacy Owner', 'legacy-password', 'legacy');
   assert.equal(legacy.role, 'rider');
   assert.equal(service.store.complete(), false);
-  const key = service.issueSetupKey()!;
+  const key = f.effects.runSync(service.issueSetupKey())!;
 
   const input = {
     mode: 'existing' as const,
@@ -51,63 +58,76 @@ await test('setup is atomic, permanent, independent of legacy ownership, and doe
     password: 'legacy-password',
   };
 
-  const outcomes = await Promise.allSettled([service.setup(input), service.setup(input)]);
+  const outcomes = await Promise.allSettled([
+    f.effects.runPromise(service.setup(input)),
+    f.effects.runPromise(service.setup(input)),
+  ]);
+
   assert.equal(outcomes.filter((r) => r.status === 'fulfilled').length, 1);
   assert.equal(service.store.complete(), true);
   const rider = f.accounts.get(legacy.player_id)!;
   assert.equal(rider.role, 'administrator');
   assert.equal(rider.auth_version, legacy.auth_version + 1);
-  assert.equal(service.issueSetupKey(), null);
-  await assert.rejects(service.setup(input));
+  assert.equal(f.effects.runSync(service.issueSetupKey()), null);
+  await assert.rejects(f.effects.runPromise(service.setup(input)));
   assert.throws(() => f.accounts.db.exec("UPDATE web_setup_state SET state='unclaimed'"));
   assert.throws(() => f.accounts.db.exec("INSERT OR REPLACE INTO web_setup_state VALUES(1,'unclaimed')"));
-  assert.equal(JSON.stringify(service.publicUser(rider)).includes('pass_hash'), false);
+  assert.equal(JSON.stringify(f.effects.runSync(service.publicUser(rider))).includes('pass_hash'), false);
 });
 
 await test('last administrator, exact confirmation expiry, revisions, retries and revocation', async (t) => {
   const f = runtimeFixture(t);
-  const service = f.services.management;
+  const service = f.effects.runSync(ManagementService);
 
-  const administrator = await service.setup({
-    mode: 'new',
-    key: service.issueSetupKey()!,
-    username: 'owner',
-    first_name: 'First',
-    last_name: 'Rider',
-    password: 'test-password',
-  });
+  const administrator = await f.effects.runPromise(
+    service.setup({
+      mode: 'new',
+      key: f.effects.runSync(service.issueSetupKey())!,
+      username: 'owner',
+      first_name: 'First',
+      last_name: 'Rider',
+      password: 'test-password',
+    }),
+  );
 
-  const opened = service.sessions.create(f.accounts.identityOf(administrator), Date.now() + 900_000);
+  const opened = Effect.runSync(service.sessions.create(f.accounts.identityOf(administrator), Date.now() + 900_000));
   const input = { revision: administrator.revision, operation: crypto.randomUUID() };
-  await assert.rejects(service.mutate(opened.id, administrator.player_id, 'disable', input), /at least one/);
   await assert.rejects(
-    service.mutate(opened.id, administrator.player_id, 'role', { ...input, role: 'rider' }),
+    f.effects.runPromise(service.mutate(opened.id, administrator.player_id, 'disable', input)),
+    /at least one/,
+  );
+  await assert.rejects(
+    f.effects.runPromise(service.mutate(opened.id, administrator.player_id, 'role', { ...input, role: 'rider' })),
     /at least one/,
   );
 
-  const created = await service.create(
-    opened.id,
-    { username: 'second', first_name: 'Second', last_name: 'Rider', password: 'test-password' },
-    crypto.randomUUID(),
+  const created = await f.effects.runPromise(
+    service.create(
+      opened.id,
+      { username: 'second', first_name: 'Second', last_name: 'Rider', password: 'test-password' },
+      crypto.randomUUID(),
+    ),
   );
 
   const second = f.accounts.get(created.player_id)!;
   const oldToken = f.sessions.tokens(second, f.tokens).access_token;
   const op = { revision: second.revision, operation: crypto.randomUUID() };
-  const disabled = await service.mutate(opened.id, second.player_id, 'disable', op);
+  const disabled = await f.effects.runPromise(service.mutate(opened.id, second.player_id, 'disable', op));
   assert.equal(disabled.enabled, 0);
-  assert.deepEqual(await service.mutate(opened.id, second.player_id, 'disable', op), disabled);
+  assert.deepEqual(await f.effects.runPromise(service.mutate(opened.id, second.player_id, 'disable', op)), disabled);
   assert.equal(f.sessions.bearer(oldToken), null);
   await assert.rejects(
-    service.mutate(opened.id, second.player_id, 'enable', { ...op, operation: crypto.randomUUID() }),
+    f.effects.runPromise(
+      service.mutate(opened.id, second.player_id, 'enable', { ...op, operation: crypto.randomUUID() }),
+    ),
     /changed/,
   );
-  await assert.rejects(service.signIn('second', 'test-password'));
+  await assert.rejects(f.effects.runPromise(service.signIn('second', 'test-password')));
   const deadline = opened.session.confirmedUntil;
   t.mock.method(Date, 'now', () => deadline - 1);
-  assert.equal(service.sessions.require(opened.id, true).player_id, administrator.player_id);
+  assert.equal(Effect.runSync(service.sessions.require(opened.id, true)).player_id, administrator.player_id);
   t.mock.method(Date, 'now', () => deadline);
-  assert.equal(service.sessions.require(opened.id, true).player_id, administrator.player_id);
+  assert.equal(Effect.runSync(service.sessions.require(opened.id, true)).player_id, administrator.player_id);
 });
 
 await test('web and game routes and credential stores are isolated; mutations need origin and CSRF', async (t) => {
@@ -124,7 +144,7 @@ await test('web and game routes and credential stores are isolated; mutations ne
 
   const input = {
     mode: 'new',
-    key: f.services.management.issueSetupKey(),
+    key: f.effects.runSync(ManagementService.use((management) => management.issueSetupKey())),
     username: 'owner',
     first_name: 'First',
     last_name: 'Rider',
@@ -182,7 +202,7 @@ await test('web and game routes and credential stores are isolated; mutations ne
 await test('stale asynchronous verification cannot sign in or complete setup', async (t) => {
   const f = runtimeFixture(t);
   const user = await f.accounts.create('Existing Rider', 'test-password', 'existing');
-  const service = f.services.management;
+  const service = f.effects.runSync(ManagementService);
   const original = f.accounts.verify.bind(f.accounts);
   t.mock.method(f.accounts, 'verify', async (...args: Parameters<typeof original>) => {
     const result = await original(...args);
@@ -190,33 +210,37 @@ await test('stale asynchronous verification cannot sign in or complete setup', a
 
     return result;
   });
-  await assert.rejects(service.signIn('existing', 'test-password'));
+  await assert.rejects(f.effects.runPromise(service.signIn('existing', 'test-password')));
   assert.equal(service.store.complete(), false);
   await assert.rejects(
-    service.setup({
-      mode: 'existing' as const,
-      key: service.issueSetupKey()!,
-      username: 'existing',
-      password: 'test-password',
-    }),
+    f.effects.runPromise(
+      service.setup({
+        mode: 'existing' as const,
+        key: f.effects.runSync(service.issueSetupKey())!,
+        username: 'existing',
+        password: 'test-password',
+      }),
+    ),
   );
   assert.equal(service.store.complete(), false);
 });
 
 await test('disabled native ride only saves its captured activity and final retries do not write', async (t) => {
   const f = runtimeFixture(t);
-  const service = f.services.management;
+  const service = f.effects.runSync(ManagementService);
 
-  const owner = await service.setup({
-    mode: 'new',
-    key: service.issueSetupKey()!,
-    username: 'owner',
-    first_name: 'First',
-    last_name: 'Rider',
-    password: 'test-password',
-  });
+  const owner = await f.effects.runPromise(
+    service.setup({
+      mode: 'new',
+      key: f.effects.runSync(service.issueSetupKey())!,
+      username: 'owner',
+      first_name: 'First',
+      last_name: 'Rider',
+      password: 'test-password',
+    }),
+  );
 
-  const opened = service.sessions.create(f.accounts.identityOf(owner), Date.now() + 900_000);
+  const opened = Effect.runSync(service.sessions.create(f.accounts.identityOf(owner), Date.now() + 900_000));
   const rider = await f.accounts.create('Connected Rider', 'test-password');
   const token = `Bearer ${f.sessions.tokens(rider, f.tokens).access_token}`;
   const { create, toBinary } = await import('@bufbuild/protobuf');
@@ -247,11 +271,13 @@ await test('disabled native ride only saves its captured activity and final retr
   assert.equal(started.status, 200);
   const startedBody = await started.json();
   activity.id = BigInt(startedBody.id);
-  await service.mutate(opened.id, rider.player_id, 'disable', {
-    revision: rider.revision,
-    operation: crypto.randomUUID(),
-  });
-  assert.ok(f.services.rideCompletion.permission(rider.player_id));
+  await f.effects.runPromise(
+    service.mutate(opened.id, rider.player_id, 'disable', {
+      revision: rider.revision,
+      operation: crypto.randomUUID(),
+    }),
+  );
+  assert.ok(f.effects.runSync(RideCompletionService.use((service) => service.permission(rider.player_id))));
   assert.equal(await responseStatus(f.app.request('/api/profiles/me', { headers: { Authorization: token } })), 401);
   assert.equal(
     await responseStatus(
@@ -291,8 +317,8 @@ await test('disabled native ride only saves its captured activity and final retr
   });
 
   assert.equal(finish.status, 200);
-  assert.equal(f.services.rideCompletion.permission(rider.player_id), null);
-  const changes = f.services.durability.changes();
+  assert.equal(f.effects.runSync(RideCompletionService.use((service) => service.permission(rider.player_id))), null);
+  const changes = f.effects.runSync(DurabilityService.use((service) => service.changes()));
 
   const retry = await f.app.request(path + '?upload-to-strava=true', {
     method: 'PUT',
@@ -301,7 +327,7 @@ await test('disabled native ride only saves its captured activity and final retr
   });
 
   assert.equal(retry.status, 200);
-  assert.equal(f.services.durability.changes(), changes);
+  assert.equal(f.effects.runSync(DurabilityService.use((service) => service.changes())), changes);
   activity.name = 'different';
   assert.equal(
     await responseStatus(
@@ -318,45 +344,52 @@ await test('disabled native ride only saves its captured activity and final retr
 await test('offline administrator recovery enables and completes setup atomically; failure rolls back', async (t) => {
   const f = runtimeFixture(t);
   const rider = await f.accounts.create('Recovered Rider', 'old');
-  f.services.management.store.transaction(() => f.services.management.store.update(rider.player_id, { enabled: 0 }));
+  f.effects
+    .runSync(ManagementService)
+    .store.transaction(() => f.effects.runSync(ManagementService).store.update(rider.player_id, { enabled: 0 }));
   await f.accounts.changePassword(rider.player_id, 'first');
   assert.equal(f.accounts.get(rider.player_id)!.enabled, 0);
-  assert.equal(f.services.management.store.complete(), false);
+  assert.equal(f.effects.runSync(ManagementService).store.complete(), false);
   f.accounts.db.exec(
     "CREATE TRIGGER fail_recovery BEFORE UPDATE ON web_setup_state BEGIN SELECT RAISE(ABORT,'injected'); END",
   );
   const before = f.accounts.get(rider.player_id);
   await assert.rejects(f.accounts.changePassword(rider.player_id, 'second', true), /injected/);
   assert.deepEqual(f.accounts.get(rider.player_id), before);
-  assert.equal(f.services.management.store.complete(), false);
+  assert.equal(f.effects.runSync(ManagementService).store.complete(), false);
   f.accounts.db.exec('DROP TRIGGER fail_recovery');
   await f.accounts.changePassword(rider.player_id, 'third', true);
   const after = f.accounts.get(rider.player_id)!;
   assert.equal(after.enabled, 1);
   assert.equal(after.role, 'administrator');
   assert.equal(after.auth_version, before!.auth_version + 1);
-  assert.equal(f.services.management.store.complete(), true);
+  assert.equal(f.effects.runSync(ManagementService).store.complete(), true);
 });
 
 await test('world settings and administrator event changes use revisions and durable retries', async (t) => {
   const f = runtimeFixture(t);
-  const service = f.services.management;
+  const service = f.effects.runSync(ManagementService);
 
-  const owner = await service.setup({
-    mode: 'new',
-    key: service.issueSetupKey()!,
-    username: 'owner',
-    first_name: 'First',
-    last_name: 'Rider',
-    password: 'test-password',
-  });
+  const owner = await f.effects.runPromise(
+    service.setup({
+      mode: 'new',
+      key: f.effects.runSync(service.issueSetupKey())!,
+      username: 'owner',
+      first_name: 'First',
+      last_name: 'Rider',
+      password: 'test-password',
+    }),
+  );
 
-  const opened = service.sessions.create(f.accounts.identityOf(owner), Date.now() + 900_000);
+  const opened = Effect.runSync(service.sessions.create(f.accounts.identityOf(owner), Date.now() + 900_000));
   const world = { operation: crypto.randomUUID(), revision: 0, id: `blob:${owner.player_id}`, values: { riders: 3 } };
-  const saved = service.saveWorld(opened.id, world);
+  const saved = f.effects.runSync(service.saveWorld(opened.id, world));
   assert.equal(saved.revision, 1);
-  assert.deepEqual(service.saveWorld(opened.id, world), saved);
-  assert.throws(() => service.saveWorld(opened.id, { ...world, operation: crypto.randomUUID() }), /Settings changed/);
+  assert.deepEqual(f.effects.runSync(service.saveWorld(opened.id, world)), saved);
+  assert.throws(
+    () => f.effects.runSync(service.saveWorld(opened.id, { ...world, operation: crypto.randomUUID() })),
+    /Settings changed/,
+  );
 
   const input = {
     culling: false,
@@ -373,37 +406,46 @@ await test('world settings and administrator event changes use revisions and dur
     workoutHash: 0,
   };
 
-  const id = f.services.events.createMeetup(owner, input);
-  const event = f.services.events.read(String(id));
+  const id = f.effects.runSync(EventsService.use((service) => service.createMeetup(owner, input)));
+  const event = f.effects.runSync(EventsService.use((service) => service.read(String(id))));
   const edit = { operation: crypto.randomUUID(), revision: event.updateDate, changes: { description: 'After' } };
-  service.editEvent(opened.id, id, 'edit-event', edit);
-  assert.equal(f.services.events.read(String(id)).description, 'After');
-  assert.deepEqual(service.editEvent(opened.id, id, 'edit-event', edit), { id, action: 'edit-event' });
-  const current = f.services.events.read(String(id));
-  service.editEvent(opened.id, id, 'delete-event', { operation: crypto.randomUUID(), revision: current.updateDate });
-  assert.throws(() => f.services.events.read(String(id)));
+  f.effects.runSync(service.editEvent(opened.id, id, 'edit-event', edit));
+  assert.equal(f.effects.runSync(EventsService.use((service) => service.read(String(id)))).description, 'After');
+  assert.deepEqual(f.effects.runSync(service.editEvent(opened.id, id, 'edit-event', edit)), {
+    id,
+    action: 'edit-event',
+  });
+  const current = f.effects.runSync(EventsService.use((service) => service.read(String(id))));
+  f.effects.runSync(
+    service.editEvent(opened.id, id, 'delete-event', { operation: crypto.randomUUID(), revision: current.updateDate }),
+  );
+  assert.throws(() => f.effects.runSync(EventsService.use((service) => service.read(String(id)))));
 });
 
 await test('backup and restore preserve complete setup, operation results and the fingerprint key', async (t) => {
   const f = runtimeFixture(t);
-  const service = f.services.management;
+  const service = f.effects.runSync(ManagementService);
 
-  const owner = await service.setup({
-    mode: 'new',
-    key: service.issueSetupKey()!,
-    username: 'owner',
-    first_name: 'First',
-    last_name: 'Rider',
-    password: 'test|password',
-  });
+  const owner = await f.effects.runPromise(
+    service.setup({
+      mode: 'new',
+      key: f.effects.runSync(service.issueSetupKey())!,
+      username: 'owner',
+      first_name: 'First',
+      last_name: 'Rider',
+      password: 'test|password',
+    }),
+  );
 
-  const opened = service.sessions.create(f.accounts.identityOf(owner), Date.now() + 900_000);
+  const opened = Effect.runSync(service.sessions.create(f.accounts.identityOf(owner), Date.now() + 900_000));
   const operation = crypto.randomUUID();
 
-  const result = await service.create(
-    opened.id,
-    { username: 'second', first_name: 'Second', last_name: 'Rider', password: 'test|password' },
-    operation,
+  const result = await f.effects.runPromise(
+    service.create(
+      opened.id,
+      { username: 'second', first_name: 'Second', last_name: 'Rider', password: 'test|password' },
+      operation,
+    ),
   );
 
   assert.match(service.store.operation(owner.player_id, operation)!.fingerprint, /^[a-f0-9]{128}$/);
@@ -420,13 +462,13 @@ await test('backup and restore preserve complete setup, operation results and th
   backupStorage(f.accounts.storage, backup, null);
   f.accounts.close();
   restoreStorage(f.config.storageDir, backup, null);
-  const restored = new AccountsService(f.config.storageDir);
+  const restored = AccountsService.open(f.config.storageDir);
   t.after(() => restored.close());
   const store = new ManagementRepository(restored.db);
   assert.equal(store.complete(), true);
   assert.equal(restored.get(owner.player_id)!.role, 'administrator');
   assert.deepEqual(JSON.parse(store.operation(owner.player_id, operation)!.result!), result);
-  const sessions = new SessionsService(restored);
+  const sessions = SessionsService.open(restored);
   assert.deepEqual(sessions.secret, secret);
   assert.equal(sessions.browsers.size, 0);
   restored.close();
@@ -436,8 +478,8 @@ await test('setup lists only safe rider fields after checking the key and select
   const f = runtimeFixture(t);
   const upper = await f.accounts.create('Anna Upper', 'upper-password', 'ANNA');
   const mixed = await f.accounts.create('Anna Mixed', 'mixed-password', 'Anna');
-  const service = f.services.management;
-  const key = service.issueSetupKey()!;
+  const service = f.effects.runSync(ManagementService);
+  const key = f.effects.runSync(service.issueSetupKey())!;
   const web = createWebApp(f);
   const state = await web.request('http://local:8080/api/setup');
   const { csrf, ...publicState } = await state.json();
@@ -474,9 +516,15 @@ await test('setup lists only safe rider fields after checking the key and select
     })),
   );
   await assert.rejects(
-    service.setup({ mode: 'existing', key, player_id: mixed.player_id, password: 'upper-password' }),
+    f.effects.runPromise(
+      service.setup({ mode: 'existing', key, player_id: mixed.player_id, password: 'upper-password' }),
+    ),
   );
-  const admin = await service.setup({ mode: 'existing', key, player_id: mixed.player_id, password: 'mixed-password' });
+
+  const admin = await f.effects.runPromise(
+    service.setup({ mode: 'existing', key, player_id: mixed.player_id, password: 'mixed-password' }),
+  );
+
   assert.equal(admin.player_id, mixed.player_id);
   assert.equal(f.accounts.get(upper.player_id)!.role, 'rider');
   const finished = await check(key);
@@ -485,22 +533,24 @@ await test('setup lists only safe rider fields after checking the key and select
 
 await test('administrator profile edits affect the selected user and require administrator access', async (t) => {
   const f = runtimeFixture(t);
-  const service = f.services.management;
+  const service = f.effects.runSync(ManagementService);
 
-  const owner = await service.setup({
-    mode: 'new',
-    key: service.issueSetupKey()!,
-    username: 'owner',
-    first_name: 'Owner',
-    last_name: 'Rider',
-    password: 'test-password',
-  });
+  const owner = await f.effects.runPromise(
+    service.setup({
+      mode: 'new',
+      key: f.effects.runSync(service.issueSetupKey())!,
+      username: 'owner',
+      first_name: 'Owner',
+      last_name: 'Rider',
+      password: 'test-password',
+    }),
+  );
 
   const rider = await f.accounts.create('Selected Rider', 'test-password', 'selected');
-  const admin = service.sessions.create(f.accounts.identityOf(owner), Date.now() + 900_000);
-  const regular = service.sessions.create(f.accounts.identityOf(rider));
-  const before = service.ownProfile(admin.id);
-  const selected = service.ownProfile(admin.id, rider.player_id);
+  const admin = Effect.runSync(service.sessions.create(f.accounts.identityOf(owner), Date.now() + 900_000));
+  const regular = Effect.runSync(service.sessions.create(f.accounts.identityOf(rider)));
+  const before = f.effects.runSync(service.ownProfile(admin.id));
+  const selected = f.effects.runSync(service.ownProfile(admin.id, rider.player_id));
 
   const input = {
     revision: selected.user.revision,
@@ -511,19 +561,19 @@ await test('administrator profile edits affect the selected user and require adm
     birthday: '1990-02-03',
   };
 
-  assert.throws(() => service.ownProfile(regular.id, owner.player_id));
-  assert.throws(() => service.editOwnProfile(regular.id, input, owner.player_id));
-  const edited = service.editOwnProfile(admin.id, input, rider.player_id);
+  assert.throws(() => f.effects.runSync(service.ownProfile(regular.id, owner.player_id)));
+  assert.throws(() => f.effects.runSync(service.editOwnProfile(regular.id, input, owner.player_id)));
+  const edited = f.effects.runSync(service.editOwnProfile(admin.id, input, rider.player_id));
   assert.equal(edited.user.player_id, rider.player_id);
   assert.equal(f.profiles.get(rider.player_id).firstName, 'Edited');
   assert.equal(f.profiles.get(rider.player_id).dob, '02/03/1990');
-  assert.deepEqual(service.ownProfile(admin.id), before);
-  service.saveAvatar(admin.id, Uint8Array.from([0xff, 0xd8, 0xff, 0xd9]), rider.player_id);
-  assert.equal(service.ownProfile(admin.id).avatar, null);
-  assert.ok(service.ownProfile(admin.id, rider.player_id).avatar);
-  assert.throws(() => service.removeAvatar(regular.id, owner.player_id));
-  service.removeAvatar(admin.id, rider.player_id);
-  assert.equal(service.ownProfile(admin.id, rider.player_id).avatar, null);
+  assert.deepEqual(f.effects.runSync(service.ownProfile(admin.id)), before);
+  f.effects.runSync(service.saveAvatar(admin.id, Uint8Array.from([0xff, 0xd8, 0xff, 0xd9]), rider.player_id));
+  assert.equal(f.effects.runSync(service.ownProfile(admin.id)).avatar, null);
+  assert.ok(f.effects.runSync(service.ownProfile(admin.id, rider.player_id)).avatar);
+  assert.throws(() => f.effects.runSync(service.removeAvatar(regular.id, owner.player_id)));
+  f.effects.runSync(service.removeAvatar(admin.id, rider.player_id));
+  assert.equal(f.effects.runSync(service.ownProfile(admin.id, rider.player_id)).avatar, null);
 });
 
 await test('setup reports the Zwift version from the bundled update manifest', async (t) => {

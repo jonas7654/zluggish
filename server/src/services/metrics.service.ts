@@ -1,32 +1,40 @@
-import type { RepositoryContext } from '#src/context';
+import { Context, Duration, Effect, Fiber, Layer, Schedule } from 'effect';
 import { metrics } from '#src/repositories/metrics.repository';
-import { BaseService } from '#src/services/base.service';
 
-/** Periodic telemetry: durations, sizes and counts only. Each report resets the window. */
-export class MetricsService extends BaseService {
-  constructor(private readonly context: RepositoryContext) {
-    super(context.accounts.repositories);
-  }
+const make = Effect.gen(function* () {
+  const report = Effect.fn('MetricsService.report')(function* () {
+    metrics.reset();
+  });
 
-  start(intervalSeconds: number) {
+  /** Report every `intervalSeconds` until the returned function stops it. 0 disables reports. */
+  const start = Effect.fn('MetricsService.start')(function* (intervalSeconds: number) {
     if (intervalSeconds === 0) return () => {};
 
     metrics.monitorEventLoop();
+    const interval = Duration.seconds(intervalSeconds);
 
-    const timer = setInterval(() => this.report(), intervalSeconds * 1000);
-    timer.unref();
+    const reporter = yield* report().pipe(
+      Effect.delay(interval),
+      Effect.repeat(Schedule.spaced(interval)),
+      Effect.forkDetach,
+    );
 
     return () => {
-      clearInterval(timer);
+      Effect.runFork(Fiber.interrupt(reporter));
       metrics.stopEventLoop();
     };
-  }
+  });
 
-  report() {
-    metrics.reset();
-  }
-
-  summary() {
+  const summary = Effect.fn('MetricsService.summary')(function* () {
     return metrics.summary();
-  }
+  });
+
+  return { start, report, summary };
+});
+
+/** Periodic telemetry: durations, sizes and counts only. Each report resets the window. */
+export class MetricsService extends Context.Service<MetricsService, Effect.Success<typeof make>>()(
+  'zluggish/MetricsService',
+) {
+  static readonly layer = Layer.effect(MetricsService, make);
 }

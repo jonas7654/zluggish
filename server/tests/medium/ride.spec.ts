@@ -1,3 +1,5 @@
+import { JobsService } from '#src/services/jobs.service';
+import { DocumentsService } from '#src/services/documents.service';
 import { validateConfig } from '#src/config/index';
 import { decodePacket, encodePacket, FrameDecoder } from '#src/node/network/packet';
 import { startRideListeners } from '#src/node/network/ride';
@@ -23,7 +25,7 @@ import { readFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 await test(
   'an authenticated TCP reconnect replaces the old socket and exclusively receives queued updates',
@@ -51,7 +53,7 @@ await test(
     t.after(() => listeners.close());
 
     if (!listeners.tcp.listening) await once(listeners.tcp, 'listening');
-    const { port } = z.object({ port: z.number() }).parse(listeners.tcp.address());
+    const { port } = Schema.decodeUnknownSync(Schema.Struct({ port: Schema.Finite }))(listeners.tcp.address());
 
     const connect = async (connection: number) => {
       const socket = createConnection({ host: '127.0.0.1', port });
@@ -66,7 +68,7 @@ await test(
         while (queue.length === 0) {
           const chunk = await incoming.next();
           assert.equal(chunk.done, false);
-          queue.push(...framing.push(z.instanceof(Buffer).parse(chunk.value)));
+          queue.push(...framing.push(Schema.decodeUnknownSync(Schema.instanceOf(Buffer))(chunk.value)));
         }
 
         const frame = queue.shift();
@@ -181,9 +183,9 @@ await test(
       udpAddress = listeners.udp.address();
     }
 
-    const tcpPort = z.object({ port: z.number() }).parse(listeners.tcp.address()).port;
+    const tcpPort = Schema.decodeUnknownSync(Schema.Struct({ port: Schema.Finite }))(listeners.tcp.address()).port;
 
-    const udpPort = z.object({ port: z.number() }).parse(udpAddress).port;
+    const udpPort = Schema.decodeUnknownSync(Schema.Struct({ port: Schema.Finite }))(udpAddress).port;
     runtime.config.network.udp.port = udpPort;
     const socket = createConnection({ host: '127.0.0.1', port: tcpPort });
     t.after(() => socket.destroy());
@@ -213,7 +215,7 @@ await test(
     socket.write(length.subarray(0, 1));
     socket.write(Buffer.concat([length.subarray(1), hello]));
     const [bytes] = await response;
-    const frames = new FrameDecoder().push(z.instanceof(Buffer).parse(bytes));
+    const frames = new FrameDecoder().push(Schema.decodeUnknownSync(Schema.instanceOf(Buffer))(bytes));
     const first = frames[0];
     assert.ok(first);
 
@@ -234,7 +236,7 @@ await test(
       ),
     );
     const [phoneBytes] = await once(socket, 'data');
-    const phoneFrame = new FrameDecoder().push(z.instanceof(Buffer).parse(phoneBytes))[0];
+    const phoneFrame = new FrameDecoder().push(Schema.decodeUnknownSync(Schema.instanceOf(Buffer))(phoneBytes))[0];
 
     assert.ok(phoneFrame);
 
@@ -251,7 +253,7 @@ await test(
     assert.equal(phone.zcLocalIp, '127.0.0.2');
     assert.equal(phone.zcLocalPort, 21_588);
     assert.deepEqual(phone.zcKey, Buffer.from(secret, 'base64'));
-    assert.ok(f.services.documents.has(user.player_id, 'encryption_key.bin'));
+    assert.ok(f.effects.runSync(DocumentsService.use((service) => service.has(user.player_id, 'encryption_key.bin'))));
     const udp = createSocket('udp4');
     t.after(() => udp.close());
 
@@ -285,7 +287,7 @@ await test(
       udp.send(packet, udpPort, '127.0.0.1');
       const [reply] = await incoming;
 
-      const decoded = decodePacket(z.instanceof(Buffer).parse(reply), key, {
+      const decoded = decodePacket(Schema.decodeUnknownSync(Schema.instanceOf(Buffer))(reply), key, {
         device: 1,
         channel: 2,
         connection: 9,
@@ -336,7 +338,7 @@ await test(
     udp.send(datagram, udpPort, '127.0.0.1');
     const [reply] = await incoming;
 
-    const body = decodePacket(z.instanceof(Buffer).parse(reply), key, {
+    const body = decodePacket(Schema.decodeUnknownSync(Schema.instanceOf(Buffer))(reply), key, {
       device: 1,
       channel: 2,
       connection: 9,
@@ -384,7 +386,7 @@ await test('activity create, save and restart preserve ownership, FIT bytes and 
   });
 
   assert.equal(response.status, 200);
-  const id = z.object({ id: z.number() }).parse(await response.json()).id;
+  const id = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await response.json()).id;
 
   const finished = await f.app.request(`/api/profiles/${user.player_id}/activities/${id}?upload-to-strava=true`, {
     method: 'PUT',
@@ -395,8 +397,11 @@ await test('activity create, save and restart preserve ownership, FIT bytes and 
   assert.equal(finished.status, 200);
   // The FIT export and the chart are jobs after the completion commit.
   const pending = await f.app.request(`/api/activities/${id}`, { headers });
-  assert.equal('fitnessData' in z.record(z.string(), z.json()).parse(await pending.json()), false);
-  await f.services.jobs.drain();
+  assert.equal(
+    'fitnessData' in Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))(await pending.json()),
+    false,
+  );
+  await f.effects.runPromise(JobsService.use((service) => service.drain()));
   assert.deepEqual(
     readFileSync(resolve(f.profiles.folder(user.player_id), 'fit', `${id} - synthetic.fit`)),
     Buffer.from(activity.fit),
@@ -404,7 +409,8 @@ await test('activity create, save and restart preserve ownership, FIT bytes and 
 
   const streaks = fromBinary(
     StreaksSchema,
-    f.services.documents.get(user.player_id, 'streaks.bin') ?? new Uint8Array(),
+    f.effects.runSync(DocumentsService.use((service) => service.get(user.player_id, 'streaks.bin'))) ??
+      new Uint8Array(),
   );
 
   assert.equal(streaks.curStreakDistance, 3000);
@@ -416,14 +422,19 @@ await test('activity create, save and restart preserve ownership, FIT bytes and 
   );
   const detail = await f.app.request(`/api/activities/${id}`, { headers });
 
-  const chartUrl = z.object({ fitnessData: z.object({ fullDataUrl: z.string() }) }).parse(await detail.json())
-    .fitnessData.fullDataUrl;
+  const chartUrl = Schema.decodeUnknownSync(
+    Schema.Struct({ fitnessData: Schema.Struct({ fullDataUrl: Schema.String }) }),
+  )(await detail.json()).fitnessData.fullDataUrl;
 
   const chart = await f.app.request(new URL(chartUrl).pathname, { headers });
 
-  const points = z
-    .object({ powerInWatts: z.array(z.number()), timeInSec: z.array(z.number()), distanceInCm: z.array(z.number()) })
-    .parse(await chart.json());
+  const points = Schema.decodeUnknownSync(
+    Schema.Struct({
+      powerInWatts: Schema.Array(Schema.Finite),
+      timeInSec: Schema.Array(Schema.Finite),
+      distanceInCm: Schema.Array(Schema.Finite),
+    }),
+  )(await chart.json());
 
   assert.deepEqual(points.powerInWatts, [200, 200, 200, 200, 200, 200]);
   assert.deepEqual(points.timeInSec, [0, 1, 2, 3, 4, 5]);
@@ -439,7 +450,7 @@ await test('activity create, save and restart preserve ownership, FIT bytes and 
 
   assert.equal(attempt.status, 401);
   f.accounts.close();
-  const reopened = new AccountsService(f.accounts.storage);
+  const reopened = AccountsService.open(f.accounts.storage);
 
   try {
     assert.equal(reopened.db.prepare('SELECT name FROM activity WHERE id=?').get(id)?.name, 'Synthetic ride');

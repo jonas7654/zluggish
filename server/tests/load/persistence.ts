@@ -1,7 +1,13 @@
+import { RideRecoveryService } from '#src/services/ride-recovery.service';
+import { UploadsService } from '#src/services/uploads.service';
+import { JobsService } from '#src/services/jobs.service';
+import { DurabilityService } from '#src/services/durability.service';
+import { ConnectionsService } from '#src/services/connections.service';
+import { SettingsService } from '#src/services/settings.service';
 // Repeatable persistence and riding-latency load test. Run with `pnpm test:load`.
 // It drives the riding path in process, finishes a group of riders at once while
 // others keep riding, and can add a slow disk, large media and a slow provider.
-import { createServices } from '#src/composition';
+import { makeAppRuntime } from '#src/layers';
 import { validateConfig } from '#src/config/index';
 import { packageRoot } from '#src/config/load';
 import { createGameApp } from '#src/http/app';
@@ -27,7 +33,8 @@ import { resolve } from 'node:path';
 import { mock } from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 import { parseArgs } from 'node:util';
-import { z } from 'zod';
+import { Schema } from 'effect';
+import { NumberFromInput } from '#src/schema';
 
 const { values } = parseArgs({
   options: {
@@ -47,7 +54,9 @@ const { values } = parseArgs({
   },
 });
 
-const count = (name: keyof typeof values) => z.coerce.number().int().min(0).parse(values[name]);
+const count = (name: keyof typeof values) =>
+  Schema.decodeUnknownSync(NumberFromInput.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)))(values[name]);
+
 const riders = count('riders');
 const finishers = Math.min(riders, count('finishers'));
 const ghostFiles = count('ghost-files');
@@ -88,7 +97,7 @@ if (slowDisk > 0) {
 
 function fitActivity(seconds: number) {
   const encoder = new Encoder();
-  const record = z.number().parse(Profile.MesgNum.RECORD);
+  const record = Schema.decodeUnknownSync(Schema.Finite)(Profile.MesgNum.RECORD);
 
   for (let index = 0; index < seconds; index++) {
     const mesg: RecordMesg = {
@@ -127,8 +136,8 @@ const storage = values.storage ? resolve(values.storage) : mkdtempSync(resolve(t
 
 mkdirSync(storage, { recursive: true });
 
-const accounts = new AccountsService(storage);
-const sessions = new SessionsService(accounts);
+const accounts = AccountsService.open(storage);
+const sessions = SessionsService.open(accounts);
 
 const config = validateConfig({
   storageDir: storage,
@@ -139,9 +148,9 @@ const config = validateConfig({
 
 const assets = resolve(packageRoot(), '../assets');
 
-const tokens = z
-  .object({ access: z.string(), refresh: z.string(), id: z.string() })
-  .parse(JSON.parse(readFileSync(resolve(assets, 'tokens.json'), 'utf8')));
+const tokens = Schema.decodeUnknownSync(
+  Schema.Struct({ access: Schema.String, refresh: Schema.String, id: Schema.String }),
+)(JSON.parse(readFileSync(resolve(assets, 'tokens.json'), 'utf8')));
 
 const world = new World();
 
@@ -156,7 +165,8 @@ const context = {
   tokens,
 };
 
-const runtime = Object.assign(context, { services: createServices(context) });
+const effects = makeAppRuntime(context);
+const runtime = Object.assign(context, { effects });
 const app = createGameApp({ gameInfo: '{}', gameInfoHash: '0', variants: '{}' }, runtime);
 const providerCalls = { started: 0, finished: 0 };
 
@@ -182,8 +192,10 @@ const fleet: LoadRider[] = [];
 for (let index = 0; index < riders; index++) {
   const rider = await accounts.create(`Load Rider ${index}`, '');
   const id = BigInt(rider.player_id);
-  runtime.services.settings.save(rider.player_id, { 'ghosts.enabled': true });
-  runtime.services.connections.save(rider.player_id, 'intervals', ['1', 'key']);
+  runtime.effects.runSync(SettingsService.use((service) => service.save(rider.player_id, { 'ghosts.enabled': true })));
+  runtime.effects.runSync(
+    ConnectionsService.use((service) => service.save(rider.player_id, 'intervals', ['1', 'key'])),
+  );
 
   for (let file = 0; file < ghostFiles; file++) {
     const folder = resolve(runtime.profiles.folder(rider.player_id), 'ghosts', '6', '10');
@@ -208,7 +220,7 @@ for (let index = 0; index < riders; index++) {
     ),
   });
 
-  const activity = z.object({ id: z.number() }).parse(await created.json()).id;
+  const activity = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Finite }))(await created.json()).id;
   fleet.push({ id, activity, auth, tick: 0, riding: false });
 }
 
@@ -224,13 +236,13 @@ const checkpoints = new CheckpointRepository(accounts.db, resolve(storage, 'zlug
 
 checkpoints.start();
 
-runtime.services.durability.start();
+runtime.effects.runSync(DurabilityService.use((service) => service.start()));
 
-runtime.services.recovery.start();
+runtime.effects.runSync(RideRecoveryService.use((service) => service.start()));
 
-runtime.services.uploads.start();
+runtime.effects.runSync(UploadsService.use((service) => service.start()));
 
-runtime.services.jobs.start(250);
+runtime.effects.runSync(JobsService.use((service) => service.start(250)));
 
 metrics.monitorEventLoop();
 
@@ -327,18 +339,18 @@ await phase('completion', async () => {
 
 // Post-commit work (power curves, exports, charts, deliveries) runs while riders ride.
 await phase('jobs', async () => {
-  while (runtime.services.jobs.busy) await sleep(100);
+  while (runtime.effects.runSync(JobsService.use((jobs) => jobs.busy()))) await sleep(100);
 });
 
 clearInterval(driver);
 
 await simulation.close();
 
-await runtime.services.jobs.close();
+await runtime.effects.runPromise(JobsService.use((service) => service.close()));
 
-await runtime.services.recovery.close();
+await runtime.effects.runPromise(RideRecoveryService.use((service) => service.close()));
 
-await runtime.services.durability.close();
+await runtime.effects.runPromise(DurabilityService.use((service) => service.close()));
 
 await checkpoints.close();
 

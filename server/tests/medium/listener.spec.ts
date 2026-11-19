@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { request } from 'node:https';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 // These integration tests intentionally bind loopback ephemeral ports only.
 await test('Node adapter serves HTTPS, binary bodies, forms, and actual peer addresses', async (t) => {
@@ -30,7 +30,7 @@ await test('Node adapter serves HTTPS, binary bodies, forms, and actual peer add
   t.after(() => new Promise<void>((done, fail) => server.close((error) => (error ? fail(error) : done()))));
 
   if (!server.listening) await once(server, 'listening');
-  const { port } = z.object({ port: z.number() }).parse(server.address());
+  const { port } = Schema.decodeUnknownSync(Schema.Struct({ port: Schema.Finite }))(server.address());
 
   const send = (path: string, body?: Uint8Array, contentType = 'application/octet-stream') =>
     new Promise<Buffer>((done, fail) => {

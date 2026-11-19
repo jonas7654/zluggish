@@ -1,12 +1,14 @@
+import { ManagementService } from '#src/services/management.service';
+import { decodeOwned } from '#src/schema';
+import { Schema } from 'effect';
 import { mediumBrowser, mediumFixture, mediumWeb } from '#tests/medium/support';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
-import { z } from 'zod';
 
 const tokenPath = '/auth/realms/zwift/protocol/openid-connect/token';
-const tokenSchema = z.object({ access_token: z.string(), refresh_token: z.string() });
+const tokenSchema = Schema.Struct({ access_token: Schema.String, refresh_token: Schema.String });
 
 await test('credential login rejects wrong, missing and unknown credentials without issuing tokens', async (t) => {
   const f = await mediumFixture(t);
@@ -30,7 +32,7 @@ await test('credential login rejects wrong, missing and unknown credentials with
   });
 
   assert.equal(response.status, 200);
-  const tokens = tokenSchema.parse(await response.json());
+  const tokens = Schema.decodeUnknownSync(tokenSchema)(await response.json());
 
   const profile = await f.app.request('/api/profiles/me', {
     headers: { Authorization: `Bearer ${tokens.access_token}` },
@@ -45,10 +47,11 @@ await test('malformed and forged session identities are rejected by API and toke
   const valid = f.sessions.tokens(f.rider, f.tokens).refresh_token;
   const parts = valid.split('.');
 
-  const payload = z
-    .object({ session_cookie: z.string() })
-    .passthrough()
-    .parse(JSON.parse(Buffer.from(parts[1] ?? '', 'base64url').toString()));
+  const payload = decodeOwned(
+    Schema.StructWithRest(Schema.Struct({ session_cookie: Schema.String }), [
+      Schema.Record(Schema.String, Schema.Unknown),
+    ]),
+  )(JSON.parse(Buffer.from(parts[1] ?? '', 'base64url').toString()));
 
   payload.session_cookie = `${f.other.player_id}:${f.other.auth_version}|forged`;
   const forged = `${parts[0]}.${Buffer.from(JSON.stringify(payload)).toString('base64url')}.${parts[2]}`;
@@ -151,14 +154,16 @@ await test('setting a password revokes all of that rider’s sessions and refres
 
 await test('an administrator changes their own password without the current one', async (t) => {
   const f = await mediumFixture(t);
-  const management = f.services.management;
+  const management = f.effects.runSync(ManagementService);
 
-  await management.setup({
-    mode: 'existing',
-    key: management.issueSetupKey()!,
-    username: f.rider.username,
-    password: 'test-password',
-  });
+  await f.effects.runPromise(
+    management.setup({
+      mode: 'existing',
+      key: f.effects.runSync(management.issueSetupKey())!,
+      username: f.rider.username,
+      password: 'test-password',
+    }),
+  );
 
   const administrator = f.accounts.get(f.rider.player_id)!;
   const response = await mediumWeb(f, administrator).request('/api/me/password', 'POST', { password: 'secret' });

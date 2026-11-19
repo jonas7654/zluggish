@@ -12,14 +12,17 @@ import { AssetFiles } from '#src/repositories/files.repository';
 import { LockRepository } from '#src/repositories/lock.repository';
 import type { Overrides } from '#src/dtos/settings.dto';
 import { RiderRepository, SettingsStore } from '#src/repositories/settings.repository';
-import { overrideSchema, settingKeySchema } from '#src/dtos/settings.dto';
+import { decodeOverrides, decodeSettingKey } from '#src/dtos/settings.dto';
 import { AccountsService } from '#src/services/auth.service';
 import { RetentionService } from '#src/services/retention.service';
 import { SettingsService } from '#src/services/settings.service';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import { z } from 'zod';
+import { PositiveIntFromString } from '#src/schema';
+import { Schema, Effect } from 'effect';
+
+const decodeId = Schema.decodeUnknownSync(PositiveIntFromString);
 
 export const HELP = `Usage: zluggish [--config PATH] [--storage-dir DIR] config init|validate|show|typecheck|migrate
        zluggish [--config PATH] settings show|set|reset --user ID [KEY] [VALUE]
@@ -110,18 +113,15 @@ export async function run(argv: string[], output: (message: string) => void = co
     try {
       if (action === 'migrate') {
         const selected = values['solo-player'];
-        await migrateAccounts(
-          storage,
-          selected === undefined ? undefined : z.coerce.number().int().positive().safe().parse(selected),
-        );
+        await migrateAccounts(storage, selected === undefined ? undefined : decodeId(selected));
         output('Accounts migrated');
       } else if (action === 'recover') {
-        const playerId = z.coerce.number().int().positive().safe().parse(values.user);
+        const playerId = decodeId(values.user);
 
         const passwordFile = values['password-file'];
 
         if (!passwordFile) throw new ConfigError('Choose --password-file PATH');
-        const accounts = new AccountsService(storage);
+        const accounts = AccountsService.open(storage);
 
         try {
           if (!accounts.get(playerId)) throw new ConfigError('Unknown user');
@@ -200,7 +200,7 @@ export async function run(argv: string[], output: (message: string) => void = co
             ? await migrateConfig(options)
             : await migrateConfig({
                 ...options,
-                soloPlayer: z.coerce.number().int().positive().safe().parse(solo),
+                soloPlayer: decodeId(solo),
               });
 
         output(JSON.stringify(result, null, 2));
@@ -280,7 +280,7 @@ export async function run(argv: string[], output: (message: string) => void = co
 
   if (group !== 'settings' || !['show', 'set', 'reset'].includes(action ?? ''))
     throw new ConfigError('Unknown command');
-  const playerId = z.coerce.number().int().positive().safe().parse(values.user);
+  const playerId = decodeId(values.user);
   const options: LoadOptions = { path: selected };
 
   if (values['storage-dir'] !== undefined) options.storageDir = storage;
@@ -306,7 +306,7 @@ export async function run(argv: string[], output: (message: string) => void = co
     return 0;
   }
 
-  const setting = settingKeySchema.parse(key);
+  const setting = decodeSettingKey(key);
 
   if (action === 'set' && raw === undefined) throw new ConfigError('Provide a JSON setting value');
 
@@ -314,7 +314,9 @@ export async function run(argv: string[], output: (message: string) => void = co
   const value = action === 'set' ? JSON.parse(raw ?? '') : null;
 
   const change = (overrides: Overrides) => {
-    const candidate = overrideSchema.parse(action === 'set' ? { ...overrides, [setting]: value } : overrides);
+    const candidate: Overrides = {
+      ...decodeOverrides(action === 'set' ? { ...overrides, [setting]: value } : overrides),
+    };
 
     if (action === 'reset') delete candidate[setting];
 
@@ -372,18 +374,18 @@ async function storageCommand(
   output: (message: string) => void,
 ) {
   if (action === 'usage' || action === 'cleanup') {
-    const accounts = new AccountsService(storage);
+    const accounts = AccountsService.open(storage);
 
     try {
-      const service = new RetentionService(accounts.repositories, retention, storage);
+      const service = RetentionService.forScope({ repositories: accounts.repositories, retention, storage });
 
       if (action === 'usage') {
-        output(JSON.stringify(await service.usage(), null, 2));
+        output(JSON.stringify(await Effect.runPromise(service.usage()), null, 2));
 
         return 0;
       }
 
-      const plan = await service.plan();
+      const plan = await Effect.runPromise(service.plan());
       const bytes = plan.files.reduce((total, file) => total + file.bytes, 0);
 
       for (const file of plan.files) output(`${file.reason}: ${file.path} (${file.bytes} bytes)`);
@@ -392,7 +394,7 @@ async function storageCommand(
       );
 
       if (values['dry-run']) return 0;
-      await service.apply(plan);
+      await Effect.runPromise(service.apply(plan));
       output('Cleanup complete');
 
       return 0;
@@ -454,7 +456,7 @@ function uploadsCommand(
     return 0;
   }
 
-  const accounts = new AccountsService(storage);
+  const accounts = AccountsService.open(storage);
 
   try {
     const repositories = accounts.repositories;
@@ -486,8 +488,8 @@ function uploadsCommand(
       }
 
       case 'cancel': {
-        const activity = z.coerce.number().int().positive().safe().parse(values.activity);
-        const provider = z.string().min(1).parse(values.provider);
+        const activity = decodeId(values.activity);
+        const provider = Schema.decodeUnknownSync(Schema.NonEmptyString)(values.provider);
 
         if (!repositories.uploadsRepository.cancel(activity, provider))
           throw new ConfigError('No pending, failed or ambiguous delivery matches');

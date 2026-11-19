@@ -1,3 +1,4 @@
+import { Schema } from 'effect';
 import { ConfigError } from '#src/config/index';
 import { RiderDocumentName } from '#src/enum';
 import { readManifest, StorageFile } from '#src/migrations/storage';
@@ -5,7 +6,6 @@ import { CryptoRepository } from '#src/repositories/crypto.repository';
 import { existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { basename, relative, resolve, sep } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { z } from 'zod';
 
 /** Legacy files that nothing reads after the storage merge. */
 const obsolete = new Set(['last_activity.bin']);
@@ -30,9 +30,9 @@ export function legacyPlan(storage: string): LegacyPlan {
   if (!existsSync(backupPath))
     throw new ConfigError(`The migration backup ${manifest.backup} is missing; keep the legacy files`);
 
-  const backup = z
-    .object({ checksums: z.record(z.string(), z.string()) })
-    .parse(JSON.parse(readFileSync(backupPath, 'utf8'))).checksums;
+  const backup = Schema.decodeUnknownSync(Schema.Struct({ checksums: Schema.Record(Schema.String, Schema.String) }))(
+    JSON.parse(readFileSync(backupPath, 'utf8')),
+  ).checksums;
 
   const plan: LegacyPlan = { removable: [], kept: [] };
   const db = new DatabaseSync(resolve(storage, StorageFile.Database), { readOnly: true });
@@ -46,7 +46,7 @@ export function legacyPlan(storage: string): LegacyPlan {
       db
         .prepare('SELECT player_id FROM user')
         .all()
-        .map((row) => z.number().parse(row.player_id)),
+        .map((row) => Schema.decodeUnknownSync(Schema.Finite)(row.player_id)),
     );
 
     const backedUp = (path: string) => backup[relative(storage, path)] === crypto.sha256(readFileSync(path));
@@ -71,7 +71,7 @@ export function legacyPlan(storage: string): LegacyPlan {
       if (key === null) return false;
 
       try {
-        crypto.decryptSecret(key, z.instanceof(Uint8Array).parse(row.data));
+        crypto.decryptSecret(key, Schema.decodeUnknownSync(Schema.instanceOf(Uint8Array))(row.data));
 
         return true;
       } catch {

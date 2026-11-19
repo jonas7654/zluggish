@@ -1,29 +1,30 @@
-import { z } from 'zod';
+import { Schema } from 'effect';
+import { withDefault } from '#src/schema';
 import { ActivityPrivacy } from '#src/enum';
 
-export const profileSearchSchema = z.object({ query: z.string() });
+export const profileSearchSchema = Schema.Struct({ query: Schema.String });
 
-export const privacyUpdateSchema = z.object({
-  approvalRequired: z.boolean(),
-  displayWeight: z.boolean().default(false),
-  minor: z.boolean().default(false),
-  privateMessaging: z.boolean(),
-  defaultFitnessDataPrivacy: z.boolean(),
-  suppressFollowerNotification: z.boolean().default(false),
-  displayAge: z.boolean(),
-  defaultActivityPrivacy: z.enum(ActivityPrivacy),
+export const privacyUpdateSchema = Schema.Struct({
+  approvalRequired: Schema.Boolean,
+  displayWeight: Schema.Boolean.pipe(withDefault(false)),
+  minor: Schema.Boolean.pipe(withDefault(false)),
+  privateMessaging: Schema.Boolean,
+  defaultFitnessDataPrivacy: Schema.Boolean,
+  suppressFollowerNotification: Schema.Boolean.pipe(withDefault(false)),
+  displayAge: Schema.Boolean,
+  defaultActivityPrivacy: Schema.Enum(ActivityPrivacy),
 });
 
-export const companionConnectionSchema = z.object({
-  phoneAddress: z.string().max(255),
-  port: z.number().int().min(1).max(65_535).optional(),
-  securePort: z.number().int().min(1).max(65_535).optional(),
-  secret: z.string().optional(),
+export const companionConnectionSchema = Schema.Struct({
+  phoneAddress: Schema.String.check(Schema.isMaxLength(255)),
+  port: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(65_535))),
+  securePort: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(65_535))),
+  secret: Schema.optional(Schema.String),
 });
 
-export const playbackRecordSchema = z.object({
-  uuid: z.string(),
-  segment_id: z.bigint(),
-  time: z.number(),
-  world_time: z.bigint(),
+export const playbackRecordSchema = Schema.Struct({
+  uuid: Schema.String,
+  segment_id: Schema.BigInt,
+  time: Schema.Finite,
+  world_time: Schema.BigInt,
 });

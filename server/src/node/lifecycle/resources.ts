@@ -1,12 +1,24 @@
+import { Cause, Effect, Exit, Scope } from 'effect';
+
 type Closing = { status: 'closing'; promise: Promise<void> };
 
-/** A runtime owns acquired resources in reverse order. Close is shared/idempotent;
-one failed disposer must not prevent later disposers, especially the storage lock.
+/** The errors behind a failed release: each release that failed or threw. */
+function releaseErrors(cause: Cause.Cause<unknown>) {
+  return cause.reasons.map((reason) => {
+    const error = Cause.isDieReason(reason) ? reason.defect : Cause.isFailReason(reason) ? reason.error : reason;
+
+    return error instanceof Error ? error : new Error('Resource cleanup failed');
+  });
+}
+
+/** A runtime owns acquired resources in an Effect scope, released in reverse order. Close is shared
+and idempotent; one failed release does not prevent later ones, especially the storage lock.
 */
 export class Resources {
-  private state: Closing | { status: 'open' | 'closed' } = { status: 'open' };
+  /** Effects acquire into this scope; closing the owner releases them with the deferred ones. */
+  readonly scope = Effect.runSync(Scope.make());
 
-  private readonly disposers: (() => void | Promise<void>)[] = [];
+  private state: Closing | { status: 'open' | 'closed' } = { status: 'open' };
 
   get status() {
     return this.state.status;
@@ -14,35 +26,33 @@ export class Resources {
 
   defer(dispose: () => void | Promise<void>) {
     if (this.state.status !== 'open') throw new Error('Resource owner is closing');
-    this.disposers.push(dispose);
+    Effect.runSync(
+      Scope.addFinalizer(
+        this.scope,
+        Effect.promise(async () => {
+          await dispose();
+        }),
+      ),
+    );
   }
 
   close() {
     if (this.state.status === 'closing') return this.state.promise;
 
     if (this.state.status === 'closed') return Promise.resolve();
-    // Schedule effects after installing closing state, including reentrant close.
-    // eslint-disable-next-line unicorn/prefer-promise-try -- Install closing state before invoking any disposer.
-    const promise = Promise.resolve().then(() => this.dispose());
+
+    // Install the closing state before any release runs, including a reentrant close.
+    // eslint-disable-next-line unicorn/prefer-promise-try -- Install closing state before running any release.
+    const promise = Promise.resolve()
+      .then(() => Effect.runPromise(Effect.exit(Scope.close(this.scope, Exit.void))))
+      .then((exit) => {
+        this.state = { status: 'closed' };
+
+        if (Exit.isFailure(exit)) throw new AggregateError(releaseErrors(exit.cause), 'Resource cleanup failed');
+      });
+
     this.state = { status: 'closing', promise };
 
     return promise;
-  }
-
-  private async dispose() {
-    const errors: Error[] = [];
-
-    for (const dispose of this.disposers.toReversed()) {
-      try {
-        await dispose();
-      } catch (error) {
-        errors.push(error instanceof Error ? error : new Error('Resource cleanup failed'));
-      }
-    }
-
-    this.disposers.length = 0;
-    this.state = { status: 'closed' };
-
-    if (errors.length > 0) throw new AggregateError(errors, 'Resource cleanup failed');
   }
 }

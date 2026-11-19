@@ -1,7 +1,7 @@
-import { z } from 'zod';
+import { Schema } from 'effect';
 
-export const notificationPayloadSchema = z.object({ argString0: z.string() });
+export const notificationPayloadSchema = Schema.Struct({ argString0: Schema.String });
 
-export const notificationEventSchema = z.object({ eventStartDate: z.number() });
+export const notificationEventSchema = Schema.Struct({ eventStartDate: Schema.Finite });
 
-export const notificationUpdateSchema = z.object({ read: z.boolean(), readDate: z.string().nullable() });
+export const notificationUpdateSchema = Schema.Struct({ read: Schema.Boolean, readDate: Schema.NullOr(Schema.String) });
