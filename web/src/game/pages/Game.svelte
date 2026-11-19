@@ -99,12 +99,31 @@
       </Form>
     </div>
   {/each}
+  {#if current.webApp && (current.kind === 'dashboard' || current.kind === 'login')}
+    <a class="web-app" href={current.webApp} target="_blank" rel="noopener noreferrer">Web app</a>
+  {/if}
   {#if current.kind === 'dashboard'}
     <p class="settings-note">Use the separate webapp to change settings.</p>
   {/if}
 </Layout>
 
 <style>
+  .web-app {
+    display: inline-block;
+    margin: 1rem 0.5rem 0 0;
+    padding: 0.55rem 1.1rem;
+    border: 2px solid rgb(255 255 255 / 0.7);
+    border-radius: 10px;
+    color: var(--text);
+    font-weight: 800;
+    font-size: 0.875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    text-decoration: none;
+  }
+  .web-app:hover {
+    background: rgb(255 255 255 / 0.12);
+  }
   .settings-note {
     color: var(--muted);
   }
