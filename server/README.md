@@ -50,7 +50,7 @@ The TypeScript entry point also works with `pnpm --dir server cli --help`. Quote
 
 ## Run with Docker Compose
 
-The server image includes the `zluggish` admin command and all its dependencies. No Node or pnpm installation is needed on the host. Run it through the [server's Compose service](../README.md#server-install) from the directory containing `docker-compose.yml`. It mounts the same storage and uses the same container configuration as the server:
+The server image includes the `zluggish` admin command and all its dependencies. No Node or pnpm installation is needed on the host. Run it through the [server's Compose service](https://docs.zluggish.com/install/server/) from the directory containing `docker-compose.yml`. It mounts the same storage and uses the same container configuration as the server:
 
 ```sh
 docker compose run --rm --no-deps zluggish zluggish --help
@@ -115,7 +115,7 @@ node server/dist/src/cli/bin.js --storage-dir ./storage config migrate --output 
 
 Run `config init` for a fresh setup or `config migrate` for legacy storage. Migration requires a new destination named `zluggish.config.ts`; do not create it with `config init` first. `--solo-player` selects the local legacy profile folder ID when solo ownership needs an explicit choice. It may differ from an imported official Zwift ID. Config migration does not migrate accounts; use `accounts migrate` separately.
 
-Back up the entire storage directory before migration. If interrupted, rerun the same command with the same destination; preserve `.config-migration.json` and do not edit the partially published config. JSONC-only installations must recreate operator settings manually. See the [migration and rollback runbook](../README.md#migration).
+Back up the entire storage directory before migration. If interrupted, rerun the same command with the same destination; preserve `.config-migration.json` and do not edit the partially published config. JSONC-only installations must recreate operator settings manually. See the [migration and rollback runbook](https://docs.zluggish.com/maintenance/migrating/).
 
 ## Rider settings commands
 
@@ -168,7 +168,7 @@ node server/dist/src/cli/bin.js --storage-dir ./storage accounts migrate
 node server/dist/src/cli/bin.js --storage-dir ./storage accounts migrate --solo-player 42
 ```
 
-Back up storage first. Migration creates a database backup with an `.accounts-<timestamp>.bak` suffix and retains local profile IDs and supported password hashes. Use `--solo-player ID` when solo ownership is ambiguous. See the [migration runbook](../README.md#migration) for cutover and rollback.
+Back up storage first. Migration creates a database backup with an `.accounts-<timestamp>.bak` suffix and retains local profile IDs and supported password hashes. Use `--solo-player ID` when solo ownership is ambiguous. See the [migration runbook](https://docs.zluggish.com/maintenance/migrating/) for cutover and rollback.
 
 ### Recover a local account
 

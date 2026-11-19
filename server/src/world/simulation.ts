@@ -166,6 +166,7 @@ export class Simulation {
       try {
         const profile = fromBinary(PlayerProfileSchema, profileBytes);
         const states = fromBinary(GhostSchema, routeBytes).states;
+        profile.ftp = 400;
 
         if (profile.id > 0n && states.length > 0)
           replays.set(profile.id, {
@@ -187,6 +188,7 @@ export class Simulation {
 
       for (const folder of folders) {
         if (!folder.isDirectory() || !/^\d+$/.test(folder.name)) continue;
+        const owner = this.ownerProfile(Number(folder.name));
 
         for (const file of await this.files.filesUnder(resolve(storage, folder.name, 'ghosts'), '.bin')) {
           const bytes = await this.files.readAsync(file);
@@ -201,6 +203,8 @@ export class Simulation {
             for (let copy = 0; copy < this.runtime.config.bots.multiplier; copy++) {
               const id = BigInt(1_000_000 + index + copy * 10_000);
               const profile = this.pool.profile(id);
+              profile.ftp = owner?.ftp || 300;
+              profile.weightInGrams = owner?.weightInGrams || 80_000;
               replays.set(id, {
                 profile,
                 states,
@@ -293,6 +297,15 @@ export class Simulation {
     }
   }
 
+  /** The rider's stored profile, or undefined when the folder has no account. */
+  private ownerProfile(id: number) {
+    try {
+      return this.runtime.profiles.get(id);
+    } catch {
+      return;
+    }
+  }
+
   loadBlob(id: bigint) {
     const previous = this.blobs.get(id);
 
@@ -322,7 +335,15 @@ export class Simulation {
 
     if (index === undefined) throw new Error('At most four simultaneous solo blobs are supported');
 
-    const blob = new Blob(id, index, config, this.pool, this.runtime.assets, this.now);
+    const blob = new Blob(
+      id,
+      index,
+      this.ownerProfile(Number(id))?.ftp || 300,
+      config,
+      this.pool,
+      this.runtime.assets,
+      this.now,
+    );
 
     this.blobs.set(id, blob);
     this.directors.set(id, new GestureDirector(blob.rng, this.now(), config.gestureInterval));

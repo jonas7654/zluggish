@@ -113,6 +113,8 @@ export class Peloton {
       const strength = clamp(spec.strength ?? 1 + this.rng.gaussian(0.07), 0.5, 1.5);
 
       const resting = this.rng.between(52, 66);
+      const ftp = ((wkg / 0.8) * strength * profile.weightInGrams) / 1000;
+      profile.ftp = Math.trunc(ftp);
       this.riders.push({
         profile,
         slot: i,
@@ -123,7 +125,7 @@ export class Peloton {
         resting,
         maximum: spec.maxHeartRate ?? this.rng.between(176, 196),
         heart: resting,
-        ftp: ((wkg / 0.8) * strength * profile.weightInGrams) / 1000,
+        ftp,
         gapNoise: 0,
         lateralNoise: 0,
         gapJitter: this.rng.gaussian(0.3),

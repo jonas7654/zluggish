@@ -26,7 +26,8 @@ on:
 permissions:
   contents: read
 
-# A new push to a pull request replaces its unfinished build. Deploys on main are serialized below.
+# A new push to a pull request replaces its unfinished build.
+# Cloudflare Workers Builds deploys the site; this workflow only checks that it builds.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -51,41 +52,3 @@ jobs:
       - run: pnpm package
       # Validates the Build Output without credentials, so it also runs for fork pull requests.
       - run: pnpm exec cf deploy --prebuilt --dry-run
-      - if: github.event_name == 'push'
-        uses: actions/upload-artifact@v7
-        with:
-          name: docs-build-output
-          path: sites/docs.zluggish.com/.cloudflare/output
-          include-hidden-files: true
-          if-no-files-found: error
-          retention-days: 7
-
-  deploy:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: build
-    runs-on: ubuntu-26.04
-    # Two uploads never run at the same time; a queued deploy waits instead of being cancelled.
-    concurrency:
-      group: docs-deploy
-      cancel-in-progress: false
-    defaults:
-      run:
-        working-directory: sites/docs.zluggish.com
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: '26'
-      - uses: pnpm/action-setup@v6
-        with:
-          version: '12.18.0'
-      - run: pnpm install --frozen-lockfile --filter @zluggish/docs...
-      # Deploy the Build Output from the build job, so the deployed files come from the same commit.
-      - uses: actions/download-artifact@v8
-        with:
-          name: docs-build-output
-          path: sites/docs.zluggish.com/.cloudflare/output
-      - run: pnpm exec cf deploy --prebuilt
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}

@@ -4,6 +4,8 @@ import { EventsService } from '#src/services/events.service';
 import { responseStatus } from '#tests/support/html';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { runtimeFixture } from '#tests/support/runtime';
 import { createWebApp } from '#src/http/web-app';
 
@@ -525,4 +527,17 @@ await test('administrator profile edits affect the selected user and require adm
   assert.throws(() => service.removeAvatar(regular.id, owner.player_id));
   service.removeAvatar(admin.id, rider.player_id);
   assert.equal(service.ownProfile(admin.id, rider.player_id).avatar, null);
+});
+
+await test('setup reports the Zwift version from the bundled update manifest', async (t) => {
+  const f = runtimeFixture(t);
+  const manifest = readFileSync(resolve(f.assets, 'cdn/gameassets/Zwift_Updates_Root/Zwift_ver_cur.xml'), 'utf8');
+  const build = /\bversion="1\.0\.(\d+)"/.exec(manifest)?.[1];
+  assert.ok(build);
+
+  const state = await createWebApp(f).request('http://local:8080/api/setup');
+  const body = await state.json();
+
+  assert.equal(state.status, 200);
+  assert.match(body.zwiftVersion, new RegExp(String.raw`^\d+\.\d+\.\d+ \(${build}\)$`));
 });
