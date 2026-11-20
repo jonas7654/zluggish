@@ -3,6 +3,7 @@ import {
   backupDirectory,
   backupManifest,
   backupPath,
+  excludedBackupPath,
   excludedStorageEntry,
   legacyDatabases,
   nightlyBackupTimestamp,
@@ -129,6 +130,10 @@ async function copyTree(
       continue;
     }
     const from = resolve(source, entry.name);
+
+    if (excludedBackupPath(relative(root, from))) {
+      continue;
+    }
     const to = resolve(target, entry.name);
 
     if (entry.isDirectory()) {

@@ -11,6 +11,8 @@
   import TextField from './TextField.svelte';
   import ServerLogs from './ServerLogs.svelte';
   import Install from './Install.svelte';
+  import Companion from './Companion.svelte';
+  import CompanionManage from './CompanionManage.svelte';
   import ServerCertificate from './ServerCertificate.svelte';
   import { tlsStatus } from './tls';
   import { decode, ignored, responseFields } from '../lib/api';
@@ -132,6 +134,7 @@
 
   const manage = $derived(path === '/manage' || path.startsWith('/manage/'));
   const installing = $derived(path === '/install' || path.startsWith('/install/'));
+  const companion = $derived(path === '/companion' || path.startsWith('/companion/'));
 
   /** The link beside the title back to the page above this one. */
   const back = $derived(
@@ -185,37 +188,43 @@
         : 'First administrator'
       : path === '/manage/server'
         ? 'Server'
-        : path === '/manage/users/new'
-          ? 'Create user'
-          : selected
-            ? label(selected)
-            : manage
-              ? 'Users'
-              : path === '/activities' || path.startsWith('/activities/')
-                ? 'Activities'
-                : path === '/import/local'
-                  ? 'Import local files'
-                  : path === '/import'
-                    ? 'Import'
-                    : path === '/export'
-                      ? 'Export'
-                      : path === '/zwift'
-                        ? 'Zwift connection'
-                        : path === '/integrations'
-                          ? 'Integrations'
-                          : path === '/settings'
-                            ? 'Settings'
-                            : path === '/climbs'
-                              ? 'Climbs'
-                              : path === '/install/windows'
-                                ? 'Windows setup'
-                                : path === '/install/macos'
-                                  ? 'macOS setup'
-                                  : path === '/install/linux'
-                                    ? 'Linux setup'
-                                    : installing
-                                      ? 'Install'
-                                      : 'Profile',
+        : path === '/manage/companion'
+          ? 'Companion app'
+          : path === '/manage/users/new'
+            ? 'Create user'
+            : selected
+              ? label(selected)
+              : manage
+                ? 'Users'
+                : path === '/activities' || path.startsWith('/activities/')
+                  ? 'Activities'
+                  : path === '/import/local'
+                    ? 'Import local files'
+                    : path === '/import'
+                      ? 'Import'
+                      : path === '/export'
+                        ? 'Export'
+                        : path === '/zwift'
+                          ? 'Zwift connection'
+                          : path === '/integrations'
+                            ? 'Integrations'
+                            : path === '/settings'
+                              ? 'Settings'
+                              : path === '/climbs'
+                                ? 'Climbs'
+                                : path === '/install/windows'
+                                  ? 'Windows setup'
+                                  : path === '/install/macos'
+                                    ? 'macOS setup'
+                                    : path === '/install/linux'
+                                      ? 'Linux setup'
+                                      : installing
+                                        ? 'Install'
+                                        : path === '/companion/android'
+                                          ? 'Android setup'
+                                          : companion
+                                            ? 'Companion'
+                                            : 'Profile',
   );
 
   const initials = (r: User) => `${r.first_name.charAt(0)}${r.last_name.charAt(0)}`.toUpperCase();
@@ -895,10 +904,12 @@
       {@render link('/integrations', 'Integrations', path === '/integrations')}
       {@render link('/settings', 'Settings', path === '/settings')}
       {@render link('/install', 'Install', installing)}
+      {@render link('/companion', 'Companion', companion)}
       {#if administrator}
         <p class="group">Manage</p>
-        {@render link('/manage', 'Users', manage && path !== '/manage/server')}
+        {@render link('/manage', 'Users', manage && path !== '/manage/server' && path !== '/manage/companion')}
         {@render link('/manage/server', 'Server', path === '/manage/server')}
+        {@render link('/manage/companion', 'Companion', path === '/manage/companion')}
       {/if}
     </nav>
     <button class="sign-out" disabled={busy} onclick={() => run(signOut)}>Sign out</button>
@@ -1082,7 +1093,9 @@
       {/if}
     {:else if manage && administrator}
       <div>
-        {#if path === '/manage/server'}
+        {#if path === '/manage/companion'}
+          <CompanionManage {api} {navigate} csrf={() => csrf} />
+        {:else if path === '/manage/server'}
           <ServerCertificate
             {api}
             {busy}
@@ -1585,6 +1598,8 @@
         <Climbs {api} />
       {:else if installing}
         <Install {api} {path} {navigate} />
+      {:else if companion}
+        <Companion {api} {path} {navigate} {administrator} />
       {:else if path === '/settings'}
         {#if settings}
           <section class="panel narrow ghosts" aria-labelledby="ghosts-title">
