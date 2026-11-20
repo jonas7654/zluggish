@@ -19,6 +19,7 @@ import { MatrixService } from '#src/services/matrix.service';
 import { MetricsService } from '#src/services/metrics.service';
 import { ImportsService } from '#src/services/profile-import.service';
 import { BackupService } from '#src/services/backup.service';
+import { TlsService } from '#src/services/tls.service';
 import { RetentionService } from '#src/services/retention.service';
 import { RideCompletionService } from '#src/services/ride-completion.service';
 import { RideRecoveryService } from '#src/services/ride-recovery.service';
@@ -39,9 +40,9 @@ const releasing = (dispose: () => void | Promise<void>): Effect.Effect<void, nev
 /** A chat bridge that starts, or a warning when its configuration fails: local riding stays available. */
 const optionalBridge = (world: World, name: string, start: Effect.Effect<Bridge>) =>
   start.pipe(
-    Effect.map((bridge): Bridge[] => [bridge]),
+    Effect.map((bridge): Array<Bridge> => [bridge]),
     Effect.catchCause(() =>
-      Effect.sync((): Bridge[] => {
+      Effect.sync((): Array<Bridge> => {
         world.lifecycle.log.warn(
           `${name.toLowerCase()}.configuration_failed`,
           `${name} configuration failed; local riding remains available`,
@@ -123,6 +124,7 @@ const acquireRuntime = Effect.fn('runtime.acquire')(function* (
     Effect.forkScoped,
   );
 
+  yield* effects.runSync(TlsService).start();
   yield* durability.start();
   yield* recovery.start();
   yield* effects.runSync(UploadsService).start();
@@ -142,10 +144,13 @@ const acquireRuntime = Effect.fn('runtime.acquire')(function* (
 
   runtime.bridges = bridges;
 
-  if (bridges.length > 0)
+  if (bridges.length > 0) {
     world.presence = (id, joining) => {
-      for (const bridge of bridges) bridge.online(id, joining);
+      for (const bridge of bridges) {
+        bridge.online(id, joining);
+      }
     };
+  }
 
   return runtime;
 });

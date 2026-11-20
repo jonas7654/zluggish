@@ -27,6 +27,7 @@ All users have these pages in the menu:
 | Export       | Download your user data.                                                                        |
 | Integrations | Connect Strava, Garmin, Intervals.icu and TrainingPeaks. Follow the status of activity uploads. |
 | Settings     | Turn ghosts on or off. Calculate the power curves again.                                        |
+| Install      | Download the setup script that makes a Windows, macOS or Linux computer trust this server.      |
 
 ![The Profile page with avatar, name, email and birthday](../../media/screenshots/webapp-profile.png)
 
@@ -37,7 +38,7 @@ All users have these pages in the menu:
 Administrators also have **Users** and **Server** under **Manage**:
 
 - **Users**: make, enable, disable and delete users. Give or remove the administrator role. Set passwords, end sessions and edit the settings of a user.
-- **Server**: reload or control bots, and edit stored world settings, such as blob and peloton overrides. Edit and delete events. Show the effective configuration.
+- **Server**: see and rotate the [server certificate](../install/certificate.md). Make a backup. Reload or control bots, and edit stored world settings, such as blob and peloton overrides. Edit and delete events. Show the effective configuration.
 
 Changes to `zluggish.config.ts` need a server restart.
 
@@ -50,7 +51,7 @@ Changes to `zluggish.config.ts` need a server restart.
 
 The web app then accepts requests only from that address. With an `https` address, the sign-in cookies get the `Secure` flag.
 
-When the web app is enabled and `network.web.publicUrl` is set, the launcher shows a **Web app** button on its sign-in and dashboard pages.
+When the web app is enabled and `network.web.publicUrl` is set, the launcher shows a **Manage your account** link next to the logo on its sign-in and dashboard pages. It opens the web app in the browser.
 
 ## Turn off the web app
 

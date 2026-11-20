@@ -53,10 +53,12 @@ await test('the launcher links to the web app only when enabled with a public UR
     for (const path of ['/login/', `/user/${f.rider.username}/`]) {
       const response = await browser.request(path);
       const html = await response.text();
-      const link = html.includes('Web app');
+      const link = html.includes('class="web-app');
       assert.equal(link, expected !== null, path);
 
-      if (expected) assert.match(html, /<a class="[^"]*web-app[^"]*" href="https:\/\/zwift\.example\.org:8443"/);
+      if (expected) {
+        assert.match(html, /<a class="web-app[^"]*" href="https:\/\/zwift\.example\.org:8443"/);
+      }
 
       const props = Schema.decodeUnknownSync(Schema.Struct({ webApp: Schema.NullOr(Schema.String) }))(
         JSON.parse(/id="launcher-props">([^<]+)<\/script>/.exec(html)![1]!),

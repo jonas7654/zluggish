@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { onMount, type Snippet } from 'svelte';
+  import { onMount } from 'svelte';
+  import type { Snippet } from 'svelte';
   import ConnectionBanner from './ConnectionBanner.svelte';
 
   let {
@@ -10,6 +11,7 @@
     version,
     zwiftVersion,
     menu,
+    aside,
     onhome,
     onback,
     children,
@@ -23,6 +25,8 @@
     zwiftVersion?: string | undefined;
     /** Contents of the side menu behind the bar's menu button. The game app has none. */
     menu?: Snippet | undefined;
+    /** Sits beside the logo in the bar, such as the launcher's link out to the web app. */
+    aside?: Snippet | undefined;
     onhome?: (() => void) | undefined;
     /** Follows the back link inside the page instead of loading it again. */
     onback?: (() => void) | undefined;
@@ -85,6 +89,7 @@
     <span class="logo" aria-hidden="true"></span>
     <span class="wordmark">zluggish</span>
   </a>
+  {@render aside?.()}
   {#if !menu && version}<button
       class="version"
       aria-label={`About Zluggish v${version}`}
