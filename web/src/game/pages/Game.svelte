@@ -118,9 +118,6 @@
       </Form>
     </div>
   {/each}
-  {#if current.kind === 'dashboard'}
-    <p class="settings-note">Use the separate webapp to change settings.</p>
-  {/if}
 </Layout>
 
 <style>
@@ -179,8 +176,5 @@
   .security strong {
     color: var(--text);
     font-weight: 800;
-  }
-  .settings-note {
-    color: var(--muted);
   }
 </style>
